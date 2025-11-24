@@ -448,7 +448,7 @@ class GenerationHandler:
             # 返回结果
             if stream:
                 yield self._create_stream_chunk(
-                    f"<img src='{local_url}' style='max-width:100%' />",
+                    f"![Generated Image]({local_url})",
                     finish_reason="stop"
                 )
             else:
