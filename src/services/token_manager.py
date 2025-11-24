@@ -167,6 +167,7 @@ class TokenManager:
         token_id: int,
         st: Optional[str] = None,
         at: Optional[str] = None,
+        at_expires: Optional[datetime] = None,
         project_id: Optional[str] = None,
         project_name: Optional[str] = None,
         remark: Optional[str] = None,
@@ -182,6 +183,8 @@ class TokenManager:
             update_fields["st"] = st
         if at is not None:
             update_fields["at"] = at
+        if at_expires is not None:
+            update_fields["at_expires"] = at_expires
         if project_id is not None:
             update_fields["current_project_id"] = project_id
         if project_name is not None:
