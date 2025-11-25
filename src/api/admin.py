@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
+import secrets
 from ..core.auth import AuthManager
 from ..core.database import Database
 from ..services.token_manager import TokenManager
@@ -14,6 +15,9 @@ router = APIRouter()
 token_manager: TokenManager = None
 proxy_manager: ProxyManager = None
 db: Database = None
+
+# Store active admin session tokens (in production, use Redis or database)
+active_admin_tokens = set()
 
 
 def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database):
@@ -76,6 +80,10 @@ class UpdateDebugConfigRequest(BaseModel):
     enabled: bool
 
 
+class UpdateAdminConfigRequest(BaseModel):
+    error_ban_threshold: int
+
+
 class ST2ATRequest(BaseModel):
     """ST转AT请求"""
     st: str
@@ -84,16 +92,15 @@ class ST2ATRequest(BaseModel):
 # ========== Auth Middleware ==========
 
 async def verify_admin_token(authorization: str = Header(None)):
-    """Verify admin token"""
+    """Verify admin session token (NOT API key)"""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing authorization")
 
     token = authorization[7:]
-    admin_config = await db.get_admin_config()
 
-    # Simple token verification: check if matches api_key
-    if token != admin_config.api_key:
-        raise HTTPException(status_code=401, detail="Invalid admin token")
+    # Check if token is in active session tokens
+    if token not in active_admin_tokens:
+        raise HTTPException(status_code=401, detail="Invalid or expired admin token")
 
     return token
 
@@ -102,17 +109,30 @@ async def verify_admin_token(authorization: str = Header(None)):
 
 @router.post("/api/admin/login")
 async def admin_login(request: LoginRequest):
-    """Admin login"""
+    """Admin login - returns session token (NOT API key)"""
     admin_config = await db.get_admin_config()
 
     if not AuthManager.verify_admin(request.username, request.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    # Generate independent session token
+    session_token = f"admin-{secrets.token_urlsafe(32)}"
+
+    # Store in active tokens
+    active_admin_tokens.add(session_token)
+
     return {
         "success": True,
-        "token": admin_config.api_key,
+        "token": session_token,  # Session token (NOT API key)
         "username": admin_config.username
     }
+
+
+@router.post("/api/admin/logout")
+async def admin_logout(token: str = Depends(verify_admin_token)):
+    """Admin logout - invalidate session token"""
+    active_admin_tokens.discard(token)
+    return {"success": True, "message": "退出登录成功"}
 
 
 @router.post("/api/admin/change-password")
@@ -127,10 +147,16 @@ async def change_password(
     if not AuthManager.verify_admin(admin_config.username, request.old_password):
         raise HTTPException(status_code=400, detail="旧密码错误")
 
-    # Update password
+    # Update password in database
     await db.update_admin_config(password=request.new_password)
 
-    return {"success": True, "message": "密码修改成功"}
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
+
+    # 🔑 Invalidate all admin session tokens (force re-login for security)
+    active_admin_tokens.clear()
+
+    return {"success": True, "message": "密码修改成功,请重新登录"}
 
 
 # ========== Token Management ==========
@@ -412,6 +438,10 @@ async def update_generation_config(
 ):
     """Update generation timeout configuration"""
     await db.update_generation_config(request.image_timeout, request.video_timeout)
+
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
+
     return {"success": True, "message": "生成配置更新成功"}
 
 
@@ -442,6 +472,12 @@ async def get_system_info(token: str = Depends(verify_admin_token)):
 async def login(request: LoginRequest):
     """Login endpoint (alias for /api/admin/login)"""
     return await admin_login(request)
+
+
+@router.post("/api/logout")
+async def logout(token: str = Depends(verify_admin_token)):
+    """Logout endpoint (alias for /api/admin/logout)"""
+    return await admin_logout(token)
 
 
 @router.get("/api/stats")
@@ -510,9 +546,21 @@ async def get_admin_config(token: str = Depends(verify_admin_token)):
     return {
         "admin_username": admin_config.username,
         "api_key": admin_config.api_key,
-        "error_ban_threshold": 3,  # Default value
+        "error_ban_threshold": admin_config.error_ban_threshold,
         "debug_enabled": config.debug_enabled  # Return actual debug status
     }
+
+
+@router.post("/api/admin/config")
+async def update_admin_config(
+    request: UpdateAdminConfigRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """Update admin configuration (error_ban_threshold)"""
+    # Update error_ban_threshold in database
+    await db.update_admin_config(error_ban_threshold=request.error_ban_threshold)
+
+    return {"success": True, "message": "配置更新成功"}
 
 
 @router.post("/api/admin/password")
@@ -529,8 +577,13 @@ async def update_api_key(
     request: UpdateAPIKeyRequest,
     token: str = Depends(verify_admin_token)
 ):
-    """Update API key"""
+    """Update API key (for external API calls, NOT for admin login)"""
+    # Update API key in database
     await db.update_admin_config(api_key=request.new_api_key)
+
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
+
     return {"success": True, "message": "API Key更新成功"}
 
 
@@ -565,7 +618,12 @@ async def update_generation_timeout(
     token: str = Depends(verify_admin_token)
 ):
     """Update generation timeout configuration"""
-    return await update_generation_config(request, token)
+    await db.update_generation_config(request.image_timeout, request.video_timeout)
+
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
+
+    return {"success": True, "message": "生成配置更新成功"}
 
 
 # ========== AT Auto Refresh Config ==========
@@ -622,9 +680,8 @@ async def update_cache_enabled(
     enabled = request.get("enabled", False)
     await db.update_cache_config(enabled=enabled)
 
-    # Update runtime config
-    from ..core.config import config
-    config.set_cache_enabled(enabled)
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
 
     return {"success": True, "message": f"缓存已{'启用' if enabled else '禁用'}"}
 
@@ -641,14 +698,8 @@ async def update_cache_config_full(
 
     await db.update_cache_config(enabled=enabled, timeout=timeout, base_url=base_url)
 
-    # Update runtime config
-    from ..core.config import config
-    if enabled is not None:
-        config.set_cache_enabled(enabled)
-    if timeout is not None:
-        config.set_cache_timeout(timeout)
-    if base_url is not None:
-        config.set_cache_base_url(base_url)
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
 
     return {"success": True, "message": "缓存配置更新成功"}
 
@@ -662,8 +713,7 @@ async def update_cache_base_url(
     base_url = request.get("base_url", "")
     await db.update_cache_config(base_url=base_url)
 
-    # Update runtime config
-    from ..core.config import config
-    config.set_cache_base_url(base_url)
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
 
     return {"success": True, "message": "缓存Base URL更新成功"}

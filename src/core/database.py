@@ -55,6 +55,7 @@ class Database:
             admin_username = "admin"
             admin_password = "admin"
             api_key = "REDACTED_SAMPLE_KEY"
+            error_ban_threshold = 3
 
             if config_dict:
                 global_config = config_dict.get("global", {})
@@ -62,10 +63,13 @@ class Database:
                 admin_password = global_config.get("admin_password", "admin")
                 api_key = global_config.get("api_key", "REDACTED_SAMPLE_KEY")
 
+                admin_config = config_dict.get("admin", {})
+                error_ban_threshold = admin_config.get("error_ban_threshold", 3)
+
             await db.execute("""
-                INSERT INTO admin_config (id, username, password, api_key)
-                VALUES (1, ?, ?, ?)
-            """, (admin_username, admin_password, api_key))
+                INSERT INTO admin_config (id, username, password, api_key, error_ban_threshold)
+                VALUES (1, ?, ?, ?, ?)
+            """, (admin_username, admin_password, api_key, error_ban_threshold))
 
         # Ensure proxy_config has a row
         cursor = await db.execute("SELECT COUNT(*) FROM proxy_config")
@@ -177,6 +181,15 @@ class Database:
                             print(f"  ✓ Added column '{col_name}' to tokens table")
                         except Exception as e:
                             print(f"  ✗ Failed to add column '{col_name}': {e}")
+
+            # Check and add missing columns to admin_config table
+            if await self._table_exists(db, "admin_config"):
+                if not await self._column_exists(db, "admin_config", "error_ban_threshold"):
+                    try:
+                        await db.execute("ALTER TABLE admin_config ADD COLUMN error_ban_threshold INTEGER DEFAULT 3")
+                        print("  ✓ Added column 'error_ban_threshold' to admin_config table")
+                    except Exception as e:
+                        print(f"  ✗ Failed to add column 'error_ban_threshold': {e}")
 
             # Check and add missing columns to token_stats table
             if await self._table_exists(db, "token_stats"):
@@ -305,6 +318,7 @@ class Database:
                     username TEXT DEFAULT 'admin',
                     password TEXT DEFAULT 'admin',
                     api_key TEXT DEFAULT 'REDACTED_SAMPLE_KEY',
+                    error_ban_threshold INTEGER DEFAULT 3,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -828,6 +842,39 @@ class Database:
                 await self._ensure_config_rows(db, config_dict=None)
 
             await db.commit()
+
+    async def reload_config_to_memory(self):
+        """
+        Reload all configuration from database to in-memory Config instance.
+        This should be called after any configuration update to ensure hot-reload.
+
+        Includes:
+        - Admin config (username, password, api_key)
+        - Cache config (enabled, timeout, base_url)
+        - Generation config (image_timeout, video_timeout)
+        - Proxy config will be handled by ProxyManager
+        """
+        from .config import config
+
+        # Reload admin config
+        admin_config = await self.get_admin_config()
+        if admin_config:
+            config.set_admin_username_from_db(admin_config.username)
+            config.set_admin_password_from_db(admin_config.password)
+            config.api_key = admin_config.api_key
+
+        # Reload cache config
+        cache_config = await self.get_cache_config()
+        if cache_config:
+            config.set_cache_enabled(cache_config.cache_enabled)
+            config.set_cache_timeout(cache_config.cache_timeout)
+            config.set_cache_base_url(cache_config.cache_base_url or "")
+
+        # Reload generation config
+        generation_config = await self.get_generation_config()
+        if generation_config:
+            config.set_image_timeout(generation_config.image_timeout)
+            config.set_video_timeout(generation_config.video_timeout)
 
     # Cache config operations
     async def get_cache_config(self) -> CacheConfig:

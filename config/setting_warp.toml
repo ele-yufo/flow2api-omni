@@ -7,7 +7,6 @@ admin_password = "admin"
 labs_base_url = "https://labs.google/fx/api"
 api_base_url = "https://aisandbox-pa.googleapis.com/v1"
 timeout = 120
-max_retries = 3
 poll_interval = 3.0
 max_poll_attempts = 200
 
@@ -28,6 +27,9 @@ proxy_url = "socks5://warp:1080"
 [generation]
 image_timeout = 300
 video_timeout = 1500
+
+[admin]
+error_ban_threshold = 3
 
 [cache]
 enabled = false

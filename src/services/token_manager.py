@@ -36,8 +36,18 @@ class TokenManager:
         await self.db.delete_token(token_id)
 
     async def enable_token(self, token_id: int):
-        """Enable a token"""
+        """Enable a token and reset error count"""
         await self.db.update_token(token_id, is_active=True)
+        # Reset error count when enabling
+        async with self.db._lock if hasattr(self.db, '_lock') else asyncio.Lock():
+            import aiosqlite
+            async with aiosqlite.connect(self.db.db_path) as db:
+                await db.execute("""
+                    UPDATE token_stats
+                    SET error_count = 0, today_error_count = 0
+                    WHERE token_id = ?
+                """, (token_id,))
+                await db.commit()
 
     async def disable_token(self, token_id: int):
         """Disable a token"""
@@ -352,8 +362,19 @@ class TokenManager:
             await self.db.increment_token_stats(token_id, "image")
 
     async def record_error(self, token_id: int):
-        """Record token error"""
+        """Record token error and auto-disable if threshold reached"""
         await self.db.increment_token_stats(token_id, "error")
+
+        # Check if should auto-disable token
+        stats = await self.db.get_token_stats(token_id)
+        admin_config = await self.db.get_admin_config()
+
+        if stats and stats.error_count >= admin_config.error_ban_threshold:
+            debug_logger.log_warning(
+                f"[TOKEN_BAN] Token {token_id} error count ({stats.error_count}) "
+                f"reached threshold ({admin_config.error_ban_threshold}), auto-disabling"
+            )
+            await self.disable_token(token_id)
 
     # ========== 余额刷新 ==========
 
