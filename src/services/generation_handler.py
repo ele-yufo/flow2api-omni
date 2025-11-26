@@ -440,10 +440,17 @@ class GenerationHandler:
                         yield self._create_stream_chunk("缓存图片中...\n")
                     cached_filename = await self.file_cache.download_and_cache(image_url, "image")
                     local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                    if stream:
+                        yield self._create_stream_chunk("✅ 图片缓存成功,准备返回缓存地址...\n")
                 except Exception as e:
                     debug_logger.log_error(f"Failed to cache image: {str(e)}")
                     # 缓存失败不影响结果返回,使用原始URL
                     local_url = image_url
+                    if stream:
+                        yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}\n正在返回源链接...\n")
+            else:
+                if stream:
+                    yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
 
             # 返回结果
             if stream:
@@ -689,13 +696,20 @@ class GenerationHandler:
                     if config.cache_enabled:
                         try:
                             if stream:
-                                yield self._create_stream_chunk("缓存视频中...\n")
+                                yield self._create_stream_chunk("正在缓存视频文件...\n")
                             cached_filename = await self.file_cache.download_and_cache(video_url, "video")
                             local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                            if stream:
+                                yield self._create_stream_chunk("✅ 视频缓存成功,准备返回缓存地址...\n")
                         except Exception as e:
                             debug_logger.log_error(f"Failed to cache video: {str(e)}")
                             # 缓存失败不影响结果返回,使用原始URL
                             local_url = video_url
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}\n正在返回源链接...\n")
+                    else:
+                        if stream:
+                            yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
 
                     # 更新数据库
                     task_id = operation["operation"]["name"]

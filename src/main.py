@@ -62,6 +62,10 @@ async def lifespan(app: FastAPI):
     config.set_image_timeout(generation_config.image_timeout)
     config.set_video_timeout(generation_config.video_timeout)
 
+    # Load debug configuration from database
+    debug_config = await db.get_debug_config()
+    config.set_debug_enabled(debug_config.enabled)
+
     # Initialize concurrency manager
     tokens = await token_manager.get_all_tokens()
     await concurrency_manager.initialize(tokens)

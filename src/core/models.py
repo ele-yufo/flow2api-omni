@@ -64,6 +64,8 @@ class TokenStats(BaseModel):
     today_video_count: int = 0
     today_error_count: int = 0
     today_date: Optional[str] = None
+    # 连续错误计数 (用于自动禁用判断)
+    consecutive_error_count: int = 0
 
 
 class Task(BaseModel):
@@ -123,6 +125,17 @@ class CacheConfig(BaseModel):
     cache_enabled: bool = False
     cache_timeout: int = 7200  # seconds (2 hours)
     cache_base_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class DebugConfig(BaseModel):
+    """Debug configuration"""
+    id: int = 1
+    enabled: bool = False
+    log_requests: bool = True
+    log_responses: bool = True
+    mask_token: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

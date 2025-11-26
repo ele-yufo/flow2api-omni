@@ -594,11 +594,11 @@ async def update_debug_config(
 ):
     """Update debug configuration"""
     try:
-        # Import config instance
-        from ..core.config import config
+        # Update debug config in database
+        await db.update_debug_config(enabled=request.enabled)
 
-        # Update in-memory config
-        config.set_debug_enabled(request.enabled)
+        # 🔥 Hot reload: sync database config to memory
+        await db.reload_config_to_memory()
 
         status = "enabled" if request.enabled else "disabled"
         return {"success": True, "message": f"Debug mode {status}", "enabled": request.enabled}

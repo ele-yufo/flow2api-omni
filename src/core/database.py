@@ -127,6 +127,27 @@ class Database:
                 VALUES (1, ?, ?, ?)
             """, (cache_enabled, cache_timeout, cache_base_url))
 
+        # Ensure debug_config has a row
+        cursor = await db.execute("SELECT COUNT(*) FROM debug_config")
+        count = await cursor.fetchone()
+        if count[0] == 0:
+            debug_enabled = False
+            log_requests = True
+            log_responses = True
+            mask_token = True
+
+            if config_dict:
+                debug_config = config_dict.get("debug", {})
+                debug_enabled = debug_config.get("enabled", False)
+                log_requests = debug_config.get("log_requests", True)
+                log_responses = debug_config.get("log_responses", True)
+                mask_token = debug_config.get("mask_token", True)
+
+            await db.execute("""
+                INSERT INTO debug_config (id, enabled, log_requests, log_responses, mask_token)
+                VALUES (1, ?, ?, ?, ?)
+            """, (debug_enabled, log_requests, log_responses, mask_token))
+
     async def check_and_migrate_db(self, config_dict: dict = None):
         """Check database integrity and perform migrations if needed
 
@@ -198,6 +219,7 @@ class Database:
                     ("today_video_count", "INTEGER DEFAULT 0"),
                     ("today_error_count", "INTEGER DEFAULT 0"),
                     ("today_date", "DATE"),
+                    ("consecutive_error_count", "INTEGER DEFAULT 0"),  # 🆕 连续错误计数
                 ]
 
                 for col_name, col_type in stats_columns_to_add:
@@ -273,6 +295,7 @@ class Database:
                     today_video_count INTEGER DEFAULT 0,
                     today_error_count INTEGER DEFAULT 0,
                     today_date DATE,
+                    consecutive_error_count INTEGER DEFAULT 0,
                     FOREIGN KEY (token_id) REFERENCES tokens(id)
                 )
             """)
@@ -350,6 +373,19 @@ class Database:
                     cache_enabled BOOLEAN DEFAULT 0,
                     cache_timeout INTEGER DEFAULT 7200,
                     cache_base_url TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Debug config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS debug_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    enabled BOOLEAN DEFAULT 0,
+                    log_requests BOOLEAN DEFAULT 1,
+                    log_responses BOOLEAN DEFAULT 1,
+                    mask_token BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -669,7 +705,13 @@ class Database:
             await db.commit()
 
     async def increment_error_count(self, token_id: int):
-        """Increment error count with daily reset"""
+        """Increment error count with daily reset
+
+        Updates two counters:
+        - error_count: Historical total errors (never reset)
+        - consecutive_error_count: Consecutive errors (reset on success/enable)
+        - today_error_count: Today's errors (reset on date change)
+        """
         from datetime import date
         async with aiosqlite.connect(self.db_path) as db:
             today = str(date.today())
@@ -682,21 +724,38 @@ class Database:
                 await db.execute("""
                     UPDATE token_stats
                     SET error_count = error_count + 1,
+                        consecutive_error_count = consecutive_error_count + 1,
                         today_error_count = 1,
                         today_date = ?,
                         last_error_at = CURRENT_TIMESTAMP
                     WHERE token_id = ?
                 """, (today, token_id))
             else:
-                # Same day, just increment both
+                # Same day, just increment all counters
                 await db.execute("""
                     UPDATE token_stats
                     SET error_count = error_count + 1,
+                        consecutive_error_count = consecutive_error_count + 1,
                         today_error_count = today_error_count + 1,
                         today_date = ?,
                         last_error_at = CURRENT_TIMESTAMP
                     WHERE token_id = ?
                 """, (today, token_id))
+            await db.commit()
+
+    async def reset_error_count(self, token_id: int):
+        """Reset consecutive error count (only reset consecutive_error_count, keep error_count and today_error_count)
+
+        This is called when:
+        - Token is manually enabled by admin
+        - Request succeeds (resets consecutive error counter)
+
+        Note: error_count (total historical errors) is NEVER reset
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE token_stats SET consecutive_error_count = 0 WHERE token_id = ?
+            """, (token_id,))
             await db.commit()
 
     # Config operations
@@ -876,6 +935,11 @@ class Database:
             config.set_image_timeout(generation_config.image_timeout)
             config.set_video_timeout(generation_config.video_timeout)
 
+        # Reload debug config
+        debug_config = await self.get_debug_config()
+        if debug_config:
+            config.set_debug_enabled(debug_config.enabled)
+
     # Cache config operations
     async def get_cache_config(self) -> CacheConfig:
         """Get cache configuration"""
@@ -922,5 +986,59 @@ class Database:
                     INSERT INTO cache_config (id, cache_enabled, cache_timeout, cache_base_url)
                     VALUES (1, ?, ?, ?)
                 """, (new_enabled, new_timeout, new_base_url))
+
+            await db.commit()
+
+    # Debug config operations
+    async def get_debug_config(self) -> 'DebugConfig':
+        """Get debug configuration"""
+        from .models import DebugConfig
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM debug_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return DebugConfig(**dict(row))
+            # Return default if not found
+            return DebugConfig(enabled=False, log_requests=True, log_responses=True, mask_token=True)
+
+    async def update_debug_config(
+        self,
+        enabled: bool = None,
+        log_requests: bool = None,
+        log_responses: bool = None,
+        mask_token: bool = None
+    ):
+        """Update debug configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Get current values
+            cursor = await db.execute("SELECT * FROM debug_config WHERE id = 1")
+            row = await cursor.fetchone()
+
+            if row:
+                current = dict(row)
+                # Use new values if provided, otherwise keep existing
+                new_enabled = enabled if enabled is not None else current.get("enabled", False)
+                new_log_requests = log_requests if log_requests is not None else current.get("log_requests", True)
+                new_log_responses = log_responses if log_responses is not None else current.get("log_responses", True)
+                new_mask_token = mask_token if mask_token is not None else current.get("mask_token", True)
+
+                await db.execute("""
+                    UPDATE debug_config
+                    SET enabled = ?, log_requests = ?, log_responses = ?, mask_token = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                """, (new_enabled, new_log_requests, new_log_responses, new_mask_token))
+            else:
+                # Insert default row if not exists
+                new_enabled = enabled if enabled is not None else False
+                new_log_requests = log_requests if log_requests is not None else True
+                new_log_responses = log_responses if log_responses is not None else True
+                new_mask_token = mask_token if mask_token is not None else True
+
+                await db.execute("""
+                    INSERT INTO debug_config (id, enabled, log_requests, log_responses, mask_token)
+                    VALUES (1, ?, ?, ?, ?)
+                """, (new_enabled, new_log_requests, new_log_responses, new_mask_token))
 
             await db.commit()
