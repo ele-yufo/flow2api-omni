@@ -36,7 +36,7 @@
 ```bash
 # 克隆项目
 git clone https://github.com/TheSmallHanCat/flow2api.git
-cd sora2api
+cd flow2api
 
 # 启动服务
 docker-compose up -d

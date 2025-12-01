@@ -56,7 +56,7 @@ class TokenStats(BaseModel):
     image_count: int = 0
     video_count: int = 0
     success_count: int = 0
-    error_count: int = 0
+    error_count: int = 0  # Historical total errors (never reset)
     last_success_at: Optional[datetime] = None
     last_error_at: Optional[datetime] = None
     # 今日统计

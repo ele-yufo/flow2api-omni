@@ -499,7 +499,7 @@ async def get_stats(token: str = Depends(verify_admin_token)):
         if stats:
             total_images += stats.image_count
             total_videos += stats.video_count
-            total_errors += stats.error_count
+            total_errors += stats.error_count  # Historical total errors
             today_images += stats.today_image_count
             today_videos += stats.today_video_count
             today_errors += stats.today_error_count

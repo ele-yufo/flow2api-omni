@@ -16,7 +16,8 @@ class LoadBalancer:
     async def select_token(
         self,
         for_image_generation: bool = False,
-        for_video_generation: bool = False
+        for_video_generation: bool = False,
+        model: Optional[str] = None
     ) -> Optional[Token]:
         """
         Select a token using random load balancing
@@ -24,11 +25,12 @@ class LoadBalancer:
         Args:
             for_image_generation: If True, only select tokens with image_enabled=True
             for_video_generation: If True, only select tokens with video_enabled=True
+            model: Model name (used to filter tokens for specific models)
 
         Returns:
             Selected token or None if no available tokens
         """
-        debug_logger.log_info(f"[LOAD_BALANCER] 开始选择Token (图片生成={for_image_generation}, 视频生成={for_video_generation})")
+        debug_logger.log_info(f"[LOAD_BALANCER] 开始选择Token (图片生成={for_image_generation}, 视频生成={for_video_generation}, 模型={model})")
 
         active_tokens = await self.token_manager.get_active_tokens()
         debug_logger.log_info(f"[LOAD_BALANCER] 获取到 {len(active_tokens)} 个活跃Token")
@@ -46,6 +48,12 @@ class LoadBalancer:
             if not await self.token_manager.is_at_valid(token.id):
                 filtered_reasons[token.id] = "AT无效或已过期"
                 continue
+
+            # Filter for gemini-3.0 models (skip free tier tokens)
+            if model and model in ["gemini-3.0-pro-image-landscape", "gemini-3.0-pro-image-portrait"]:
+                if token.user_paygate_tier == "PAYGATE_TIER_NOT_PAID":
+                    filtered_reasons[token.id] = "gemini-3.0模型不支持普通账号"
+                    continue
 
             # Filter for image generation
             if for_image_generation:

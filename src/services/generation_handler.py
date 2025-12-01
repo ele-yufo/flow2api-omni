@@ -281,9 +281,9 @@ class GenerationHandler:
         debug_logger.log_info(f"[GENERATION] 正在选择可用Token...")
 
         if generation_type == "image":
-            token = await self.load_balancer.select_token(for_image_generation=True)
+            token = await self.load_balancer.select_token(for_image_generation=True, model=model)
         else:
-            token = await self.load_balancer.select_token(for_video_generation=True)
+            token = await self.load_balancer.select_token(for_video_generation=True, model=model)
 
         if not token:
             error_msg = self._get_no_token_error_message(generation_type)
@@ -335,6 +335,10 @@ class GenerationHandler:
             # 6. 记录使用
             is_video = (generation_type == "video")
             await self.token_manager.record_usage(token.id, is_video=is_video)
+
+            # 重置错误计数 (请求成功时清空连续错误计数)
+            await self.token_manager.record_success(token.id)
+
             debug_logger.log_info(f"[GENERATION] ✅ 生成成功完成")
 
             # 7. 记录成功日志
@@ -397,19 +401,21 @@ class GenerationHandler:
             image_inputs = []
             if images and len(images) > 0:
                 if stream:
-                    yield self._create_stream_chunk("上传参考图片...\n")
+                    yield self._create_stream_chunk(f"上传 {len(images)} 张参考图片...\n")
 
-                image_bytes = images[0]  # 图生图只需要一张
-                media_id = await self.flow_client.upload_image(
-                    token.at,
-                    image_bytes,
-                    model_config["aspect_ratio"]
-                )
-
-                image_inputs = [{
-                    "name": media_id,
-                    "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"
-                }]
+                # 支持多图输入
+                for idx, image_bytes in enumerate(images):
+                    media_id = await self.flow_client.upload_image(
+                        token.at,
+                        image_bytes,
+                        model_config["aspect_ratio"]
+                    )
+                    image_inputs.append({
+                        "name": media_id,
+                        "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"
+                    })
+                    if stream:
+                        yield self._create_stream_chunk(f"已上传第 {idx + 1}/{len(images)} 张图片\n")
 
             # 调用生成API
             if stream:
