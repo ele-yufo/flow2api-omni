@@ -358,7 +358,12 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk(f"❌ {error_msg}\n")
             if token:
-                await self.token_manager.record_error(token.id)
+                # 检测429错误，立即禁用token
+                if "429" in str(e) or "HTTP Error 429" in str(e):
+                    debug_logger.log_warning(f"[429_BAN] Token {token.id} 遇到429错误，立即禁用")
+                    await self.token_manager.ban_token_for_429(token.id)
+                else:
+                    await self.token_manager.record_error(token.id)
             yield self._create_error_response(error_msg)
 
             # 记录失败日志

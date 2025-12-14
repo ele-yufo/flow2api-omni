@@ -179,7 +179,10 @@ class TokenManager:
         image_concurrency: Optional[int] = None,
         video_concurrency: Optional[int] = None
     ):
-        """Update token (支持修改project_id和project_name)"""
+        """Update token (支持修改project_id和project_name)
+
+        当用户编辑保存token时，如果token未过期，自动清空429禁用状态
+        """
         update_fields = {}
 
         if st is not None:
@@ -202,6 +205,25 @@ class TokenManager:
             update_fields["image_concurrency"] = image_concurrency
         if video_concurrency is not None:
             update_fields["video_concurrency"] = video_concurrency
+
+        # 检查token是否因429被禁用，如果是且未过期，则清空429状态
+        token = await self.db.get_token(token_id)
+        if token and token.ban_reason == "429_rate_limit":
+            # 检查token是否过期
+            is_expired = False
+            if token.at_expires:
+                now = datetime.now(timezone.utc)
+                if token.at_expires.tzinfo is None:
+                    at_expires_aware = token.at_expires.replace(tzinfo=timezone.utc)
+                else:
+                    at_expires_aware = token.at_expires
+                is_expired = at_expires_aware <= now
+
+            # 如果未过期，清空429禁用状态
+            if not is_expired:
+                debug_logger.log_info(f"[UPDATE_TOKEN] Token {token_id} 编辑保存，清空429禁用状态")
+                update_fields["ban_reason"] = None
+                update_fields["banned_at"] = None
 
         if update_fields:
             await self.db.update_token(token_id, **update_fields)
@@ -376,6 +398,79 @@ class TokenManager:
         Note: today_error_count and historical statistics are NOT reset.
         """
         await self.db.reset_error_count(token_id)
+
+    async def ban_token_for_429(self, token_id: int):
+        """因429错误立即禁用token
+
+        Args:
+            token_id: Token ID
+        """
+        debug_logger.log_warning(f"[429_BAN] 禁用Token {token_id} (原因: 429 Rate Limit)")
+        await self.db.update_token(
+            token_id,
+            is_active=False,
+            ban_reason="429_rate_limit",
+            banned_at=datetime.now(timezone.utc)
+        )
+
+    async def auto_unban_429_tokens(self):
+        """自动解禁因429被禁用的token
+
+        规则:
+        - 距离禁用时间12小时后自动解禁
+        - 仅解禁未过期的token
+        - 仅解禁因429被禁用的token
+        """
+        all_tokens = await self.db.get_all_tokens()
+        now = datetime.now(timezone.utc)
+
+        for token in all_tokens:
+            # 跳过非429禁用的token
+            if token.ban_reason != "429_rate_limit":
+                continue
+
+            # 跳过未禁用的token
+            if token.is_active:
+                continue
+
+            # 跳过没有禁用时间的token
+            if not token.banned_at:
+                continue
+
+            # 检查token是否已过期
+            if token.at_expires:
+                # 确保时区一致
+                if token.at_expires.tzinfo is None:
+                    at_expires_aware = token.at_expires.replace(tzinfo=timezone.utc)
+                else:
+                    at_expires_aware = token.at_expires
+
+                # 如果已过期，跳过
+                if at_expires_aware <= now:
+                    debug_logger.log_info(f"[AUTO_UNBAN] Token {token.id} 已过期，跳过解禁")
+                    continue
+
+            # 确保banned_at时区一致
+            if token.banned_at.tzinfo is None:
+                banned_at_aware = token.banned_at.replace(tzinfo=timezone.utc)
+            else:
+                banned_at_aware = token.banned_at
+
+            # 检查是否已过12小时
+            time_since_ban = now - banned_at_aware
+            if time_since_ban.total_seconds() >= 12 * 3600:  # 12小时
+                debug_logger.log_info(
+                    f"[AUTO_UNBAN] 解禁Token {token.id} (禁用时间: {banned_at_aware}, "
+                    f"已过 {time_since_ban.total_seconds() / 3600:.1f} 小时)"
+                )
+                await self.db.update_token(
+                    token.id,
+                    is_active=True,
+                    ban_reason=None,
+                    banned_at=None
+                )
+                # 重置错误计数
+                await self.db.reset_error_count(token.id)
 
     # ========== 余额刷新 ==========
 

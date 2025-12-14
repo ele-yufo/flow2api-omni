@@ -73,10 +73,24 @@ async def lifespan(app: FastAPI):
     # Start file cache cleanup task
     await generation_handler.file_cache.start_cleanup_task()
 
+    # Start 429 auto-unban task
+    import asyncio
+    async def auto_unban_task():
+        """定时任务：每小时检查并解禁429被禁用的token"""
+        while True:
+            try:
+                await asyncio.sleep(3600)  # 每小时执行一次
+                await token_manager.auto_unban_429_tokens()
+            except Exception as e:
+                print(f"❌ Auto-unban task error: {e}")
+
+    auto_unban_task_handle = asyncio.create_task(auto_unban_task())
+
     print(f"✓ Database initialized")
     print(f"✓ Total tokens: {len(tokens)}")
     print(f"✓ Cache: {'Enabled' if config.cache_enabled else 'Disabled'} (timeout: {config.cache_timeout}s)")
     print(f"✓ File cache cleanup task started")
+    print(f"✓ 429 auto-unban task started (runs every hour)")
     print(f"✓ Server running on http://{config.server_host}:{config.server_port}")
     print("=" * 60)
 
@@ -86,7 +100,14 @@ async def lifespan(app: FastAPI):
     print("Flow2API Shutting down...")
     # Stop file cache cleanup task
     await generation_handler.file_cache.stop_cleanup_task()
+    # Stop auto-unban task
+    auto_unban_task_handle.cancel()
+    try:
+        await auto_unban_task_handle
+    except asyncio.CancelledError:
+        pass
     print("✓ File cache cleanup task stopped")
+    print("✓ 429 auto-unban task stopped")
 
 
 # Initialize components

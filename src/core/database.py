@@ -193,6 +193,8 @@ class Database:
                     ("video_enabled", "BOOLEAN DEFAULT 1"),
                     ("image_concurrency", "INTEGER DEFAULT -1"),
                     ("video_concurrency", "INTEGER DEFAULT -1"),
+                    ("ban_reason", "TEXT"),  # 禁用原因
+                    ("banned_at", "TIMESTAMP"),  # 禁用时间
                 ]
 
                 for col_name, col_type in columns_to_add:
@@ -262,7 +264,9 @@ class Database:
                     image_enabled BOOLEAN DEFAULT 1,
                     video_enabled BOOLEAN DEFAULT 1,
                     image_concurrency INTEGER DEFAULT -1,
-                    video_concurrency INTEGER DEFAULT -1
+                    video_concurrency INTEGER DEFAULT -1,
+                    ban_reason TEXT,
+                    banned_at TIMESTAMP
                 )
             """)
 
