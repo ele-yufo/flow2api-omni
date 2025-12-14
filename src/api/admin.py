@@ -68,6 +68,7 @@ class GenerationConfigRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
+    username: Optional[str] = None
     old_password: str
     new_password: str
 
@@ -147,8 +148,12 @@ async def change_password(
     if not AuthManager.verify_admin(admin_config.username, request.old_password):
         raise HTTPException(status_code=400, detail="旧密码错误")
 
-    # Update password in database
-    await db.update_admin_config(password=request.new_password)
+    # Update password and username in database
+    update_params = {"password": request.new_password}
+    if request.username:
+        update_params["username"] = request.username
+
+    await db.update_admin_config(**update_params)
 
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
