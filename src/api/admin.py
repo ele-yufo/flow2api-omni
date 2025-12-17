@@ -90,6 +90,23 @@ class ST2ATRequest(BaseModel):
     st: str
 
 
+class ImportTokenItem(BaseModel):
+    """导入Token项"""
+    email: Optional[str] = None
+    access_token: Optional[str] = None
+    session_token: Optional[str] = None
+    is_active: bool = True
+    image_enabled: bool = True
+    video_enabled: bool = True
+    image_concurrency: int = -1
+    video_concurrency: int = -1
+
+
+class ImportTokensRequest(BaseModel):
+    """导入Token请求"""
+    tokens: List[ImportTokenItem]
+
+
 # ========== Auth Middleware ==========
 
 async def verify_admin_token(authorization: str = Header(None)):
@@ -376,6 +393,98 @@ async def st_to_at(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/api/tokens/import")
+async def import_tokens(
+    request: ImportTokensRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """批量导入Token"""
+    from datetime import datetime, timezone
+
+    added = 0
+    updated = 0
+    errors = []
+
+    for idx, item in enumerate(request.tokens):
+        try:
+            st = item.session_token
+
+            if not st:
+                errors.append(f"第{idx+1}项: 缺少 session_token")
+                continue
+
+            # 使用 ST 转 AT 获取用户信息
+            try:
+                result = await token_manager.flow_client.st_to_at(st)
+                at = result["access_token"]
+                email = result.get("user", {}).get("email")
+                expires = result.get("expires")
+
+                if not email:
+                    errors.append(f"第{idx+1}项: 无法获取邮箱信息")
+                    continue
+
+                # 解析过期时间
+                at_expires = None
+                is_expired = False
+                if expires:
+                    try:
+                        at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+                        # 判断是否过期
+                        now = datetime.now(timezone.utc)
+                        is_expired = at_expires <= now
+                    except:
+                        pass
+
+                # 使用邮箱检查是否已存在
+                existing_tokens = await token_manager.get_all_tokens()
+                existing = next((t for t in existing_tokens if t.email == email), None)
+
+                if existing:
+                    # 更新现有Token
+                    await token_manager.update_token(
+                        token_id=existing.id,
+                        st=st,
+                        at=at,
+                        at_expires=at_expires,
+                        image_enabled=item.image_enabled,
+                        video_enabled=item.video_enabled,
+                        image_concurrency=item.image_concurrency,
+                        video_concurrency=item.video_concurrency
+                    )
+                    # 如果过期则禁用
+                    if is_expired:
+                        await token_manager.disable_token(existing.id)
+                    updated += 1
+                else:
+                    # 添加新Token
+                    new_token = await token_manager.add_token(
+                        st=st,
+                        image_enabled=item.image_enabled,
+                        video_enabled=item.video_enabled,
+                        image_concurrency=item.image_concurrency,
+                        video_concurrency=item.video_concurrency
+                    )
+                    # 如果过期则禁用
+                    if is_expired:
+                        await token_manager.disable_token(new_token.id)
+                    added += 1
+
+            except Exception as e:
+                errors.append(f"第{idx+1}项: {str(e)}")
+
+        except Exception as e:
+            errors.append(f"第{idx+1}项: {str(e)}")
+
+    return {
+        "success": True,
+        "added": added,
+        "updated": updated,
+        "errors": errors if errors else None,
+        "message": f"导入完成: 新增 {added} 个, 更新 {updated} 个" + (f", {len(errors)} 个失败" if errors else "")
+    }
 
 
 # ========== Config Management ==========
@@ -722,3 +831,33 @@ async def update_cache_base_url(
     await db.reload_config_to_memory()
 
     return {"success": True, "message": "缓存Base URL更新成功"}
+
+
+@router.post("/api/captcha/config")
+async def update_captcha_config(
+    request: dict,
+    token: str = Depends(verify_admin_token)
+):
+    """Update captcha configuration"""
+    yescaptcha_api_key = request.get("yescaptcha_api_key")
+    yescaptcha_base_url = request.get("yescaptcha_base_url")
+
+    await db.update_captcha_config(
+        yescaptcha_api_key=yescaptcha_api_key,
+        yescaptcha_base_url=yescaptcha_base_url
+    )
+
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
+
+    return {"success": True, "message": "验证码配置更新成功"}
+
+
+@router.get("/api/captcha/config")
+async def get_captcha_config(token: str = Depends(verify_admin_token)):
+    """Get captcha configuration"""
+    captcha_config = await db.get_captcha_config()
+    return {
+        "yescaptcha_api_key": captcha_config.yescaptcha_api_key,
+        "yescaptcha_base_url": captcha_config.yescaptcha_base_url
+    }
