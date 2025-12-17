@@ -35,28 +35,67 @@ def parse_proxy_url(proxy_url: str) -> Optional[Dict[str, str]]:
     return None
 
 
+def validate_browser_proxy_url(proxy_url: str) -> tuple[bool, str]:
+    """验证浏览器代理URL格式（仅支持HTTP和无认证SOCKS5）
+
+    Args:
+        proxy_url: 代理URL
+
+    Returns:
+        (是否有效, 错误信息)
+    """
+    if not proxy_url or not proxy_url.strip():
+        return True, ""  # 空URL视为有效（不使用代理）
+
+    proxy_url = proxy_url.strip()
+    parsed = parse_proxy_url(proxy_url)
+
+    if not parsed:
+        return False, "代理URL格式错误，正确格式：http://host:port 或 socks5://host:port"
+
+    # 检查是否有认证信息
+    has_auth = 'username' in parsed
+
+    # 获取协议
+    protocol = parsed['server'].split('://')[0]
+
+    # SOCKS5不支持认证
+    if protocol == 'socks5' and has_auth:
+        return False, "浏览器不支持带认证的SOCKS5代理，请使用HTTP代理或移除SOCKS5认证"
+
+    # HTTP/HTTPS支持认证
+    if protocol in ['http', 'https']:
+        return True, ""
+
+    # SOCKS5无认证支持
+    if protocol == 'socks5' and not has_auth:
+        return True, ""
+
+    return False, f"不支持的代理协议：{protocol}"
+
+
 class BrowserCaptchaService:
     """浏览器自动化获取 reCAPTCHA token（单例模式）"""
 
     _instance: Optional['BrowserCaptchaService'] = None
     _lock = asyncio.Lock()
 
-    def __init__(self, proxy_manager=None):
+    def __init__(self, db=None):
         """初始化服务（始终使用无头模式）"""
         self.headless = True  # 始终无头
         self.playwright = None
         self.browser: Optional[Browser] = None
         self._initialized = False
         self.website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
-        self.proxy_manager = proxy_manager
+        self.db = db
 
     @classmethod
-    async def get_instance(cls, proxy_manager=None) -> 'BrowserCaptchaService':
+    async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
         """获取单例实例"""
         if cls._instance is None:
             async with cls._lock:
                 if cls._instance is None:
-                    cls._instance = cls(proxy_manager)
+                    cls._instance = cls(db)
                     await cls._instance.initialize()
         return cls._instance
 
@@ -66,10 +105,12 @@ class BrowserCaptchaService:
             return
 
         try:
-            # 获取代理配置
+            # 获取浏览器专用代理配置
             proxy_url = None
-            if self.proxy_manager:
-                proxy_url = await self.proxy_manager.get_proxy_url()
+            if self.db:
+                captcha_config = await self.db.get_captcha_config()
+                if captcha_config.browser_proxy_enabled and captcha_config.browser_proxy_url:
+                    proxy_url = captcha_config.browser_proxy_url
 
             debug_logger.log_info(f"[BrowserCaptcha] 正在启动浏览器... (proxy={proxy_url or 'None'})")
             self.playwright = await async_playwright().start()

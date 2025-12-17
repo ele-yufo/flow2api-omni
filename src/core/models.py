@@ -152,6 +152,8 @@ class CaptchaConfig(BaseModel):
     yescaptcha_base_url: str = "https://api.yescaptcha.com"
     website_key: str = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
     page_action: str = "FLOW_GENERATION"
+    browser_proxy_enabled: bool = False  # 浏览器打码是否启用代理
+    browser_proxy_url: Optional[str] = None  # 浏览器打码代理URL
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
