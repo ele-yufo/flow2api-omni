@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 安装 Playwright 浏览器（仅 Chromium）
-RUN playwright install chromium --with-deps
+# 安装 Playwright 浏览器
+RUN playwright install chromium
 
 COPY . .
 
