@@ -21,6 +21,7 @@
 - 🚀 **负载均衡** - 多 Token 轮询和并发控制
 - 🌐 **代理支持** - 支持 HTTP/SOCKS5 代理
 - 📱 **Web 管理界面** - 直观的 Token 和配置管理
+- 🎨 **图片生成连续对话**
 
 ## 🚀 快速开始
 
@@ -28,6 +29,9 @@
 
 - Docker 和 Docker Compose（推荐）
 - 或 Python 3.8+
+
+- 由于Flow增加了额外的验证码，你可以自行选择使用浏览器打码或第三发打码：
+注册[YesCaptcha](https://yescaptcha.com/i/13Xd8K)并获取api key，将其填入系统配置页面```YesCaptcha API密钥```区域
 
 ### 方式一：Docker 部署（推荐）
 
@@ -80,12 +84,10 @@ python main.py
 
 ### 首次访问
 
-服务启动后,访问管理后台: **http://localhost:8000**
+服务启动后,访问管理后台: **http://localhost:8000**,首次登录后请立即修改密码!
 
 - **用户名**: `admin`
 - **密码**: `admin`
-
-⚠️ **重要**: 首次登录后请立即修改密码!
 
 ## 📋 支持的模型
 
@@ -246,6 +248,8 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ## 🙏 致谢
 
+- [PearNoDec](https://github.com/PearNoDec) 提供的YesCaptcha打码方案
+- [raomaiping](https://github.com/raomaiping) 提供的无头打码方案
 感谢所有贡献者和使用者的支持！
 
 ---
@@ -253,7 +257,6 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 ## 📞 联系方式
 
 - 提交 Issue：[GitHub Issues](https://github.com/TheSmallHanCat/flow2api/issues)
-- 讨论：[GitHub Discussions](https://github.com/TheSmallHanCat/flow2api/discussions)
 
 ---
 

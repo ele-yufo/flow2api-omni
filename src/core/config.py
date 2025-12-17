@@ -179,5 +179,40 @@ class Config:
             self._config["cache"] = {}
         self._config["cache"]["base_url"] = base_url
 
+    # Captcha configuration
+    @property
+    def captcha_method(self) -> str:
+        """Get captcha method"""
+        return self._config.get("captcha", {}).get("captcha_method", "yescaptcha")
+
+    def set_captcha_method(self, method: str):
+        """Set captcha method"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["captcha_method"] = method
+
+    @property
+    def yescaptcha_api_key(self) -> str:
+        """Get YesCaptcha API key"""
+        return self._config.get("captcha", {}).get("yescaptcha_api_key", "")
+
+    def set_yescaptcha_api_key(self, api_key: str):
+        """Set YesCaptcha API key"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["yescaptcha_api_key"] = api_key
+
+    @property
+    def yescaptcha_base_url(self) -> str:
+        """Get YesCaptcha base URL"""
+        return self._config.get("captcha", {}).get("yescaptcha_base_url", "https://api.yescaptcha.com")
+
+    def set_yescaptcha_base_url(self, base_url: str):
+        """Set YesCaptcha base URL"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["yescaptcha_base_url"] = base_url
+
+
 # Global config instance
 config = Config()

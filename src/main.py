@@ -66,6 +66,19 @@ async def lifespan(app: FastAPI):
     debug_config = await db.get_debug_config()
     config.set_debug_enabled(debug_config.enabled)
 
+    # Load captcha configuration from database
+    captcha_config = await db.get_captcha_config()
+    config.set_captcha_method(captcha_config.captcha_method)
+    config.set_yescaptcha_api_key(captcha_config.yescaptcha_api_key)
+    config.set_yescaptcha_base_url(captcha_config.yescaptcha_base_url)
+
+    # Initialize browser captcha service if needed
+    browser_service = None
+    if captcha_config.captcha_method == "browser":
+        from .services.browser_captcha import BrowserCaptchaService
+        browser_service = await BrowserCaptchaService.get_instance(proxy_manager)
+        print("✓ Browser captcha service initialized (headless mode)")
+
     # Initialize concurrency manager
     tokens = await token_manager.get_all_tokens()
     await concurrency_manager.initialize(tokens)
@@ -106,6 +119,10 @@ async def lifespan(app: FastAPI):
         await auto_unban_task_handle
     except asyncio.CancelledError:
         pass
+    # Close browser if initialized
+    if browser_service:
+        await browser_service.close()
+        print("✓ Browser captcha service closed")
     print("✓ File cache cleanup task stopped")
     print("✓ 429 auto-unban task stopped")
 

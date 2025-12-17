@@ -839,10 +839,12 @@ async def update_captcha_config(
     token: str = Depends(verify_admin_token)
 ):
     """Update captcha configuration"""
+    captcha_method = request.get("captcha_method")
     yescaptcha_api_key = request.get("yescaptcha_api_key")
     yescaptcha_base_url = request.get("yescaptcha_base_url")
 
     await db.update_captcha_config(
+        captcha_method=captcha_method,
         yescaptcha_api_key=yescaptcha_api_key,
         yescaptcha_base_url=yescaptcha_base_url
     )
@@ -858,6 +860,7 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
     """Get captcha configuration"""
     captcha_config = await db.get_captcha_config()
     return {
+        "captcha_method": captcha_config.captcha_method,
         "yescaptcha_api_key": captcha_config.yescaptcha_api_key,
         "yescaptcha_base_url": captcha_config.yescaptcha_base_url
     }

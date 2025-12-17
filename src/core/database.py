@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
-from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project
+from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig
 
 
 class Database:
@@ -148,6 +148,25 @@ class Database:
                 VALUES (1, ?, ?, ?, ?)
             """, (debug_enabled, log_requests, log_responses, mask_token))
 
+        # Ensure captcha_config has a row
+        cursor = await db.execute("SELECT COUNT(*) FROM captcha_config")
+        count = await cursor.fetchone()
+        if count[0] == 0:
+            captcha_method = "browser"
+            yescaptcha_api_key = ""
+            yescaptcha_base_url = "https://api.yescaptcha.com"
+
+            if config_dict:
+                captcha_config = config_dict.get("captcha", {})
+                captcha_method = captcha_config.get("captcha_method", "browser")
+                yescaptcha_api_key = captcha_config.get("yescaptcha_api_key", "")
+                yescaptcha_base_url = captcha_config.get("yescaptcha_base_url", "https://api.yescaptcha.com")
+
+            await db.execute("""
+                INSERT INTO captcha_config (id, captcha_method, yescaptcha_api_key, yescaptcha_base_url)
+                VALUES (1, ?, ?, ?)
+            """, (captcha_method, yescaptcha_api_key, yescaptcha_base_url))
+
     async def check_and_migrate_db(self, config_dict: dict = None):
         """Check database integrity and perform migrations if needed
 
@@ -174,6 +193,22 @@ class Database:
                         cache_enabled BOOLEAN DEFAULT 0,
                         cache_timeout INTEGER DEFAULT 7200,
                         cache_base_url TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # Check and create captcha_config table if missing
+            if not await self._table_exists(db, "captcha_config"):
+                print("  ✓ Creating missing table: captcha_config")
+                await db.execute("""
+                    CREATE TABLE captcha_config (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        captcha_method TEXT DEFAULT 'browser',
+                        yescaptcha_api_key TEXT DEFAULT '',
+                        yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
+                        website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
+                        page_action TEXT DEFAULT 'FLOW_GENERATION',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -234,8 +269,8 @@ class Database:
 
             # ========== Step 3: Ensure all config tables have default rows ==========
             # Note: This will NOT overwrite existing config rows
-            # It only ensures missing rows are created with default values
-            await self._ensure_config_rows(db, config_dict=None)
+            # It only ensures missing rows are created with default values from setting.toml
+            await self._ensure_config_rows(db, config_dict=config_dict)
 
             await db.commit()
             print("Database migration check completed.")
@@ -390,6 +425,20 @@ class Database:
                     log_requests BOOLEAN DEFAULT 1,
                     log_responses BOOLEAN DEFAULT 1,
                     mask_token BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Captcha config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS captcha_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    captcha_method TEXT DEFAULT 'browser',
+                    yescaptcha_api_key TEXT DEFAULT '',
+                    yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
+                    website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
+                    page_action TEXT DEFAULT 'FLOW_GENERATION',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -944,6 +993,13 @@ class Database:
         if debug_config:
             config.set_debug_enabled(debug_config.enabled)
 
+        # Reload captcha config
+        captcha_config = await self.get_captcha_config()
+        if captcha_config:
+            config.set_captcha_method(captcha_config.captcha_method)
+            config.set_yescaptcha_api_key(captcha_config.yescaptcha_api_key)
+            config.set_yescaptcha_base_url(captcha_config.yescaptcha_base_url)
+
     # Cache config operations
     async def get_cache_config(self) -> CacheConfig:
         """Get cache configuration"""
@@ -1044,5 +1100,51 @@ class Database:
                     INSERT INTO debug_config (id, enabled, log_requests, log_responses, mask_token)
                     VALUES (1, ?, ?, ?, ?)
                 """, (new_enabled, new_log_requests, new_log_responses, new_mask_token))
+
+            await db.commit()
+
+    # Captcha config operations
+    async def get_captcha_config(self) -> CaptchaConfig:
+        """Get captcha configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM captcha_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return CaptchaConfig(**dict(row))
+            return CaptchaConfig()
+
+    async def update_captcha_config(
+        self,
+        captcha_method: str = None,
+        yescaptcha_api_key: str = None,
+        yescaptcha_base_url: str = None
+    ):
+        """Update captcha configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM captcha_config WHERE id = 1")
+            row = await cursor.fetchone()
+
+            if row:
+                current = dict(row)
+                new_method = captcha_method if captcha_method is not None else current.get("captcha_method", "yescaptcha")
+                new_api_key = yescaptcha_api_key if yescaptcha_api_key is not None else current.get("yescaptcha_api_key", "")
+                new_base_url = yescaptcha_base_url if yescaptcha_base_url is not None else current.get("yescaptcha_base_url", "https://api.yescaptcha.com")
+
+                await db.execute("""
+                    UPDATE captcha_config
+                    SET captcha_method = ?, yescaptcha_api_key = ?, yescaptcha_base_url = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                """, (new_method, new_api_key, new_base_url))
+            else:
+                new_method = captcha_method if captcha_method is not None else "yescaptcha"
+                new_api_key = yescaptcha_api_key if yescaptcha_api_key is not None else ""
+                new_base_url = yescaptcha_base_url if yescaptcha_base_url is not None else "https://api.yescaptcha.com"
+
+                await db.execute("""
+                    INSERT INTO captcha_config (id, captcha_method, yescaptcha_api_key, yescaptcha_base_url)
+                    VALUES (1, ?, ?, ?)
+                """, (new_method, new_api_key, new_base_url))
 
             await db.commit()

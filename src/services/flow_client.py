@@ -308,10 +308,17 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/projects/{project_id}/flowMedia:batchGenerateImages"
 
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
+
         # 构建请求
         request_data = {
             "clientContext": {
-                "sessionId": self._generate_session_id()
+                "recaptchaToken": recaptcha_token,
+                "projectId": project_id,
+                "sessionId": session_id,
+                "tool": "PINHOLE"
             },
             "seed": random.randint(1, 99999),
             "imageModelName": model_name,
@@ -321,6 +328,10 @@ class FlowClient:
         }
 
         json_data = {
+            "clientContext": {
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id
+            },
             "requests": [request_data]
         }
 
@@ -367,11 +378,15 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoText"
 
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
         scene_id = str(uuid.uuid4())
 
         json_data = {
             "clientContext": {
-                "sessionId": self._generate_session_id(),
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id,
                 "projectId": project_id,
                 "tool": "PINHOLE",
                 "userPaygateTier": user_paygate_tier
@@ -425,11 +440,15 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoReferenceImages"
 
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
         scene_id = str(uuid.uuid4())
 
         json_data = {
             "clientContext": {
-                "sessionId": self._generate_session_id(),
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id,
                 "projectId": project_id,
                 "tool": "PINHOLE",
                 "userPaygateTier": user_paygate_tier
@@ -486,11 +505,15 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoStartAndEndImage"
 
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
         scene_id = str(uuid.uuid4())
 
         json_data = {
             "clientContext": {
-                "sessionId": self._generate_session_id(),
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id,
                 "projectId": project_id,
                 "tool": "PINHOLE",
                 "userPaygateTier": user_paygate_tier
@@ -550,11 +573,15 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoStartAndEndImage"
 
+        # 获取 reCAPTCHA token
+        recaptcha_token = await self._get_recaptcha_token(project_id) or ""
+        session_id = self._generate_session_id()
         scene_id = str(uuid.uuid4())
 
         json_data = {
             "clientContext": {
-                "sessionId": self._generate_session_id(),
+                "recaptchaToken": recaptcha_token,
+                "sessionId": session_id,
                 "projectId": project_id,
                 "tool": "PINHOLE",
                 "userPaygateTier": user_paygate_tier
@@ -655,3 +682,75 @@ class FlowClient:
     def _generate_scene_id(self) -> str:
         """生成sceneId: UUID"""
         return str(uuid.uuid4())
+
+    async def _get_recaptcha_token(self, project_id: str) -> Optional[str]:
+        """获取reCAPTCHA token - 支持两种方式"""
+        captcha_method = config.captcha_method
+
+        # 浏览器打码
+        if captcha_method == "browser":
+            try:
+                from .browser_captcha import BrowserCaptchaService
+                service = await BrowserCaptchaService.get_instance(self.proxy_manager)
+                return await service.get_token(project_id)
+            except Exception as e:
+                debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
+                return None
+
+        # YesCaptcha打码
+        client_key = config.yescaptcha_api_key
+        if not client_key:
+            debug_logger.log_info("[reCAPTCHA] API key not configured, skipping")
+            return None
+
+        website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
+        website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
+        base_url = config.yescaptcha_base_url
+        page_action = "FLOW_GENERATION"
+
+        try:
+            async with AsyncSession() as session:
+                create_url = f"{base_url}/createTask"
+                create_data = {
+                    "clientKey": client_key,
+                    "task": {
+                        "websiteURL": website_url,
+                        "websiteKey": website_key,
+                        "type": "RecaptchaV3TaskProxylessM1",
+                        "pageAction": page_action
+                    }
+                }
+
+                result = await session.post(create_url, json=create_data, impersonate="chrome110")
+                result_json = result.json()
+                task_id = result_json.get('taskId')
+
+                debug_logger.log_info(f"[reCAPTCHA] created task_id: {task_id}")
+
+                if not task_id:
+                    return None
+
+                get_url = f"{base_url}/getTaskResult"
+                for i in range(40):
+                    get_data = {
+                        "clientKey": client_key,
+                        "taskId": task_id
+                    }
+                    result = await session.post(get_url, json=get_data, impersonate="chrome110")
+                    result_json = result.json()
+
+                    debug_logger.log_info(f"[reCAPTCHA] polling #{i+1}: {result_json}")
+
+                    solution = result_json.get('solution', {})
+                    response = solution.get('gRecaptchaResponse')
+
+                    if response:
+                        return response
+
+                    time.sleep(3)
+
+                return None
+
+        except Exception as e:
+            debug_logger.log_error(f"[reCAPTCHA] error: {str(e)}")
+            return None
