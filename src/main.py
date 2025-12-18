@@ -74,7 +74,12 @@ async def lifespan(app: FastAPI):
 
     # Initialize browser captcha service if needed
     browser_service = None
-    if captcha_config.captcha_method == "browser":
+    if True:
+        from .services.browser_captcha_personal import BrowserCaptchaService
+        browser_service = await BrowserCaptchaService.get_instance(db)
+        await browser_service.open_login_window()
+        print("✓ Browser captcha service initialized (webui mode)")
+    elif captcha_config.captcha_method == "browser":
         from .services.browser_captcha import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
         print("✓ Browser captcha service initialized (headless mode)")

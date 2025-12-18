@@ -687,8 +687,16 @@ class FlowClient:
         """获取reCAPTCHA token - 支持两种方式"""
         captcha_method = config.captcha_method
 
+        if True:
+            try:
+                from .browser_captcha_personal import BrowserCaptchaService
+                service = await BrowserCaptchaService.get_instance(self.proxy_manager)
+                return await service.get_token(project_id)
+            except Exception as e:
+                debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
+                return None
         # 浏览器打码
-        if captcha_method == "browser":
+        elif captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.proxy_manager)
@@ -696,61 +704,61 @@ class FlowClient:
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
                 return None
-
-        # YesCaptcha打码
-        client_key = config.yescaptcha_api_key
-        if not client_key:
-            debug_logger.log_info("[reCAPTCHA] API key not configured, skipping")
-            return None
-
-        website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
-        website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
-        base_url = config.yescaptcha_base_url
-        page_action = "FLOW_GENERATION"
-
-        try:
-            async with AsyncSession() as session:
-                create_url = f"{base_url}/createTask"
-                create_data = {
-                    "clientKey": client_key,
-                    "task": {
-                        "websiteURL": website_url,
-                        "websiteKey": website_key,
-                        "type": "RecaptchaV3TaskProxylessM1",
-                        "pageAction": page_action
-                    }
-                }
-
-                result = await session.post(create_url, json=create_data, impersonate="chrome110")
-                result_json = result.json()
-                task_id = result_json.get('taskId')
-
-                debug_logger.log_info(f"[reCAPTCHA] created task_id: {task_id}")
-
-                if not task_id:
-                    return None
-
-                get_url = f"{base_url}/getTaskResult"
-                for i in range(40):
-                    get_data = {
-                        "clientKey": client_key,
-                        "taskId": task_id
-                    }
-                    result = await session.post(get_url, json=get_data, impersonate="chrome110")
-                    result_json = result.json()
-
-                    debug_logger.log_info(f"[reCAPTCHA] polling #{i+1}: {result_json}")
-
-                    solution = result_json.get('solution', {})
-                    response = solution.get('gRecaptchaResponse')
-
-                    if response:
-                        return response
-
-                    time.sleep(3)
-
+        else:
+            # YesCaptcha打码
+            client_key = config.yescaptcha_api_key
+            if not client_key:
+                debug_logger.log_info("[reCAPTCHA] API key not configured, skipping")
                 return None
 
-        except Exception as e:
-            debug_logger.log_error(f"[reCAPTCHA] error: {str(e)}")
-            return None
+            website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
+            website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
+            base_url = config.yescaptcha_base_url
+            page_action = "FLOW_GENERATION"
+
+            try:
+                async with AsyncSession() as session:
+                    create_url = f"{base_url}/createTask"
+                    create_data = {
+                        "clientKey": client_key,
+                        "task": {
+                            "websiteURL": website_url,
+                            "websiteKey": website_key,
+                            "type": "RecaptchaV3TaskProxylessM1",
+                            "pageAction": page_action
+                        }
+                    }
+
+                    result = await session.post(create_url, json=create_data, impersonate="chrome110")
+                    result_json = result.json()
+                    task_id = result_json.get('taskId')
+
+                    debug_logger.log_info(f"[reCAPTCHA] created task_id: {task_id}")
+
+                    if not task_id:
+                        return None
+
+                    get_url = f"{base_url}/getTaskResult"
+                    for i in range(40):
+                        get_data = {
+                            "clientKey": client_key,
+                            "taskId": task_id
+                        }
+                        result = await session.post(get_url, json=get_data, impersonate="chrome110")
+                        result_json = result.json()
+
+                        debug_logger.log_info(f"[reCAPTCHA] polling #{i+1}: {result_json}")
+
+                        solution = result_json.get('solution', {})
+                        response = solution.get('gRecaptchaResponse')
+
+                        if response:
+                            return response
+
+                        time.sleep(3)
+
+                    return None
+
+            except Exception as e:
+                debug_logger.log_error(f"[reCAPTCHA] error: {str(e)}")
+                return None

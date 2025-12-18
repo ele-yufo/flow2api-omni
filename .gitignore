@@ -52,3 +52,5 @@ logs.txt
 *.tmp
 *.bak
 *.cache
+
+browser_data
