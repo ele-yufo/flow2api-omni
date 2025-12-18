@@ -687,7 +687,8 @@ class FlowClient:
         """获取reCAPTCHA token - 支持两种方式"""
         captcha_method = config.captcha_method
 
-        if True:
+        # 恒定浏览器打码
+        if captcha_method == "personal":
             try:
                 from .browser_captcha_personal import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.proxy_manager)
@@ -695,7 +696,7 @@ class FlowClient:
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
                 return None
-        # 浏览器打码
+        # 无头浏览器打码
         elif captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
