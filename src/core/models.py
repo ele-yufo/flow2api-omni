@@ -158,6 +158,14 @@ class CaptchaConfig(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class PluginConfig(BaseModel):
+    """Plugin connection configuration"""
+    id: int = 1
+    connection_token: str = ""  # 插件连接token
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
 # OpenAI Compatible Request Models
 class ChatMessage(BaseModel):
     """Chat message"""

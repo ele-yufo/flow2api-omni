@@ -878,3 +878,137 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
         "browser_proxy_enabled": captcha_config.browser_proxy_enabled,
         "browser_proxy_url": captcha_config.browser_proxy_url or ""
     }
+
+
+# ========== Plugin Configuration Endpoints ==========
+
+@router.get("/api/plugin/config")
+async def get_plugin_config(token: str = Depends(verify_admin_token)):
+    """Get plugin configuration"""
+    plugin_config = await db.get_plugin_config()
+
+    # Get server host and port from config
+    from ..core.config import config
+    server_host = config.server_host
+    server_port = config.server_port
+
+    # Generate connection URL
+    if server_host == "0.0.0.0":
+        connection_url = f"http://127.0.0.1:{server_port}/api/plugin/update-token"
+    else:
+        connection_url = f"http://{server_host}:{server_port}/api/plugin/update-token"
+
+    return {
+        "success": True,
+        "config": {
+            "connection_token": plugin_config.connection_token,
+            "connection_url": connection_url
+        }
+    }
+
+
+@router.post("/api/plugin/config")
+async def update_plugin_config(
+    request: dict,
+    token: str = Depends(verify_admin_token)
+):
+    """Update plugin configuration"""
+    connection_token = request.get("connection_token", "")
+
+    # Generate random token if empty
+    if not connection_token:
+        connection_token = secrets.token_urlsafe(32)
+
+    await db.update_plugin_config(connection_token=connection_token)
+
+    return {
+        "success": True,
+        "message": "插件配置更新成功",
+        "connection_token": connection_token
+    }
+
+
+@router.post("/api/plugin/update-token")
+async def plugin_update_token(request: dict, authorization: Optional[str] = Header(None)):
+    """Receive token update from Chrome extension (no admin auth required, uses connection_token)"""
+    # Verify connection token
+    plugin_config = await db.get_plugin_config()
+
+    # Extract token from Authorization header
+    provided_token = None
+    if authorization:
+        if authorization.startswith("Bearer "):
+            provided_token = authorization[7:]
+        else:
+            provided_token = authorization
+
+    # Check if token matches
+    if not plugin_config.connection_token or provided_token != plugin_config.connection_token:
+        raise HTTPException(status_code=401, detail="Invalid connection token")
+
+    # Extract session token from request
+    session_token = request.get("session_token")
+
+    if not session_token:
+        raise HTTPException(status_code=400, detail="Missing session_token")
+
+    # Step 1: Convert ST to AT to get user info (including email)
+    try:
+        result = await token_manager.flow_client.st_to_at(session_token)
+        at = result["access_token"]
+        expires = result.get("expires")
+        user_info = result.get("user", {})
+        email = user_info.get("email", "")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Failed to get email from session token")
+
+        # Parse expiration time
+        from datetime import datetime
+        at_expires = None
+        if expires:
+            try:
+                at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
+            except:
+                pass
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid session token: {str(e)}")
+
+    # Step 2: Check if token with this email exists
+    existing_token = await db.get_token_by_email(email)
+
+    if existing_token:
+        # Update existing token
+        try:
+            # Update token
+            await token_manager.update_token(
+                token_id=existing_token.id,
+                st=session_token,
+                at=at,
+                at_expires=at_expires
+            )
+
+            return {
+                "success": True,
+                "message": f"Token updated for {email}",
+                "action": "updated"
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update token: {str(e)}")
+    else:
+        # Add new token
+        try:
+            new_token = await token_manager.add_token(
+                st=session_token,
+                remark="Added by Chrome Extension"
+            )
+
+            return {
+                "success": True,
+                "message": f"Token added for {new_token.email}",
+                "action": "added",
+                "token_id": new_token.id
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to add token: {str(e)}")

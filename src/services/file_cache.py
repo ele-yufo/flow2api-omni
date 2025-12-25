@@ -131,28 +131,130 @@ class FileCache:
         # Download file
         debug_logger.log_info(f"Downloading file from: {url}")
 
-        try:
-            # Get proxy if available
-            proxy_url = None
-            if self.proxy_manager:
-                proxy_config = await self.proxy_manager.get_proxy_config()
-                if proxy_config and proxy_config.enabled and proxy_config.proxy_url:
-                    proxy_url = proxy_config.proxy_url
+        # Get proxy if available
+        proxy_url = None
+        if self.proxy_manager:
+            proxy_config = await self.proxy_manager.get_proxy_config()
+            if proxy_config and proxy_config.enabled and proxy_config.proxy_url:
+                proxy_url = proxy_config.proxy_url
 
-            # Download with proxy support
+        # Try method 1: curl_cffi with browser impersonation
+        try:
             async with AsyncSession() as session:
                 proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
-                response = await session.get(url, timeout=60, proxies=proxies)
+                headers = {
+                    "Accept": "*/*",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Upgrade-Insecure-Requests": "1"
+                }
+                response = await session.get(
+                    url,
+                    timeout=60,
+                    proxies=proxies,
+                    headers=headers,
+                    impersonate="chrome120",
+                    verify=False
+                )
 
-                if response.status_code != 200:
-                    raise Exception(f"Download failed: HTTP {response.status_code}")
+                if response.status_code == 200:
+                    with open(file_path, 'wb') as f:
+                        f.write(response.content)
+                    debug_logger.log_info(f"File cached (curl_cffi): {filename} ({len(response.content)} bytes)")
+                    return filename
+                else:
+                    debug_logger.log_warning(f"curl_cffi failed with HTTP {response.status_code}, trying wget...")
 
-                # Save to cache
-                with open(file_path, 'wb') as f:
-                    f.write(response.content)
+        except Exception as e:
+            debug_logger.log_warning(f"curl_cffi failed: {str(e)}, trying wget...")
 
-                debug_logger.log_info(f"File cached: {filename} ({len(response.content)} bytes)")
-                return filename
+        # Try method 2: wget command
+        try:
+            import subprocess
+
+            wget_cmd = [
+                "wget",
+                "-q",  # Quiet mode
+                "-O", str(file_path),  # Output file
+                "--timeout=60",
+                "--tries=3",
+                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "--header=Accept: */*",
+                "--header=Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+                "--header=Connection: keep-alive"
+            ]
+
+            # Add proxy if configured
+            if proxy_url:
+                # wget uses environment variables for proxy
+                env = os.environ.copy()
+                env['http_proxy'] = proxy_url
+                env['https_proxy'] = proxy_url
+            else:
+                env = None
+
+            # Add URL
+            wget_cmd.append(url)
+
+            # Execute wget
+            result = subprocess.run(wget_cmd, capture_output=True, timeout=90, env=env)
+
+            if result.returncode == 0 and file_path.exists():
+                file_size = file_path.stat().st_size
+                if file_size > 0:
+                    debug_logger.log_info(f"File cached (wget): {filename} ({file_size} bytes)")
+                    return filename
+                else:
+                    raise Exception("Downloaded file is empty")
+            else:
+                error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                debug_logger.log_warning(f"wget failed: {error_msg}, trying curl...")
+
+        except FileNotFoundError:
+            debug_logger.log_warning("wget not found, trying curl...")
+        except Exception as e:
+            debug_logger.log_warning(f"wget failed: {str(e)}, trying curl...")
+
+        # Try method 3: system curl command
+        try:
+            import subprocess
+
+            curl_cmd = [
+                "curl",
+                "-L",  # Follow redirects
+                "-s",  # Silent mode
+                "-o", str(file_path),  # Output file
+                "--max-time", "60",
+                "-H", "Accept: */*",
+                "-H", "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+                "-H", "Connection: keep-alive",
+                "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ]
+
+            # Add proxy if configured
+            if proxy_url:
+                curl_cmd.extend(["-x", proxy_url])
+
+            # Add URL
+            curl_cmd.append(url)
+
+            # Execute curl
+            result = subprocess.run(curl_cmd, capture_output=True, timeout=90)
+
+            if result.returncode == 0 and file_path.exists():
+                file_size = file_path.stat().st_size
+                if file_size > 0:
+                    debug_logger.log_info(f"File cached (curl): {filename} ({file_size} bytes)")
+                    return filename
+                else:
+                    raise Exception("Downloaded file is empty")
+            else:
+                error_msg = result.stderr.decode('utf-8', errors='ignore') if result.stderr else "Unknown error"
+                raise Exception(f"curl command failed: {error_msg}")
 
         except Exception as e:
             debug_logger.log_error(

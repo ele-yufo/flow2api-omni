@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Optional, List
 from pathlib import Path
-from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig
+from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig
 
 
 class Database:
@@ -167,6 +167,15 @@ class Database:
                 VALUES (1, ?, ?, ?)
             """, (captcha_method, yescaptcha_api_key, yescaptcha_base_url))
 
+        # Ensure plugin_config has a row
+        cursor = await db.execute("SELECT COUNT(*) FROM plugin_config")
+        count = await cursor.fetchone()
+        if count[0] == 0:
+            await db.execute("""
+                INSERT INTO plugin_config (id, connection_token)
+                VALUES (1, '')
+            """)
+
     async def check_and_migrate_db(self, config_dict: dict = None):
         """Check database integrity and perform migrations if needed
 
@@ -211,6 +220,18 @@ class Database:
                         page_action TEXT DEFAULT 'FLOW_GENERATION',
                         browser_proxy_enabled BOOLEAN DEFAULT 0,
                         browser_proxy_url TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # Check and create plugin_config table if missing
+            if not await self._table_exists(db, "plugin_config"):
+                print("  ✓ Creating missing table: plugin_config")
+                await db.execute("""
+                    CREATE TABLE plugin_config (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        connection_token TEXT DEFAULT '',
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -463,6 +484,16 @@ class Database:
                 )
             """)
 
+            # Plugin config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS plugin_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    connection_token TEXT DEFAULT '',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # Create indexes
             await db.execute("CREATE INDEX IF NOT EXISTS idx_task_id ON tasks(task_id)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_token_st ON tokens(st)")
@@ -567,6 +598,16 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM tokens WHERE st = ?", (st,))
+            row = await cursor.fetchone()
+            if row:
+                return Token(**dict(row))
+            return None
+
+    async def get_token_by_email(self, email: str) -> Optional[Token]:
+        """Get token by email"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM tokens WHERE email = ?", (email,))
             row = await cursor.fetchone()
             if row:
                 return Token(**dict(row))
@@ -1172,5 +1213,37 @@ class Database:
                     INSERT INTO captcha_config (id, captcha_method, yescaptcha_api_key, yescaptcha_base_url, browser_proxy_enabled, browser_proxy_url)
                     VALUES (1, ?, ?, ?, ?, ?)
                 """, (new_method, new_api_key, new_base_url, new_proxy_enabled, new_proxy_url))
+
+            await db.commit()
+
+    # Plugin config operations
+    async def get_plugin_config(self) -> PluginConfig:
+        """Get plugin configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM plugin_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return PluginConfig(**dict(row))
+            return PluginConfig()
+
+    async def update_plugin_config(self, connection_token: str):
+        """Update plugin configuration"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM plugin_config WHERE id = 1")
+            row = await cursor.fetchone()
+
+            if row:
+                await db.execute("""
+                    UPDATE plugin_config
+                    SET connection_token = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = 1
+                """, (connection_token,))
+            else:
+                await db.execute("""
+                    INSERT INTO plugin_config (id, connection_token)
+                    VALUES (1, ?)
+                """, (connection_token,))
 
             await db.commit()
