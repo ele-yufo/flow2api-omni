@@ -68,18 +68,46 @@ async def lifespan(app: FastAPI):
 
     # Load captcha configuration from database
     captcha_config = await db.get_captcha_config()
-    config.set_captcha_method(captcha_config.captcha_method)
+    
+    # Helper function to detect headless/Docker environment
+    def is_headless_environment() -> bool:
+        """Check if running in a headless environment (Docker, no display, etc.)"""
+        import os
+        # Check for DISPLAY environment variable (X11)
+        if not os.environ.get("DISPLAY"):
+            # Check if running in Docker
+            if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_CONTAINER"):
+                return True
+            # Check for common CI/container indicators
+            if os.environ.get("CI") or os.environ.get("KUBERNETES_SERVICE_HOST"):
+                return True
+            # No DISPLAY and not explicitly local
+            return True
+        return False
+    
+    # Determine effective captcha method
+    effective_captcha_method = captcha_config.captcha_method
+    
+    # Auto-downgrade personal mode to browser mode in headless environments
+    if captcha_config.captcha_method == "personal" and is_headless_environment():
+        print("⚠️  WARNING: 'personal' captcha mode requires a display (X Server).")
+        print("   Detected headless environment (Docker/No Display).")
+        print("   Auto-switching to 'browser' (headless) mode.")
+        print("   To use 'personal' mode, run Flow2API on a machine with a display.")
+        effective_captcha_method = "browser"
+    
+    config.set_captcha_method(effective_captcha_method)
     config.set_yescaptcha_api_key(captcha_config.yescaptcha_api_key)
     config.set_yescaptcha_base_url(captcha_config.yescaptcha_base_url)
 
     # Initialize browser captcha service if needed
     browser_service = None
-    if captcha_config.captcha_method == "personal":
+    if effective_captcha_method == "personal":
         from .services.browser_captcha_personal import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
         await browser_service.open_login_window()
         print("✓ Browser captcha service initialized (webui mode)")
-    elif captcha_config.captcha_method == "browser":
+    elif effective_captcha_method == "browser":
         from .services.browser_captcha import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
         print("✓ Browser captcha service initialized (headless mode)")
@@ -135,7 +163,7 @@ async def lifespan(app: FastAPI):
 # Initialize components
 db = Database()
 proxy_manager = ProxyManager(db)
-flow_client = FlowClient(proxy_manager)
+flow_client = FlowClient(proxy_manager, db)
 token_manager = TokenManager(db, flow_client)
 concurrency_manager = ConcurrencyManager()
 load_balancer = LoadBalancer(token_manager, concurrency_manager)
