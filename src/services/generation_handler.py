@@ -109,7 +109,7 @@ MODEL_CONFIG = {
     "veo_3_1_i2v_s_fast_fl_portrait": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_fl",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_fl_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 1,
@@ -118,7 +118,7 @@ MODEL_CONFIG = {
     "veo_3_1_i2v_s_fast_fl_landscape": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_fl",
+        "model_key": "veo_3_1_i2v_s_fast_landscape_fl_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 1,

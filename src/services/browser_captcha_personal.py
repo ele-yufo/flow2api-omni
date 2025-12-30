@@ -1,197 +1,288 @@
+"""
+浏览器自动化获取 reCAPTCHA token
+使用 nodriver (undetected-chromedriver 继任者) 实现反检测浏览器
+"""
 import asyncio
 import time
-import re
 import os
-from typing import Optional, Dict
-from playwright.async_api import async_playwright, BrowserContext, Page
+from typing import Optional
+
+import nodriver as uc
 
 from ..core.logger import debug_logger
 
-# ... (保持原来的 parse_proxy_url 和 validate_browser_proxy_url 函数不变) ...
-def parse_proxy_url(proxy_url: str) -> Optional[Dict[str, str]]:
-    """解析代理URL，分离协议、主机、端口、认证信息"""
-    proxy_pattern = r'^(socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$'
-    match = re.match(proxy_pattern, proxy_url)
-    if match:
-        protocol, username, password, host, port = match.groups()
-        proxy_config = {'server': f'{protocol}://{host}:{port}'}
-        if username and password:
-            proxy_config['username'] = username
-            proxy_config['password'] = password
-        return proxy_config
-    return None
 
 class BrowserCaptchaService:
-    """浏览器自动化获取 reCAPTCHA token（持久化有头模式）"""
+    """浏览器自动化获取 reCAPTCHA token（nodriver 有头模式）"""
 
     _instance: Optional['BrowserCaptchaService'] = None
     _lock = asyncio.Lock()
 
     def __init__(self, db=None):
         """初始化服务"""
-        # === 修改点 1: 设置为有头模式 ===
-        self.headless = False 
-        self.playwright = None
-        # 注意: 持久化模式下，我们操作的是 context 而不是 browser
-        self.context: Optional[BrowserContext] = None 
+        self.headless = False  # nodriver 有头模式
+        self.browser = None
         self._initialized = False
         self.website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
         self.db = db
-        
-        # === 修改点 2: 指定本地数据存储目录 ===
-        # 这会在脚本运行目录下生成 browser_data 文件夹，用于保存你的登录状态
+        # 持久化 profile 目录
         self.user_data_dir = os.path.join(os.getcwd(), "browser_data")
 
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
+        """获取单例实例"""
         if cls._instance is None:
             async with cls._lock:
                 if cls._instance is None:
                     cls._instance = cls(db)
-                    # 首次调用不强制初始化，等待 get_token 时懒加载，或者可以在这里await
         return cls._instance
 
     async def initialize(self):
-        """初始化持久化浏览器上下文"""
-        if self._initialized and self.context:
-            return
+        """初始化 nodriver 浏览器"""
+        if self._initialized and self.browser:
+            # 检查浏览器是否仍然存活
+            try:
+                # 尝试获取浏览器信息验证存活
+                if self.browser.stopped:
+                    debug_logger.log_warning("[BrowserCaptcha] 浏览器已停止，重新初始化...")
+                    self._initialized = False
+                else:
+                    return
+            except Exception:
+                debug_logger.log_warning("[BrowserCaptcha] 浏览器无响应，重新初始化...")
+                self._initialized = False
 
         try:
-            proxy_url = None
-            if self.db:
-                captcha_config = await self.db.get_captcha_config()
-                if captcha_config.browser_proxy_enabled and captcha_config.browser_proxy_url:
-                    proxy_url = captcha_config.browser_proxy_url
+            debug_logger.log_info(f"[BrowserCaptcha] 正在启动 nodriver 浏览器 (用户数据目录: {self.user_data_dir})...")
 
-            debug_logger.log_info(f"[BrowserCaptcha] 正在启动浏览器 (用户数据目录: {self.user_data_dir})...")
-            self.playwright = await async_playwright().start()
+            # 确保 user_data_dir 存在
+            os.makedirs(self.user_data_dir, exist_ok=True)
 
-            # 配置启动参数
-            launch_options = {
-                'headless': self.headless,
-                'user_data_dir': self.user_data_dir, # 指定数据目录
-                'viewport': {'width': 1280, 'height': 720}, # 设置默认窗口大小
-                'args': [
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-infobars',
+            # 启动 nodriver 浏览器
+            self.browser = await uc.start(
+                headless=self.headless,
+                user_data_dir=self.user_data_dir,
+                browser_args=[
                     '--no-sandbox',
+                    '--disable-dev-shm-usage',
                     '--disable-setuid-sandbox',
+                    '--disable-gpu',
+                    '--window-size=1280,720',
                 ]
-            }
-
-            # 代理配置
-            if proxy_url:
-                proxy_config = parse_proxy_url(proxy_url)
-                if proxy_config:
-                    launch_options['proxy'] = proxy_config
-                    debug_logger.log_info(f"[BrowserCaptcha] 使用代理: {proxy_config['server']}")
-
-            # === 修改点 3: 使用 launch_persistent_context ===
-            # 这会启动一个带有状态的浏览器窗口
-            self.context = await self.playwright.chromium.launch_persistent_context(**launch_options)
-            
-            # 设置默认超时
-            self.context.set_default_timeout(30000)
+            )
 
             self._initialized = True
-            debug_logger.log_info(f"[BrowserCaptcha] ✅ 浏览器已启动 (Profile: {self.user_data_dir})")
-            
+            debug_logger.log_info(f"[BrowserCaptcha] ✅ nodriver 浏览器已启动 (Profile: {self.user_data_dir})")
+
         except Exception as e:
             debug_logger.log_error(f"[BrowserCaptcha] ❌ 浏览器启动失败: {str(e)}")
             raise
 
     async def get_token(self, project_id: str) -> Optional[str]:
-        """获取 reCAPTCHA token"""
+        """获取 reCAPTCHA token
+
+        Args:
+            project_id: Flow项目ID
+
+        Returns:
+            reCAPTCHA token字符串，如果获取失败返回None
+        """
         # 确保浏览器已启动
-        if not self._initialized or not self.context:
+        if not self._initialized or not self.browser:
             await self.initialize()
 
         start_time = time.time()
-        page: Optional[Page] = None
+        tab = None
 
         try:
-            # === 修改点 4: 在现有上下文中新建标签页，而不是新建上下文 ===
-            # 这样可以复用该上下文中已保存的 Cookie (你的登录状态)
-            page = await self.context.new_page()
-
             website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
             debug_logger.log_info(f"[BrowserCaptcha] 访问页面: {website_url}")
 
-            # 访问页面
-            try:
-                await page.goto(website_url, wait_until="domcontentloaded")
-            except Exception as e:
-                debug_logger.log_warning(f"[BrowserCaptcha] 页面加载警告: {str(e)}")
+            # 新建标签页并访问页面
+            tab = await self.browser.get(website_url)
 
-            # --- 关键点：如果需要人工介入 ---
-            # 你可以在这里加入一段逻辑，如果是第一次运行，或者检测到未登录，
-            # 可以暂停脚本，等你手动操作完再继续。
-            # 例如: await asyncio.sleep(30) 
+            # 等待页面完全加载（增加等待时间）
+            debug_logger.log_info("[BrowserCaptcha] 等待页面加载...")
+            await tab.sleep(3)
             
-            # ... (中间注入脚本和执行 reCAPTCHA 的代码逻辑与原版完全一致，此处省略以节省篇幅) ...
-            # ... 请将原代码中从 "检查并注入 reCAPTCHA v3 脚本" 到 token 获取部分的代码复制到这里 ...
+            # 等待页面 DOM 完成
+            for _ in range(10):
+                ready_state = await tab.evaluate("document.readyState")
+                if ready_state == "complete":
+                    break
+                await tab.sleep(0.5)
+
+            # 检测 reCAPTCHA 是否已加载
+            debug_logger.log_info("[BrowserCaptcha] 检测 reCAPTCHA...")
             
-            # 这里为了演示，简写注入逻辑（请保留你原有的完整注入逻辑）:
-            script_loaded = await page.evaluate("() => { return !!(window.grecaptcha && window.grecaptcha.execute); }")
-            if not script_loaded:
-                await page.evaluate(f"""
-                    () => {{
+            # 页面使用的是 reCAPTCHA Enterprise，检查 grecaptcha.enterprise.execute
+            is_enterprise = await tab.evaluate(
+                "typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined' && typeof grecaptcha.enterprise.execute === 'function'"
+            )
+            
+            debug_logger.log_info(f"[BrowserCaptcha] 检测结果: is_enterprise={is_enterprise}")
+            
+            recaptcha_type = "enterprise" if is_enterprise else None
+
+            # 如果没有检测到 reCAPTCHA，尝试注入脚本
+            if not recaptcha_type:
+                debug_logger.log_info("[BrowserCaptcha] 未检测到 reCAPTCHA，注入脚本...")
+                
+                # 注入标准版 reCAPTCHA 脚本
+                await tab.evaluate(f"""
+                    (() => {{
+                        if (document.querySelector('script[src*="recaptcha"]')) return;
                         const script = document.createElement('script');
                         script.src = 'https://www.google.com/recaptcha/api.js?render={self.website_key}';
-                        script.async = true; script.defer = true;
+                        script.async = true;
                         document.head.appendChild(script);
-                    }}
+                    }})()
                 """)
-                # 等待加载... (保留你原有的等待循环)
-                await page.wait_for_timeout(2000) 
+                
+                # 等待脚本加载
+                await tab.sleep(3)
+                
+                # 轮询等待 reCAPTCHA 加载
+                for i in range(20):
+                    is_enterprise = await tab.evaluate(
+                        "typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined' && typeof grecaptcha.enterprise.execute === 'function'"
+                    )
+                    
+                    if is_enterprise:
+                        recaptcha_type = "enterprise"
+                        debug_logger.log_info(f"[BrowserCaptcha] reCAPTCHA Enterprise 已加载（等待了 {i * 0.5} 秒）")
+                        break
+                    await tab.sleep(0.5)
+                else:
+                    debug_logger.log_warning("[BrowserCaptcha] reCAPTCHA 加载超时")
 
-            # 执行获取 Token (保留你原有的 execute 逻辑)
-            token = await page.evaluate(f"""
-                async () => {{
-                    try {{
-                        return await window.grecaptcha.execute('{self.website_key}', {{ action: 'FLOW_GENERATION' }});
-                    }} catch (e) {{ return null; }}
-                }}
-            """)
+            if not recaptcha_type:
+                debug_logger.log_error("[BrowserCaptcha] reCAPTCHA 无法加载")
+                return None
+
+            # 执行 reCAPTCHA 并获取 token（使用 window 变量传递异步结果）
+            debug_logger.log_info(f"[BrowserCaptcha] 执行 reCAPTCHA 验证 (类型: {recaptcha_type})...")
             
+            # 生成唯一变量名避免冲突
+            ts = int(time.time() * 1000)
+            token_var = f"_recaptcha_token_{ts}"
+            error_var = f"_recaptcha_error_{ts}"
+            
+            # 根据类型选择正确的 API
+            if recaptcha_type == "enterprise":
+                execute_script = f"""
+                    (() => {{
+                        window.{token_var} = null;
+                        window.{error_var} = null;
+                        
+                        try {{
+                            grecaptcha.enterprise.ready(function() {{
+                                grecaptcha.enterprise.execute('{self.website_key}', {{action: 'FLOW_GENERATION'}})
+                                    .then(function(token) {{
+                                        window.{token_var} = token;
+                                    }})
+                                    .catch(function(err) {{
+                                        window.{error_var} = err.message || 'execute failed';
+                                    }});
+                            }});
+                        }} catch (e) {{
+                            window.{error_var} = e.message || 'exception';
+                        }}
+                    }})()
+                """
+            else:
+                execute_script = f"""
+                    (() => {{
+                        window.{token_var} = null;
+                        window.{error_var} = null;
+                        
+                        try {{
+                            if (grecaptcha.ready) {{
+                                grecaptcha.ready(function() {{
+                                    grecaptcha.execute('{self.website_key}', {{action: 'FLOW_GENERATION'}})
+                                        .then(function(token) {{
+                                            window.{token_var} = token;
+                                        }})
+                                        .catch(function(err) {{
+                                            window.{error_var} = err.message || 'execute failed';
+                                        }});
+                                }});
+                            }} else {{
+                                grecaptcha.execute('{self.website_key}', {{action: 'FLOW_GENERATION'}})
+                                    .then(function(token) {{
+                                        window.{token_var} = token;
+                                    }})
+                                    .catch(function(err) {{
+                                        window.{error_var} = err.message || 'execute failed';
+                                    }});
+                            }}
+                        }} catch (e) {{
+                            window.{error_var} = e.message || 'exception';
+                        }}
+                    }})()
+                """
+            
+            # 注入执行脚本
+            await tab.evaluate(execute_script)
+            
+            # 轮询等待结果（最多 15 秒）
+            token = None
+            for i in range(30):
+                await tab.sleep(0.5)
+                token = await tab.evaluate(f"window.{token_var}")
+                if token:
+                    debug_logger.log_info(f"[BrowserCaptcha] Token 已获取（等待了 {i * 0.5} 秒）")
+                    break
+                error = await tab.evaluate(f"window.{error_var}")
+                if error:
+                    debug_logger.log_error(f"[BrowserCaptcha] reCAPTCHA 错误: {error}")
+                    break
+            
+            # 清理临时变量
+            try:
+                await tab.evaluate(f"delete window.{token_var}; delete window.{error_var};")
+            except:
+                pass
+
+            duration_ms = (time.time() - start_time) * 1000
+
             if token:
-                debug_logger.log_info(f"[BrowserCaptcha] ✅ Token获取成功")
+                debug_logger.log_info(f"[BrowserCaptcha] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
                 return token
             else:
-                debug_logger.log_error("[BrowserCaptcha] Token获取失败")
+                debug_logger.log_error("[BrowserCaptcha] Token获取失败（返回null）")
                 return None
 
         except Exception as e:
-            debug_logger.log_error(f"[BrowserCaptcha] 异常: {str(e)}")
+            debug_logger.log_error(f"[BrowserCaptcha] 获取token异常: {str(e)}")
             return None
         finally:
-            # === 修改点 5: 只关闭 Page (标签页)，不关闭 Context (浏览器窗口) ===
-            if page:
+            # 关闭标签页（但保留浏览器）
+            if tab:
                 try:
-                    await page.close()
-                except:
+                    await tab.close()
+                except Exception:
                     pass
 
     async def close(self):
-        """完全关闭浏览器（清理资源时调用）"""
+        """关闭浏览器"""
         try:
-            if self.context:
-                await self.context.close() # 这会关闭整个浏览器窗口
-                self.context = None
-            
-            if self.playwright:
-                await self.playwright.stop()
-                self.playwright = None
-                
-            self._initialized = False
-            debug_logger.log_info("[BrowserCaptcha] 浏览器服务已关闭")
-        except Exception as e:
-            debug_logger.log_error(f"[BrowserCaptcha] 关闭异常: {str(e)}")
+            if self.browser:
+                try:
+                    self.browser.stop()
+                except Exception as e:
+                    debug_logger.log_warning(f"[BrowserCaptcha] 关闭浏览器时出现异常: {str(e)}")
+                finally:
+                    self.browser = None
 
-    # 增加一个辅助方法，用于手动登录
+            self._initialized = False
+            debug_logger.log_info("[BrowserCaptcha] 浏览器已关闭")
+        except Exception as e:
+            debug_logger.log_error(f"[BrowserCaptcha] 关闭浏览器异常: {str(e)}")
+
     async def open_login_window(self):
-        """调用此方法打开一个永久窗口供你登录Google"""
+        """打开登录窗口供用户手动登录 Google"""
         await self.initialize()
-        page = await self.context.new_page()
-        await page.goto("https://accounts.google.com/")
+        tab = await self.browser.get("https://accounts.google.com/")
+        debug_logger.log_info("[BrowserCaptcha] 请在打开的浏览器中登录账号。登录完成后，无需关闭浏览器，脚本下次运行时会自动使用此状态。")
         print("请在打开的浏览器中登录账号。登录完成后，无需关闭浏览器，脚本下次运行时会自动使用此状态。")
