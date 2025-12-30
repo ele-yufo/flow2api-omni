@@ -1,7 +1,7 @@
 """
 浏览器自动化获取 reCAPTCHA token
 使用 nodriver (undetected-chromedriver 继任者) 实现反检测浏览器
-支持常驻模式：基于单一 project_id 保持常驻标签页，即时生成 token
+支持常驻模式：为每个 project_id 自动创建常驻标签页，即时生成 token
 """
 import asyncio
 import time
@@ -13,11 +13,20 @@ import nodriver as uc
 from ..core.logger import debug_logger
 
 
+class ResidentTabInfo:
+    """常驻标签页信息结构"""
+    def __init__(self, tab, project_id: str):
+        self.tab = tab
+        self.project_id = project_id
+        self.recaptcha_ready = False
+        self.created_at = time.time()
+
+
 class BrowserCaptchaService:
     """浏览器自动化获取 reCAPTCHA token（nodriver 有头模式）
     
     支持两种模式：
-    1. 常驻模式 (Resident Mode): 保持一个常驻标签页，即时生成 token
+    1. 常驻模式 (Resident Mode): 为每个 project_id 保持常驻标签页，即时生成 token
     2. 传统模式 (Legacy Mode): 每次请求创建新标签页 (fallback)
     """
 
@@ -34,11 +43,15 @@ class BrowserCaptchaService:
         # 持久化 profile 目录
         self.user_data_dir = os.path.join(os.getcwd(), "browser_data")
         
-        # 常驻模式相关属性
-        self.resident_project_id: Optional[str] = None  # 常驻 project_id
-        self.resident_tab = None                         # 常驻标签页
-        self._running = False                            # 常驻模式运行状态
-        self._recaptcha_ready = False                    # reCAPTCHA 是否已加载
+        # 常驻模式相关属性 (支持多 project_id)
+        self._resident_tabs: dict[str, 'ResidentTabInfo'] = {}  # project_id -> 常驻标签页信息
+        self._resident_lock = asyncio.Lock()  # 保护常驻标签页操作
+        
+        # 兼容旧 API（保留 single resident 属性作为别名）
+        self.resident_project_id: Optional[str] = None  # 向后兼容
+        self.resident_tab = None                         # 向后兼容
+        self._running = False                            # 向后兼容
+        self._recaptcha_ready = False                    # 向后兼容
 
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
@@ -153,14 +166,34 @@ class BrowserCaptchaService:
         self._running = True
         debug_logger.log_info(f"[BrowserCaptcha] ✅ 常驻模式已启动 (project: {project_id})")
 
-    async def stop_resident_mode(self):
-        """停止常驻模式"""
+    async def stop_resident_mode(self, project_id: Optional[str] = None):
+        """停止常驻模式
+        
+        Args:
+            project_id: 指定要关闭的 project_id，如果为 None 则关闭所有常驻标签页
+        """
+        async with self._resident_lock:
+            if project_id:
+                # 关闭指定的常驻标签页
+                await self._close_resident_tab(project_id)
+                debug_logger.log_info(f"[BrowserCaptcha] 已关闭 project_id={project_id} 的常驻模式")
+            else:
+                # 关闭所有常驻标签页
+                project_ids = list(self._resident_tabs.keys())
+                for pid in project_ids:
+                    resident_info = self._resident_tabs.pop(pid, None)
+                    if resident_info and resident_info.tab:
+                        try:
+                            await resident_info.tab.close()
+                        except Exception:
+                            pass
+                debug_logger.log_info(f"[BrowserCaptcha] 已关闭所有常驻标签页 (共 {len(project_ids)} 个)")
+        
+        # 向后兼容：清理旧属性
         if not self._running:
             return
         
         self._running = False
-        
-        # 关闭常驻标签页
         if self.resident_tab:
             try:
                 await self.resident_tab.close()
@@ -170,8 +203,6 @@ class BrowserCaptchaService:
         
         self.resident_project_id = None
         self._recaptcha_ready = False
-        
-        debug_logger.log_info("[BrowserCaptcha] 常驻模式已停止")
 
     async def _wait_for_recaptcha(self, tab) -> bool:
         """等待 reCAPTCHA 加载
@@ -283,32 +314,140 @@ class BrowserCaptchaService:
     async def get_token(self, project_id: str) -> Optional[str]:
         """获取 reCAPTCHA token
         
-        常驻模式：直接从常驻标签页即时生成 token
-        传统模式：每次创建新标签页 (fallback)
-
+        自动常驻模式：如果该 project_id 没有常驻标签页，则自动创建并常驻
+        
         Args:
             project_id: Flow项目ID
 
         Returns:
             reCAPTCHA token字符串，如果获取失败返回None
         """
-        # 如果是常驻模式且 project_id 匹配，直接从常驻标签页生成
-        if self._running and self.resident_project_id == project_id:
-            if self._recaptcha_ready and self.resident_tab:
-                start_time = time.time()
-                debug_logger.log_info("[BrowserCaptcha] 从常驻标签页即时生成 token...")
-                token = await self._execute_recaptcha_on_tab(self.resident_tab)
+        # 确保浏览器已初始化
+        await self.initialize()
+        
+        # 尝试从常驻标签页获取 token
+        async with self._resident_lock:
+            resident_info = self._resident_tabs.get(project_id)
+            
+            # 如果该 project_id 没有常驻标签页，则自动创建
+            if resident_info is None:
+                debug_logger.log_info(f"[BrowserCaptcha] project_id={project_id} 没有常驻标签页，正在创建...")
+                resident_info = await self._create_resident_tab(project_id)
+                if resident_info is None:
+                    debug_logger.log_warning(f"[BrowserCaptcha] 无法为 project_id={project_id} 创建常驻标签页，fallback 到传统模式")
+                    return await self._get_token_legacy(project_id)
+                self._resident_tabs[project_id] = resident_info
+                debug_logger.log_info(f"[BrowserCaptcha] ✅ 已为 project_id={project_id} 创建常驻标签页 (当前共 {len(self._resident_tabs)} 个)")
+        
+        # 使用常驻标签页生成 token
+        if resident_info and resident_info.recaptcha_ready and resident_info.tab:
+            start_time = time.time()
+            debug_logger.log_info(f"[BrowserCaptcha] 从常驻标签页即时生成 token (project: {project_id})...")
+            try:
+                token = await self._execute_recaptcha_on_tab(resident_info.tab)
                 duration_ms = (time.time() - start_time) * 1000
                 if token:
                     debug_logger.log_info(f"[BrowserCaptcha] ✅ Token生成成功（耗时 {duration_ms:.0f}ms）")
                     return token
                 else:
-                    debug_logger.log_warning("[BrowserCaptcha] 常驻模式生成失败，fallback到传统模式")
-            else:
-                debug_logger.log_warning("[BrowserCaptcha] 常驻标签页未就绪，fallback到传统模式")
+                    debug_logger.log_warning(f"[BrowserCaptcha] 常驻标签页生成失败 (project: {project_id})，尝试重建...")
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] 常驻标签页异常: {e}，尝试重建...")
+            
+            # 常驻标签页失效，尝试重建
+            async with self._resident_lock:
+                await self._close_resident_tab(project_id)
+                resident_info = await self._create_resident_tab(project_id)
+                if resident_info:
+                    self._resident_tabs[project_id] = resident_info
+                    # 重建后立即尝试生成
+                    try:
+                        token = await self._execute_recaptcha_on_tab(resident_info.tab)
+                        if token:
+                            debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Token生成成功")
+                            return token
+                    except Exception:
+                        pass
         
-        # Fallback: 使用传统模式
+        # 最终 Fallback: 使用传统模式
+        debug_logger.log_warning(f"[BrowserCaptcha] 所有常驻方式失败，fallback 到传统模式 (project: {project_id})")
         return await self._get_token_legacy(project_id)
+
+    async def _create_resident_tab(self, project_id: str) -> Optional[ResidentTabInfo]:
+        """为指定 project_id 创建常驻标签页
+        
+        Args:
+            project_id: 项目 ID
+            
+        Returns:
+            ResidentTabInfo 对象，或 None（创建失败）
+        """
+        try:
+            website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
+            debug_logger.log_info(f"[BrowserCaptcha] 为 project_id={project_id} 创建常驻标签页，访问: {website_url}")
+            
+            # 创建新标签页
+            tab = await self.browser.get(website_url, new_tab=True)
+            
+            # 等待页面加载完成
+            page_loaded = False
+            for retry in range(15):
+                try:
+                    await asyncio.sleep(1)
+                    ready_state = await tab.evaluate("document.readyState")
+                    if ready_state == "complete":
+                        page_loaded = True
+                        break
+                except ConnectionRefusedError as e:
+                    debug_logger.log_warning(f"[BrowserCaptcha] 标签页连接丢失: {e}")
+                    return None
+                except Exception as e:
+                    debug_logger.log_warning(f"[BrowserCaptcha] 等待页面异常: {e}，重试 {retry + 1}/15...")
+                    await asyncio.sleep(1)
+            
+            if not page_loaded:
+                debug_logger.log_error(f"[BrowserCaptcha] 页面加载超时 (project: {project_id})")
+                try:
+                    await tab.close()
+                except:
+                    pass
+                return None
+            
+            # 等待 reCAPTCHA 加载
+            recaptcha_ready = await self._wait_for_recaptcha(tab)
+            
+            if not recaptcha_ready:
+                debug_logger.log_error(f"[BrowserCaptcha] reCAPTCHA 加载失败 (project: {project_id})")
+                try:
+                    await tab.close()
+                except:
+                    pass
+                return None
+            
+            # 创建常驻信息对象
+            resident_info = ResidentTabInfo(tab, project_id)
+            resident_info.recaptcha_ready = True
+            
+            debug_logger.log_info(f"[BrowserCaptcha] ✅ 常驻标签页创建成功 (project: {project_id})")
+            return resident_info
+            
+        except Exception as e:
+            debug_logger.log_error(f"[BrowserCaptcha] 创建常驻标签页异常: {e}")
+            return None
+
+    async def _close_resident_tab(self, project_id: str):
+        """关闭指定 project_id 的常驻标签页
+        
+        Args:
+            project_id: 项目 ID
+        """
+        resident_info = self._resident_tabs.pop(project_id, None)
+        if resident_info and resident_info.tab:
+            try:
+                await resident_info.tab.close()
+                debug_logger.log_info(f"[BrowserCaptcha] 已关闭 project_id={project_id} 的常驻标签页")
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] 关闭标签页时异常: {e}")
 
     async def _get_token_legacy(self, project_id: str) -> Optional[str]:
         """传统模式获取 reCAPTCHA token（每次创建新标签页）
@@ -377,7 +516,7 @@ class BrowserCaptchaService:
 
     async def close(self):
         """关闭浏览器"""
-        # 先停止常驻模式
+        # 先停止所有常驻模式（关闭所有常驻标签页）
         await self.stop_resident_mode()
         
         try:
@@ -390,6 +529,7 @@ class BrowserCaptchaService:
                     self.browser = None
 
             self._initialized = False
+            self._resident_tabs.clear()  # 确保清空常驻字典
             debug_logger.log_info("[BrowserCaptcha] 浏览器已关闭")
         except Exception as e:
             debug_logger.log_error(f"[BrowserCaptcha] 关闭浏览器异常: {str(e)}")
@@ -404,13 +544,19 @@ class BrowserCaptchaService:
     # ========== 状态查询 ==========
 
     def is_resident_mode_active(self) -> bool:
-        """检查常驻模式是否激活"""
-        return self._running
+        """检查是否有任何常驻标签页激活"""
+        return len(self._resident_tabs) > 0 or self._running
 
-    def get_queue_size(self) -> int:
-        """获取当前缓存队列大小"""
-        return self.token_queue.qsize()
+    def get_resident_count(self) -> int:
+        """获取当前常驻标签页数量"""
+        return len(self._resident_tabs)
+
+    def get_resident_project_ids(self) -> list[str]:
+        """获取所有当前常驻的 project_id 列表"""
+        return list(self._resident_tabs.keys())
 
     def get_resident_project_id(self) -> Optional[str]:
-        """获取当前常驻的 project_id"""
+        """获取当前常驻的 project_id（向后兼容，返回第一个）"""
+        if self._resident_tabs:
+            return next(iter(self._resident_tabs.keys()))
         return self.resident_project_id
