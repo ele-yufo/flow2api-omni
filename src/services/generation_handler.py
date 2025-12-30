@@ -745,8 +745,30 @@ class GenerationHandler:
                         )
                     return
 
+                elif status == "MEDIA_GENERATION_STATUS_FAILED":
+                    # 生成失败 - 提取错误信息
+                    error_info = operation.get("operation", {}).get("error", {})
+                    error_code = error_info.get("code", "unknown")
+                    error_message = error_info.get("message", "未知错误")
+                    
+                    # 更新数据库任务状态
+                    task_id = operation["operation"]["name"]
+                    await self.db.update_task(
+                        task_id,
+                        status="failed",
+                        error_message=f"{error_message} (code: {error_code})",
+                        completed_at=time.time()
+                    )
+                    
+                    # 返回友好的错误消息，提示用户重试
+                    friendly_error = f"视频生成失败: {error_message}，请重试"
+                    if stream:
+                        yield self._create_stream_chunk(f"❌ {friendly_error}\n")
+                    yield self._create_error_response(friendly_error)
+                    return
+
                 elif status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
-                    # 失败
+                    # 其他错误状态
                     yield self._create_error_response(f"视频生成失败: {status}")
                     return
 
