@@ -133,10 +133,10 @@ async def create_chat_completion(
         # 自动参考图：仅对图片模型生效
         model_config = MODEL_CONFIG.get(request.model)
 
-        if model_config and model_config["type"] == "image" and not images and len(request.messages) > 1:
+        if model_config and model_config["type"] == "image" and len(request.messages) > 1:
             debug_logger.log_info(f"[CONTEXT] 开始查找历史参考图，消息数量: {len(request.messages)}")
 
-            # 如果当前请求没有上传图片，则尝试从历史记录中寻找最近的一张生成图
+            # 查找上一次 assistant 回复的图片
             for msg in reversed(request.messages[:-1]):
                 if msg.role == "assistant" and isinstance(msg.content, str):
                     # 匹配 Markdown 图片格式: ![...](http...)
@@ -148,8 +148,9 @@ async def create_chat_completion(
                             try:
                                 downloaded_bytes = await retrieve_image_data(last_image_url)
                                 if downloaded_bytes and len(downloaded_bytes) > 0:
-                                    images.append(downloaded_bytes)
-                                    debug_logger.log_info(f"[CONTEXT] ✅ 自动使用历史参考图: {last_image_url}")
+                                    # 将历史图片插入到最前面
+                                    images.insert(0, downloaded_bytes)
+                                    debug_logger.log_info(f"[CONTEXT] ✅ 添加历史参考图: {last_image_url}")
                                     break
                                 else:
                                     debug_logger.log_warning(f"[CONTEXT] 图片下载失败或为空，尝试下一个: {last_image_url}")
