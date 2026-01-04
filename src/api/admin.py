@@ -1,11 +1,12 @@
 """Admin API routes"""
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import secrets
 from ..core.auth import AuthManager
 from ..core.database import Database
+from ..core.config import config
 from ..services.token_manager import TokenManager
 from ..services.proxy_manager import ProxyManager
 
@@ -646,15 +647,25 @@ async def get_logs(
         "operation": log.get("operation"),
         "status_code": log.get("status_code"),
         "duration": log.get("duration"),
-        "created_at": log.get("created_at")
+        "created_at": log.get("created_at"),
+        "request_body": log.get("request_body"),
+        "response_body": log.get("response_body")
     } for log in logs]
+
+
+@router.delete("/api/logs")
+async def clear_logs(token: str = Depends(verify_admin_token)):
+    """Clear all logs"""
+    try:
+        await db.clear_all_logs()
+        return {"success": True, "message": "所有日志已清空"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/admin/config")
 async def get_admin_config(token: str = Depends(verify_admin_token)):
     """Get admin configuration"""
-    from ..core.config import config
-
     admin_config = await db.get_admin_config()
 
     return {
@@ -708,11 +719,9 @@ async def update_debug_config(
 ):
     """Update debug configuration"""
     try:
-        # Update debug config in database
-        await db.update_debug_config(enabled=request.enabled)
-
-        # 🔥 Hot reload: sync database config to memory
-        await db.reload_config_to_memory()
+        # Update in-memory config only (not database)
+        # This ensures debug mode is automatically disabled on restart
+        config.set_debug_enabled(request.enabled)
 
         status = "enabled" if request.enabled else "disabled"
         return {"success": True, "message": f"Debug mode {status}", "enabled": request.enabled}
@@ -883,26 +892,35 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
 # ========== Plugin Configuration Endpoints ==========
 
 @router.get("/api/plugin/config")
-async def get_plugin_config(token: str = Depends(verify_admin_token)):
+async def get_plugin_config(request: Request, token: str = Depends(verify_admin_token)):
     """Get plugin configuration"""
     plugin_config = await db.get_plugin_config()
 
-    # Get server host and port from config
-    from ..core.config import config
-    server_host = config.server_host
-    server_port = config.server_port
+    # Get the actual domain and port from the request
+    # This allows the connection URL to reflect the user's actual access path
+    host_header = request.headers.get("host", "")
 
-    # Generate connection URL
-    if server_host == "0.0.0.0":
-        connection_url = f"http://127.0.0.1:{server_port}/api/plugin/update-token"
+    # Generate connection URL based on actual request
+    if host_header:
+        # Use the actual domain/IP and port from the request
+        connection_url = f"http://{host_header}/api/plugin/update-token"
     else:
-        connection_url = f"http://{server_host}:{server_port}/api/plugin/update-token"
+        # Fallback to config-based URL
+        from ..core.config import config
+        server_host = config.server_host
+        server_port = config.server_port
+
+        if server_host == "0.0.0.0":
+            connection_url = f"http://127.0.0.1:{server_port}/api/plugin/update-token"
+        else:
+            connection_url = f"http://{server_host}:{server_port}/api/plugin/update-token"
 
     return {
         "success": True,
         "config": {
             "connection_token": plugin_config.connection_token,
-            "connection_url": connection_url
+            "connection_url": connection_url,
+            "auto_enable_on_update": plugin_config.auto_enable_on_update
         }
     }
 
@@ -914,17 +932,22 @@ async def update_plugin_config(
 ):
     """Update plugin configuration"""
     connection_token = request.get("connection_token", "")
+    auto_enable_on_update = request.get("auto_enable_on_update", True)  # 默认开启
 
     # Generate random token if empty
     if not connection_token:
         connection_token = secrets.token_urlsafe(32)
 
-    await db.update_plugin_config(connection_token=connection_token)
+    await db.update_plugin_config(
+        connection_token=connection_token,
+        auto_enable_on_update=auto_enable_on_update
+    )
 
     return {
         "success": True,
         "message": "插件配置更新成功",
-        "connection_token": connection_token
+        "connection_token": connection_token,
+        "auto_enable_on_update": auto_enable_on_update
     }
 
 
@@ -988,6 +1011,16 @@ async def plugin_update_token(request: dict, authorization: Optional[str] = Head
                 at=at,
                 at_expires=at_expires
             )
+
+            # Check if auto-enable is enabled and token is disabled
+            if plugin_config.auto_enable_on_update and not existing_token.is_active:
+                await token_manager.enable_token(existing_token.id)
+                return {
+                    "success": True,
+                    "message": f"Token updated and auto-enabled for {email}",
+                    "action": "updated",
+                    "auto_enabled": True
+                }
 
             return {
                 "success": True,

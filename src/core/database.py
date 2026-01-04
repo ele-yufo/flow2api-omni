@@ -305,6 +305,20 @@ class Database:
                         except Exception as e:
                             print(f"  ✗ Failed to add column '{col_name}': {e}")
 
+            # Check and add missing columns to plugin_config table
+            if await self._table_exists(db, "plugin_config"):
+                plugin_columns_to_add = [
+                    ("auto_enable_on_update", "BOOLEAN DEFAULT 1"),  # 默认开启
+                ]
+
+                for col_name, col_type in plugin_columns_to_add:
+                    if not await self._column_exists(db, "plugin_config", col_name):
+                        try:
+                            await db.execute(f"ALTER TABLE plugin_config ADD COLUMN {col_name} {col_type}")
+                            print(f"  ✓ Added column '{col_name}' to plugin_config table")
+                        except Exception as e:
+                            print(f"  ✗ Failed to add column '{col_name}': {e}")
+
             # ========== Step 3: Ensure all config tables have default rows ==========
             # Note: This will NOT overwrite existing config rows
             # It only ensures missing rows are created with default values from setting.toml
@@ -996,6 +1010,12 @@ class Database:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+    async def clear_all_logs(self):
+        """Clear all request logs"""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM request_logs")
+            await db.commit()
+
     async def init_config_from_toml(self, config_dict: dict, is_first_startup: bool = True):
         """
         Initialize database configuration from setting.toml
@@ -1227,7 +1247,7 @@ class Database:
                 return PluginConfig(**dict(row))
             return PluginConfig()
 
-    async def update_plugin_config(self, connection_token: str):
+    async def update_plugin_config(self, connection_token: str, auto_enable_on_update: bool = True):
         """Update plugin configuration"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -1237,13 +1257,13 @@ class Database:
             if row:
                 await db.execute("""
                     UPDATE plugin_config
-                    SET connection_token = ?, updated_at = CURRENT_TIMESTAMP
+                    SET connection_token = ?, auto_enable_on_update = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = 1
-                """, (connection_token,))
+                """, (connection_token, auto_enable_on_update))
             else:
                 await db.execute("""
-                    INSERT INTO plugin_config (id, connection_token)
-                    VALUES (1, ?)
-                """, (connection_token,))
+                    INSERT INTO plugin_config (id, connection_token, auto_enable_on_update)
+                    VALUES (1, ?, ?)
+                """, (connection_token, auto_enable_on_update))
 
             await db.commit()

@@ -102,6 +102,33 @@ MODEL_CONFIG = {
         "supports_images": False
     },
 
+    # veo_3_1_t2v_fast_portrait_ultra (竖屏)
+    "veo_3_1_t2v_fast_portrait_ultra": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False
+    },
+
+    # veo_3_1_t2v_fast_portrait_ultra_relaxed (竖屏)
+    "veo_3_1_t2v_fast_portrait_ultra_relaxed": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False
+    },
+
+    # veo_3_1_t2v_portrait (竖屏)
+    "veo_3_1_t2v_portrait": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False
+    },
+
     # ========== 首尾帧模型 (I2V - Image to Video) ==========
     # 支持1-2张图片：1张作为首帧，2张作为首尾帧
 
@@ -165,6 +192,66 @@ MODEL_CONFIG = {
         "max_images": 2
     },
 
+    # veo_3_1_i2v_s_fast_ultra (需要新增横竖屏)
+    "veo_3_1_i2v_s_fast_ultra_portrait": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+    "veo_3_1_i2v_s_fast_ultra_landscape": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+
+    # veo_3_1_i2v_s_fast_ultra_relaxed (需要新增横竖屏)
+    "veo_3_1_i2v_s_fast_ultra_relaxed_portrait": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+    "veo_3_1_i2v_s_fast_ultra_relaxed_landscape": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+
+    # veo_3_1_i2v_s (需要新增横竖屏)
+    "veo_3_1_i2v_s_portrait": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+    "veo_3_1_i2v_s_landscape": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2
+    },
+
     # ========== 多图生成 (R2V - Reference Images to Video) ==========
     # 支持多张图片,不限制数量
 
@@ -182,6 +269,46 @@ MODEL_CONFIG = {
         "type": "video",
         "video_type": "r2v",
         "model_key": "veo_3_0_r2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None  # 不限制
+    },
+
+    # veo_3_0_r2v_fast_ultra (需要新增横竖屏)
+    "veo_3_0_r2v_fast_ultra_portrait": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_0_r2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None  # 不限制
+    },
+    "veo_3_0_r2v_fast_ultra_landscape": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_0_r2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None  # 不限制
+    },
+
+    # veo_3_0_r2v_fast_ultra_relaxed (需要新增横竖屏)
+    "veo_3_0_r2v_fast_ultra_relaxed_portrait": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_0_r2v_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None  # 不限制
+    },
+    "veo_3_0_r2v_fast_ultra_relaxed_landscape": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_0_r2v_fast_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
@@ -343,11 +470,25 @@ class GenerationHandler:
 
             # 7. 记录成功日志
             duration = time.time() - start_time
+
+            # 构建响应数据，包含生成的URL
+            response_data = {
+                "status": "success",
+                "model": model,
+                "prompt": prompt[:100]
+            }
+
+            # 添加生成的URL（如果有）
+            if hasattr(self, '_last_generated_url') and self._last_generated_url:
+                response_data["url"] = self._last_generated_url
+                # 清除临时存储
+                self._last_generated_url = None
+
             await self._log_request(
                 token.id,
                 f"generate_{generation_type}",
                 {"model": model, "prompt": prompt[:100], "has_images": images is not None and len(images) > 0},
-                {"status": "success"},
+                response_data,
                 200,
                 duration
             )
@@ -358,12 +499,8 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk(f"❌ {error_msg}\n")
             if token:
-                # 检测429错误，立即禁用token
-                if "429" in str(e) or "HTTP Error 429" in str(e):
-                    debug_logger.log_warning(f"[429_BAN] Token {token.id} 遇到429错误，立即禁用")
-                    await self.token_manager.ban_token_for_429(token.id)
-                else:
-                    await self.token_manager.record_error(token.id)
+                # 记录错误（所有错误统一处理，不再特殊处理429）
+                await self.token_manager.record_error(token.id)
             yield self._create_error_response(error_msg)
 
             # 记录失败日志
@@ -464,6 +601,9 @@ class GenerationHandler:
                     yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
 
             # 返回结果
+            # 存储URL用于日志记录
+            self._last_generated_url = local_url
+
             if stream:
                 yield self._create_stream_chunk(
                     f"![Generated Image]({local_url})",
@@ -731,6 +871,9 @@ class GenerationHandler:
                         result_urls=[local_url],
                         completed_at=time.time()
                     )
+
+                    # 存储URL用于日志记录
+                    self._last_generated_url = local_url
 
                     # 返回结果
                     if stream:

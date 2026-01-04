@@ -162,6 +162,7 @@ class PluginConfig(BaseModel):
     """Plugin connection configuration"""
     id: int = 1
     connection_token: str = ""  # 插件连接token
+    auto_enable_on_update: bool = True  # 更新token时自动启用（默认开启）
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
