@@ -118,7 +118,7 @@ MODEL_CONFIG = {
     "veo_3_1_i2v_s_fast_fl_landscape": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_landscape_fl_ultra_relaxed",
+        "model_key": "veo_3_1_i2v_s_fast_fl_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 1,
@@ -594,12 +594,16 @@ class GenerationHandler:
                         user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
                     )
                 else:
-                    # 只有首帧
+                    # 只有首帧 - 需要将 model_key 中的 _fl_ 替换为 _
+                    # 例如: veo_3_1_i2v_s_fast_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_ultra_relaxed
+                    #       veo_3_1_i2v_s_fast_portrait_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_portrait_ultra_relaxed
+                    actual_model_key = model_config["model_key"].replace("_fl_", "_")
+                    debug_logger.log_info(f"[I2V] 单帧模式，model_key: {model_config['model_key']} -> {actual_model_key}")
                     result = await self.flow_client.generate_video_start_image(
                         at=token.at,
                         project_id=project_id,
                         prompt=prompt,
-                        model_key=model_config["model_key"],
+                        model_key=actual_model_key,
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
                         user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"

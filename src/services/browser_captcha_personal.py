@@ -131,11 +131,11 @@ class BrowserCaptchaService:
         
         # 等待页面加载完成（带重试机制）
         page_loaded = False
-        for retry in range(15):
+        for retry in range(60):
             try:
                 await asyncio.sleep(1)
                 ready_state = await self.resident_tab.evaluate("document.readyState")
-                debug_logger.log_info(f"[BrowserCaptcha] 页面状态: {ready_state} (重试 {retry + 1}/15)")
+                debug_logger.log_info(f"[BrowserCaptcha] 页面状态: {ready_state} (重试 {retry + 1}/60)")
                 if ready_state == "complete":
                     page_loaded = True
                     break
@@ -391,7 +391,7 @@ class BrowserCaptchaService:
             
             # 等待页面加载完成
             page_loaded = False
-            for retry in range(15):
+            for retry in range(60):
                 try:
                     await asyncio.sleep(1)
                     ready_state = await tab.evaluate("document.readyState")
@@ -402,7 +402,7 @@ class BrowserCaptchaService:
                     debug_logger.log_warning(f"[BrowserCaptcha] 标签页连接丢失: {e}")
                     return None
                 except Exception as e:
-                    debug_logger.log_warning(f"[BrowserCaptcha] 等待页面异常: {e}，重试 {retry + 1}/15...")
+                    debug_logger.log_warning(f"[BrowserCaptcha] 等待页面异常: {e}，重试 {retry + 1}/60...")
                     await asyncio.sleep(1)
             
             if not page_loaded:
