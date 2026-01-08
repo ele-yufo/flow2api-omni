@@ -541,6 +541,121 @@ class BrowserCaptchaService:
         debug_logger.log_info("[BrowserCaptcha] 请在打开的浏览器中登录账号。登录完成后，无需关闭浏览器，脚本下次运行时会自动使用此状态。")
         print("请在打开的浏览器中登录账号。登录完成后，无需关闭浏览器，脚本下次运行时会自动使用此状态。")
 
+    # ========== Session Token 刷新 ==========
+
+    async def refresh_session_token(self, project_id: str) -> Optional[str]:
+        """从常驻标签页获取最新的 Session Token
+        
+        复用 reCAPTCHA 常驻标签页，通过刷新页面并从 cookies 中提取
+        __Secure-next-auth.session-token
+        
+        Args:
+            project_id: 项目ID，用于定位常驻标签页
+            
+        Returns:
+            新的 Session Token，如果获取失败返回 None
+        """
+        # 确保浏览器已初始化
+        await self.initialize()
+        
+        start_time = time.time()
+        debug_logger.log_info(f"[BrowserCaptcha] 开始刷新 Session Token (project: {project_id})...")
+        
+        # 尝试获取或创建常驻标签页
+        async with self._resident_lock:
+            resident_info = self._resident_tabs.get(project_id)
+            
+            # 如果该 project_id 没有常驻标签页，则创建
+            if resident_info is None:
+                debug_logger.log_info(f"[BrowserCaptcha] project_id={project_id} 没有常驻标签页，正在创建...")
+                resident_info = await self._create_resident_tab(project_id)
+                if resident_info is None:
+                    debug_logger.log_warning(f"[BrowserCaptcha] 无法为 project_id={project_id} 创建常驻标签页")
+                    return None
+                self._resident_tabs[project_id] = resident_info
+        
+        if not resident_info or not resident_info.tab:
+            debug_logger.log_error(f"[BrowserCaptcha] 无法获取常驻标签页")
+            return None
+        
+        tab = resident_info.tab
+        
+        try:
+            # 刷新页面以获取最新的 cookies
+            debug_logger.log_info(f"[BrowserCaptcha] 刷新常驻标签页以获取最新 cookies...")
+            await tab.reload()
+            
+            # 等待页面加载完成
+            for i in range(30):
+                await asyncio.sleep(1)
+                try:
+                    ready_state = await tab.evaluate("document.readyState")
+                    if ready_state == "complete":
+                        break
+                except Exception:
+                    pass
+            
+            # 额外等待确保 cookies 已设置
+            await asyncio.sleep(2)
+            
+            # 从 cookies 中提取 __Secure-next-auth.session-token
+            # nodriver 可以通过 browser 获取 cookies
+            session_token = None
+            
+            try:
+                # 使用 nodriver 的 cookies API 获取所有 cookies
+                cookies = await self.browser.cookies.get_all()
+                
+                for cookie in cookies:
+                    if cookie.name == "__Secure-next-auth.session-token":
+                        session_token = cookie.value
+                        break
+                        
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] 通过 cookies API 获取失败: {e}，尝试从 document.cookie 获取...")
+                
+                # 备选方案：通过 JavaScript 获取 (注意：HttpOnly cookies 可能无法通过此方式获取)
+                try:
+                    all_cookies = await tab.evaluate("document.cookie")
+                    if all_cookies:
+                        for part in all_cookies.split(";"):
+                            part = part.strip()
+                            if part.startswith("__Secure-next-auth.session-token="):
+                                session_token = part.split("=", 1)[1]
+                                break
+                except Exception as e2:
+                    debug_logger.log_error(f"[BrowserCaptcha] document.cookie 获取失败: {e2}")
+            
+            duration_ms = (time.time() - start_time) * 1000
+            
+            if session_token:
+                debug_logger.log_info(f"[BrowserCaptcha] ✅ Session Token 获取成功（耗时 {duration_ms:.0f}ms）")
+                return session_token
+            else:
+                debug_logger.log_error(f"[BrowserCaptcha] ❌ 未找到 __Secure-next-auth.session-token cookie")
+                return None
+                
+        except Exception as e:
+            debug_logger.log_error(f"[BrowserCaptcha] 刷新 Session Token 异常: {str(e)}")
+            
+            # 常驻标签页可能已失效，尝试重建
+            async with self._resident_lock:
+                await self._close_resident_tab(project_id)
+                resident_info = await self._create_resident_tab(project_id)
+                if resident_info:
+                    self._resident_tabs[project_id] = resident_info
+                    # 重建后再次尝试获取
+                    try:
+                        cookies = await self.browser.cookies.get_all()
+                        for cookie in cookies:
+                            if cookie.name == "__Secure-next-auth.session-token":
+                                debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Session Token 获取成功")
+                                return cookie.value
+                    except Exception:
+                        pass
+            
+            return None
+
     # ========== 状态查询 ==========
 
     def is_resident_mode_active(self) -> bool:
