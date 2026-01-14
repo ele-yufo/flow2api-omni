@@ -644,6 +644,44 @@ class GenerationHandler:
             min_images = model_config.get("min_images", 0)
             max_images = model_config.get("max_images", 0)
 
+            # 根据账号tier自动调整模型 key
+            model_key = model_config["model_key"]
+            user_tier = token.user_paygate_tier or "PAYGATE_TIER_ONE"
+
+            # TIER_TWO 账号需要使用 ultra 版本的模型
+            if user_tier == "PAYGATE_TIER_TWO":
+                # 如果模型 key 不包含 ultra，自动添加
+                if "ultra" not in model_key:
+                    # veo_3_1_i2v_s_fast_fl -> veo_3_1_i2v_s_fast_ultra_fl
+                    # veo_3_1_t2v_fast -> veo_3_1_t2v_fast_ultra
+                    # veo_3_0_r2v_fast -> veo_3_0_r2v_fast_ultra
+                    if "_fl" in model_key:
+                        model_key = model_key.replace("_fl", "_ultra_fl")
+                    elif model_key.endswith("_fast"):
+                        model_key = model_key + "_ultra"
+                    elif "_fast_" in model_key:
+                        model_key = model_key.replace("_fast_", "_fast_ultra_")
+                    
+                    if stream:
+                        yield self._create_stream_chunk(f"TIER_TWO 账号自动切换到 ultra 模型: {model_key}\n")
+                    debug_logger.log_info(f"[VIDEO] TIER_TWO 账号，模型自动调整: {model_config['model_key']} -> {model_key}")
+
+            # TIER_ONE 账号需要使用非 ultra 版本
+            elif user_tier == "PAYGATE_TIER_ONE":
+                # 如果模型 key 包含 ultra，需要移除（避免用户误用）
+                if "ultra" in model_key:
+                    # veo_3_1_i2v_s_fast_ultra_fl -> veo_3_1_i2v_s_fast_fl
+                    # veo_3_1_t2v_fast_ultra -> veo_3_1_t2v_fast
+                    model_key = model_key.replace("_ultra_fl", "_fl").replace("_ultra", "")
+                    
+                    if stream:
+                        yield self._create_stream_chunk(f"TIER_ONE 账号自动切换到标准模型: {model_key}\n")
+                    debug_logger.log_info(f"[VIDEO] TIER_ONE 账号，模型自动调整: {model_config['model_key']} -> {model_key}")
+
+            # 更新 model_config 中的 model_key
+            model_config = dict(model_config)  # 创建副本避免修改原配置
+            model_config["model_key"] = model_key
+
             # 图片数量
             image_count = len(images) if images else 0
 
