@@ -853,6 +853,12 @@ async def update_captcha_config(
     captcha_method = request.get("captcha_method")
     yescaptcha_api_key = request.get("yescaptcha_api_key")
     yescaptcha_base_url = request.get("yescaptcha_base_url")
+    capmonster_api_key = request.get("capmonster_api_key")
+    capmonster_base_url = request.get("capmonster_base_url")
+    ezcaptcha_api_key = request.get("ezcaptcha_api_key")
+    ezcaptcha_base_url = request.get("ezcaptcha_base_url")
+    capsolver_api_key = request.get("capsolver_api_key")
+    capsolver_base_url = request.get("capsolver_base_url")
     browser_proxy_enabled = request.get("browser_proxy_enabled", False)
     browser_proxy_url = request.get("browser_proxy_url", "")
 
@@ -866,6 +872,12 @@ async def update_captcha_config(
         captcha_method=captcha_method,
         yescaptcha_api_key=yescaptcha_api_key,
         yescaptcha_base_url=yescaptcha_base_url,
+        capmonster_api_key=capmonster_api_key,
+        capmonster_base_url=capmonster_base_url,
+        ezcaptcha_api_key=ezcaptcha_api_key,
+        ezcaptcha_base_url=ezcaptcha_base_url,
+        capsolver_api_key=capsolver_api_key,
+        capsolver_base_url=capsolver_base_url,
         browser_proxy_enabled=browser_proxy_enabled,
         browser_proxy_url=browser_proxy_url if browser_proxy_enabled else None
     )
@@ -884,6 +896,12 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
         "captcha_method": captcha_config.captcha_method,
         "yescaptcha_api_key": captcha_config.yescaptcha_api_key,
         "yescaptcha_base_url": captcha_config.yescaptcha_base_url,
+        "capmonster_api_key": captcha_config.capmonster_api_key,
+        "capmonster_base_url": captcha_config.capmonster_base_url,
+        "ezcaptcha_api_key": captcha_config.ezcaptcha_api_key,
+        "ezcaptcha_base_url": captcha_config.ezcaptcha_base_url,
+        "capsolver_api_key": captcha_config.capsolver_api_key,
+        "capsolver_base_url": captcha_config.capsolver_base_url,
         "browser_proxy_enabled": captcha_config.browser_proxy_enabled,
         "browser_proxy_url": captcha_config.browser_proxy_url or ""
     }

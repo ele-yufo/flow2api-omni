@@ -216,6 +216,12 @@ class Database:
                         captcha_method TEXT DEFAULT 'browser',
                         yescaptcha_api_key TEXT DEFAULT '',
                         yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
+                        capmonster_api_key TEXT DEFAULT '',
+                        capmonster_base_url TEXT DEFAULT 'https://api.capmonster.cloud',
+                        ezcaptcha_api_key TEXT DEFAULT '',
+                        ezcaptcha_base_url TEXT DEFAULT 'https://api.ez-captcha.com',
+                        capsolver_api_key TEXT DEFAULT '',
+                        capsolver_base_url TEXT DEFAULT 'https://api.capsolver.com',
                         website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
                         page_action TEXT DEFAULT 'FLOW_GENERATION',
                         browser_proxy_enabled BOOLEAN DEFAULT 0,
@@ -277,6 +283,12 @@ class Database:
                 captcha_columns_to_add = [
                     ("browser_proxy_enabled", "BOOLEAN DEFAULT 0"),
                     ("browser_proxy_url", "TEXT"),
+                    ("capmonster_api_key", "TEXT DEFAULT ''"),
+                    ("capmonster_base_url", "TEXT DEFAULT 'https://api.capmonster.cloud'"),
+                    ("ezcaptcha_api_key", "TEXT DEFAULT ''"),
+                    ("ezcaptcha_base_url", "TEXT DEFAULT 'https://api.ez-captcha.com'"),
+                    ("capsolver_api_key", "TEXT DEFAULT ''"),
+                    ("capsolver_base_url", "TEXT DEFAULT 'https://api.capsolver.com'"),
                 ]
 
                 for col_name, col_type in captcha_columns_to_add:
@@ -489,6 +501,12 @@ class Database:
                     captcha_method TEXT DEFAULT 'browser',
                     yescaptcha_api_key TEXT DEFAULT '',
                     yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
+                    capmonster_api_key TEXT DEFAULT '',
+                    capmonster_base_url TEXT DEFAULT 'https://api.capmonster.cloud',
+                    ezcaptcha_api_key TEXT DEFAULT '',
+                    ezcaptcha_base_url TEXT DEFAULT 'https://api.ez-captcha.com',
+                    capsolver_api_key TEXT DEFAULT '',
+                    capsolver_base_url TEXT DEFAULT 'https://api.capsolver.com',
                     website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
                     page_action TEXT DEFAULT 'FLOW_GENERATION',
                     browser_proxy_enabled BOOLEAN DEFAULT 0,
@@ -1199,6 +1217,12 @@ class Database:
         captcha_method: str = None,
         yescaptcha_api_key: str = None,
         yescaptcha_base_url: str = None,
+        capmonster_api_key: str = None,
+        capmonster_base_url: str = None,
+        ezcaptcha_api_key: str = None,
+        ezcaptcha_base_url: str = None,
+        capsolver_api_key: str = None,
+        capsolver_base_url: str = None,
         browser_proxy_enabled: bool = None,
         browser_proxy_url: str = None
     ):
@@ -1211,28 +1235,47 @@ class Database:
             if row:
                 current = dict(row)
                 new_method = captcha_method if captcha_method is not None else current.get("captcha_method", "yescaptcha")
-                new_api_key = yescaptcha_api_key if yescaptcha_api_key is not None else current.get("yescaptcha_api_key", "")
-                new_base_url = yescaptcha_base_url if yescaptcha_base_url is not None else current.get("yescaptcha_base_url", "https://api.yescaptcha.com")
+                new_yes_key = yescaptcha_api_key if yescaptcha_api_key is not None else current.get("yescaptcha_api_key", "")
+                new_yes_url = yescaptcha_base_url if yescaptcha_base_url is not None else current.get("yescaptcha_base_url", "https://api.yescaptcha.com")
+                new_cap_key = capmonster_api_key if capmonster_api_key is not None else current.get("capmonster_api_key", "")
+                new_cap_url = capmonster_base_url if capmonster_base_url is not None else current.get("capmonster_base_url", "https://api.capmonster.cloud")
+                new_ez_key = ezcaptcha_api_key if ezcaptcha_api_key is not None else current.get("ezcaptcha_api_key", "")
+                new_ez_url = ezcaptcha_base_url if ezcaptcha_base_url is not None else current.get("ezcaptcha_base_url", "https://api.ez-captcha.com")
+                new_cs_key = capsolver_api_key if capsolver_api_key is not None else current.get("capsolver_api_key", "")
+                new_cs_url = capsolver_base_url if capsolver_base_url is not None else current.get("capsolver_base_url", "https://api.capsolver.com")
                 new_proxy_enabled = browser_proxy_enabled if browser_proxy_enabled is not None else current.get("browser_proxy_enabled", False)
                 new_proxy_url = browser_proxy_url if browser_proxy_url is not None else current.get("browser_proxy_url")
 
                 await db.execute("""
                     UPDATE captcha_config
                     SET captcha_method = ?, yescaptcha_api_key = ?, yescaptcha_base_url = ?,
+                        capmonster_api_key = ?, capmonster_base_url = ?,
+                        ezcaptcha_api_key = ?, ezcaptcha_base_url = ?,
+                        capsolver_api_key = ?, capsolver_base_url = ?,
                         browser_proxy_enabled = ?, browser_proxy_url = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE id = 1
-                """, (new_method, new_api_key, new_base_url, new_proxy_enabled, new_proxy_url))
+                """, (new_method, new_yes_key, new_yes_url, new_cap_key, new_cap_url,
+                      new_ez_key, new_ez_url, new_cs_key, new_cs_url, new_proxy_enabled, new_proxy_url))
             else:
                 new_method = captcha_method if captcha_method is not None else "yescaptcha"
-                new_api_key = yescaptcha_api_key if yescaptcha_api_key is not None else ""
-                new_base_url = yescaptcha_base_url if yescaptcha_base_url is not None else "https://api.yescaptcha.com"
+                new_yes_key = yescaptcha_api_key if yescaptcha_api_key is not None else ""
+                new_yes_url = yescaptcha_base_url if yescaptcha_base_url is not None else "https://api.yescaptcha.com"
+                new_cap_key = capmonster_api_key if capmonster_api_key is not None else ""
+                new_cap_url = capmonster_base_url if capmonster_base_url is not None else "https://api.capmonster.cloud"
+                new_ez_key = ezcaptcha_api_key if ezcaptcha_api_key is not None else ""
+                new_ez_url = ezcaptcha_base_url if ezcaptcha_base_url is not None else "https://api.ez-captcha.com"
+                new_cs_key = capsolver_api_key if capsolver_api_key is not None else ""
+                new_cs_url = capsolver_base_url if capsolver_base_url is not None else "https://api.capsolver.com"
                 new_proxy_enabled = browser_proxy_enabled if browser_proxy_enabled is not None else False
                 new_proxy_url = browser_proxy_url
 
                 await db.execute("""
-                    INSERT INTO captcha_config (id, captcha_method, yescaptcha_api_key, yescaptcha_base_url, browser_proxy_enabled, browser_proxy_url)
-                    VALUES (1, ?, ?, ?, ?, ?)
-                """, (new_method, new_api_key, new_base_url, new_proxy_enabled, new_proxy_url))
+                    INSERT INTO captcha_config (id, captcha_method, yescaptcha_api_key, yescaptcha_base_url,
+                        capmonster_api_key, capmonster_base_url, ezcaptcha_api_key, ezcaptcha_base_url,
+                        capsolver_api_key, capsolver_base_url, browser_proxy_enabled, browser_proxy_url)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (new_method, new_yes_key, new_yes_url, new_cap_key, new_cap_url,
+                      new_ez_key, new_ez_url, new_cs_key, new_cs_url, new_proxy_enabled, new_proxy_url))
 
             await db.commit()
 

@@ -213,6 +213,72 @@ class Config:
             self._config["captcha"] = {}
         self._config["captcha"]["yescaptcha_base_url"] = base_url
 
+    @property
+    def capmonster_api_key(self) -> str:
+        """Get CapMonster API key"""
+        return self._config.get("captcha", {}).get("capmonster_api_key", "")
+
+    def set_capmonster_api_key(self, api_key: str):
+        """Set CapMonster API key"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["capmonster_api_key"] = api_key
+
+    @property
+    def capmonster_base_url(self) -> str:
+        """Get CapMonster base URL"""
+        return self._config.get("captcha", {}).get("capmonster_base_url", "https://api.capmonster.cloud")
+
+    def set_capmonster_base_url(self, base_url: str):
+        """Set CapMonster base URL"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["capmonster_base_url"] = base_url
+
+    @property
+    def ezcaptcha_api_key(self) -> str:
+        """Get EzCaptcha API key"""
+        return self._config.get("captcha", {}).get("ezcaptcha_api_key", "")
+
+    def set_ezcaptcha_api_key(self, api_key: str):
+        """Set EzCaptcha API key"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["ezcaptcha_api_key"] = api_key
+
+    @property
+    def ezcaptcha_base_url(self) -> str:
+        """Get EzCaptcha base URL"""
+        return self._config.get("captcha", {}).get("ezcaptcha_base_url", "https://api.ez-captcha.com")
+
+    def set_ezcaptcha_base_url(self, base_url: str):
+        """Set EzCaptcha base URL"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["ezcaptcha_base_url"] = base_url
+
+    @property
+    def capsolver_api_key(self) -> str:
+        """Get CapSolver API key"""
+        return self._config.get("captcha", {}).get("capsolver_api_key", "")
+
+    def set_capsolver_api_key(self, api_key: str):
+        """Set CapSolver API key"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["capsolver_api_key"] = api_key
+
+    @property
+    def capsolver_base_url(self) -> str:
+        """Get CapSolver base URL"""
+        return self._config.get("captcha", {}).get("capsolver_base_url", "https://api.capsolver.com")
+
+    def set_capsolver_base_url(self, base_url: str):
+        """Set CapSolver base URL"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["capsolver_base_url"] = base_url
+
 
 # Global config instance
 config = Config()

@@ -147,9 +147,15 @@ class DebugConfig(BaseModel):
 class CaptchaConfig(BaseModel):
     """Captcha configuration"""
     id: int = 1
-    captcha_method: str = "browser"  # yescaptcha 或 browser
+    captcha_method: str = "browser"  # yescaptcha, capmonster, ezcaptcha, capsolver 或 browser
     yescaptcha_api_key: str = ""
     yescaptcha_base_url: str = "https://api.yescaptcha.com"
+    capmonster_api_key: str = ""
+    capmonster_base_url: str = "https://api.capmonster.cloud"
+    ezcaptcha_api_key: str = ""
+    ezcaptcha_base_url: str = "https://api.ez-captcha.com"
+    capsolver_api_key: str = ""
+    capsolver_base_url: str = "https://api.capsolver.com"
     website_key: str = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
     page_action: str = "FLOW_GENERATION"
     browser_proxy_enabled: bool = False  # 浏览器打码是否启用代理
