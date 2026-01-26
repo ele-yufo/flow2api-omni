@@ -145,6 +145,17 @@ class Config:
             self._config["generation"] = {}
         self._config["generation"]["video_timeout"] = timeout
 
+    @property
+    def upsample_timeout(self) -> int:
+        """Get upsample (4K/2K) timeout in seconds"""
+        return self._config.get("generation", {}).get("upsample_timeout", 300)
+
+    def set_upsample_timeout(self, timeout: int):
+        """Set upsample (4K/2K) timeout in seconds"""
+        if "generation" not in self._config:
+            self._config["generation"] = {}
+        self._config["generation"]["upsample_timeout"] = timeout
+
     # Cache configuration
     @property
     def cache_enabled(self) -> bool:

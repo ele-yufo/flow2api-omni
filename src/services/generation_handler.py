@@ -35,6 +35,85 @@ MODEL_CONFIG = {
         "model_name": "GEM_PIX_2",
         "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT"
     },
+    "gemini-3.0-pro-image-square": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE"
+    },
+    "gemini-3.0-pro-image-four-three": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE"
+    },
+    "gemini-3.0-pro-image-three-four": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR"
+    },
+
+    # 图片生成 - GEM_PIX_2 (Gemini 3.0 Pro) 2K 放大版
+    "gemini-3.0-pro-image-landscape-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-portrait-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-square-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-four-three-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.0-pro-image-three-four-2k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+
+    # 图片生成 - GEM_PIX_2 (Gemini 3.0 Pro) 4K 放大版
+    "gemini-3.0-pro-image-landscape-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-portrait-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-square-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-four-three-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.0-pro-image-three-four-4k": {
+        "type": "image",
+        "model_name": "GEM_PIX_2",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
 
     # 图片生成 - IMAGEN_3_5 (Imagen 4.0)
     "imagen-4.0-generate-preview-landscape": {
@@ -102,30 +181,51 @@ MODEL_CONFIG = {
         "supports_images": False
     },
 
-    # veo_3_1_t2v_fast_portrait_ultra (竖屏)
-    "veo_3_1_t2v_fast_portrait_ultra": {
+    # veo_3_1_t2v_fast_ultra (横竖屏)
+    "veo_3_1_t2v_fast_ultra_portrait": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False
     },
+    "veo_3_1_t2v_fast_ultra_landscape": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False
+    },
 
-    # veo_3_1_t2v_fast_portrait_ultra_relaxed (竖屏)
-    "veo_3_1_t2v_fast_portrait_ultra_relaxed": {
+    # veo_3_1_t2v_fast_ultra_relaxed (横竖屏)
+    "veo_3_1_t2v_fast_ultra_relaxed_portrait": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False
     },
+    "veo_3_1_t2v_fast_ultra_relaxed_landscape": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False
+    },
 
-    # veo_3_1_t2v_portrait (竖屏)
+    # veo_3_1_t2v (横竖屏)
     "veo_3_1_t2v_portrait": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_portrait",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False
+    },
+    "veo_3_1_t2v_landscape": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False
     },
 
@@ -192,11 +292,11 @@ MODEL_CONFIG = {
         "max_images": 2
     },
 
-    # veo_3_1_i2v_s_fast_ultra (需要新增横竖屏)
+    # veo_3_1_i2v_s_fast_ultra (横竖屏)
     "veo_3_1_i2v_s_fast_ultra_portrait": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_ultra",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 1,
@@ -205,7 +305,7 @@ MODEL_CONFIG = {
     "veo_3_1_i2v_s_fast_ultra_landscape": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_ultra",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 1,
@@ -255,64 +355,223 @@ MODEL_CONFIG = {
     # ========== 多图生成 (R2V - Reference Images to Video) ==========
     # 支持多张图片,不限制数量
 
-    # veo_3_0_r2v_fast (需要新增横竖屏)
-    "veo_3_0_r2v_fast_portrait": {
+    # veo_3_1_r2v_fast (横竖屏)
+    "veo_3_1_r2v_fast_portrait": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_portrait_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_0_r2v_fast_landscape": {
+    "veo_3_1_r2v_fast_landscape": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
 
-    # veo_3_0_r2v_fast_ultra (需要新增横竖屏)
-    "veo_3_0_r2v_fast_ultra_portrait": {
+    # veo_3_1_r2v_fast_ultra (横竖屏)
+    "veo_3_1_r2v_fast_ultra_portrait": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_ultra",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_0_r2v_fast_ultra_landscape": {
+    "veo_3_1_r2v_fast_ultra_landscape": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_ultra",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
 
-    # veo_3_0_r2v_fast_ultra_relaxed (需要新增横竖屏)
-    "veo_3_0_r2v_fast_ultra_relaxed_portrait": {
+    # veo_3_1_r2v_fast_ultra_relaxed (横竖屏)
+    "veo_3_1_r2v_fast_ultra_relaxed_portrait": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_0_r2v_fast_ultra_relaxed_landscape": {
+    "veo_3_1_r2v_fast_ultra_relaxed_landscape": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_0_r2v_fast_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
+    },
+
+    # ========== 视频放大 (Video Upsampler) ==========
+    # 仅 3.1 支持，需要先生成视频后再放大，可能需要 30 分钟
+
+    # T2V 4K 放大版
+    "veo_3_1_t2v_fast_portrait_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+    "veo_3_1_t2v_fast_landscape_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+    "veo_3_1_t2v_fast_ultra_portrait_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+    "veo_3_1_t2v_fast_ultra_landscape_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+
+    # T2V 1080P 放大版
+    "veo_3_1_t2v_fast_portrait_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "veo_3_1_t2v_fast_landscape_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "veo_3_1_t2v_fast_ultra_portrait_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "veo_3_1_t2v_fast_ultra_landscape_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # I2V 4K 放大版
+    "veo_3_1_i2v_s_fast_ultra_portrait_4k": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+    "veo_3_1_i2v_s_fast_ultra_landscape_4k": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+
+    # I2V 1080P 放大版
+    "veo_3_1_i2v_s_fast_ultra_portrait_1080p": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "veo_3_1_i2v_s_fast_ultra_landscape_1080p": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # R2V 4K 放大版
+    "veo_3_1_r2v_fast_ultra_portrait_4k": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+    "veo_3_1_r2v_fast_ultra_landscape_4k": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+    },
+
+    # R2V 1080P 放大版
+    "veo_3_1_r2v_fast_ultra_portrait_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "veo_3_1_r2v_fast_ultra_landscape_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": None,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     }
 }
 
@@ -572,13 +831,101 @@ class GenerationHandler:
                 image_inputs=image_inputs
             )
 
-            # 提取URL
+            # 提取URL和mediaId
             media = result.get("media", [])
             if not media:
                 yield self._create_error_response("生成结果为空")
                 return
 
             image_url = media[0]["image"]["generatedImage"]["fifeUrl"]
+            media_id = media[0].get("name")  # 用于 upsample
+
+            # 检查是否需要 upsample
+            upsample_resolution = model_config.get("upsample")
+            if upsample_resolution and media_id:
+                resolution_name = "4K" if "4K" in upsample_resolution else "2K"
+                if stream:
+                    yield self._create_stream_chunk(f"正在放大图片到 {resolution_name}...\n")
+
+                # 4K/2K 图片重试逻辑 - 最多重试3次
+                max_retries = 3
+                for retry_attempt in range(max_retries):
+                    try:
+                        # 调用 upsample API
+                        encoded_image = await self.flow_client.upsample_image(
+                            at=token.at,
+                            project_id=project_id,
+                            media_id=media_id,
+                            target_resolution=upsample_resolution
+                        )
+
+                        if encoded_image:
+                            debug_logger.log_info(f"[UPSAMPLE] 图片已放大到 {resolution_name}")
+
+                            if stream:
+                                yield self._create_stream_chunk(f"✅ 图片已放大到 {resolution_name}\n")
+
+                            # 缓存放大后的图片 (如果启用)
+                            # 日志统一记录原图URL (放大后的base64数据太大，不适合存储)
+                            self._last_generated_url = image_url
+
+                            if config.cache_enabled:
+                                try:
+                                    if stream:
+                                        yield self._create_stream_chunk(f"缓存 {resolution_name} 图片中...\n")
+                                    cached_filename = await self.file_cache.cache_base64_image(encoded_image, resolution_name)
+                                    local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                                    if stream:
+                                        yield self._create_stream_chunk(f"✅ {resolution_name} 图片缓存成功\n")
+                                        yield self._create_stream_chunk(
+                                            f"![Generated Image]({local_url})",
+                                            finish_reason="stop"
+                                        )
+                                    else:
+                                        yield self._create_completion_response(
+                                            local_url,
+                                            media_type="image"
+                                        )
+                                    return
+                                except Exception as e:
+                                    debug_logger.log_error(f"Failed to cache {resolution_name} image: {str(e)}")
+                                    if stream:
+                                        yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}，返回 base64...\n")
+
+                            # 缓存未启用或缓存失败，返回 base64 格式
+                            base64_url = f"data:image/jpeg;base64,{encoded_image}"
+                            if stream:
+                                yield self._create_stream_chunk(
+                                    f"![Generated Image]({base64_url})",
+                                    finish_reason="stop"
+                                )
+                            else:
+                                yield self._create_completion_response(
+                                    base64_url,
+                                    media_type="image"
+                                )
+                            return
+                        else:
+                            debug_logger.log_warning("[UPSAMPLE] 返回结果为空")
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大失败，返回原图...\n")
+                            break  # 空结果不重试
+
+                    except Exception as e:
+                        error_str = str(e)
+                        debug_logger.log_error(f"[UPSAMPLE] 放大失败 (尝试 {retry_attempt + 1}/{max_retries}): {error_str}")
+                        
+                        # 检查是否是403错误，需要重试
+                        if "403" in error_str and retry_attempt < max_retries - 1:
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大遇到403错误，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...\n")
+                            # 等待一小段时间后重试
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大失败: {error_str}，返回原图...\n")
+                            break
 
             # 缓存图片 (如果启用)
             local_url = image_url
@@ -835,7 +1182,10 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk(f"视频生成中...\n")
 
-            async for chunk in self._poll_video_result(token, operations, stream):
+            # 检查是否需要放大
+            upsample_config = model_config.get("upsample")
+
+            async for chunk in self._poll_video_result(token, project_id, operations, stream, upsample_config):
                 yield chunk
 
         finally:
@@ -846,13 +1196,23 @@ class GenerationHandler:
     async def _poll_video_result(
         self,
         token,
+        project_id: str,
         operations: List[Dict],
-        stream: bool
+        stream: bool,
+        upsample_config: Optional[Dict] = None
     ) -> AsyncGenerator:
-        """轮询视频生成结果"""
+        """轮询视频生成结果
+        
+        Args:
+            upsample_config: 放大配置 {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+        """
 
         max_attempts = config.max_poll_attempts
         poll_interval = config.poll_interval
+        
+        # 如果需要放大，轮询次数加倍（放大可能需要 30 分钟）
+        if upsample_config:
+            max_attempts = max_attempts * 3  # 放大需要更长时间
 
         for attempt in range(max_attempts):
             await asyncio.sleep(poll_interval)
@@ -879,10 +1239,48 @@ class GenerationHandler:
                     metadata = operation["operation"].get("metadata", {})
                     video_info = metadata.get("video", {})
                     video_url = video_info.get("fifeUrl")
+                    video_media_id = video_info.get("mediaGenerationId")
+                    aspect_ratio = video_info.get("aspectRatio", "VIDEO_ASPECT_RATIO_LANDSCAPE")
 
                     if not video_url:
                         yield self._create_error_response("视频URL为空")
                         return
+
+                    # ========== 视频放大处理 ==========
+                    if upsample_config and video_media_id:
+                        if stream:
+                            resolution_name = "4K" if "4K" in upsample_config["resolution"] else "1080P"
+                            yield self._create_stream_chunk(f"\n视频生成完成，开始 {resolution_name} 放大处理...（可能需要 30 分钟）\n")
+                        
+                        try:
+                            # 提交放大任务
+                            upsample_result = await self.flow_client.upsample_video(
+                                at=token.at,
+                                project_id=project_id,
+                                video_media_id=video_media_id,
+                                aspect_ratio=aspect_ratio,
+                                resolution=upsample_config["resolution"],
+                                model_key=upsample_config["model_key"]
+                            )
+                            
+                            upsample_operations = upsample_result.get("operations", [])
+                            if upsample_operations:
+                                if stream:
+                                    yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")
+                                
+                                # 递归轮询放大结果（不再放大）
+                                async for chunk in self._poll_video_result(
+                                    token, project_id, upsample_operations, stream, None
+                                ):
+                                    yield chunk
+                                return
+                            else:
+                                if stream:
+                                    yield self._create_stream_chunk("⚠️ 放大任务创建失败，返回原始视频\n")
+                        except Exception as e:
+                            debug_logger.log_error(f"Video upsample failed: {str(e)}")
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 放大失败: {str(e)}，返回原始视频\n")
 
                     # 缓存视频 (如果启用)
                     local_url = video_url

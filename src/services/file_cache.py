@@ -264,6 +264,41 @@ class FileCache:
             )
             raise Exception(f"Failed to cache file: {str(e)}")
 
+    async def cache_base64_image(self, base64_data: str, resolution: str = "") -> str:
+        """
+        Cache base64 encoded image data to local file
+
+        Args:
+            base64_data: Base64 encoded image data (without data:image/... prefix)
+            resolution: Resolution info for filename (e.g., "4K", "2K")
+
+        Returns:
+            Local cache filename
+        """
+        import base64
+        import uuid
+
+        # Generate unique filename
+        unique_id = hashlib.md5(f"{uuid.uuid4()}{time.time()}".encode()).hexdigest()
+        suffix = f"_{resolution}" if resolution else ""
+        filename = f"{unique_id}{suffix}.jpg"
+        file_path = self.cache_dir / filename
+
+        try:
+            # Decode base64 and save to file
+            image_data = base64.b64decode(base64_data)
+            with open(file_path, 'wb') as f:
+                f.write(image_data)
+            debug_logger.log_info(f"Base64 image cached: {filename} ({len(image_data)} bytes)")
+            return filename
+        except Exception as e:
+            debug_logger.log_error(
+                error_message=f"Failed to cache base64 image: {str(e)}",
+                status_code=0,
+                response_text=""
+            )
+            raise Exception(f"Failed to cache base64 image: {str(e)}")
+
     def get_cache_path(self, filename: str) -> Path:
         """Get full path to cached file"""
         return self.cache_dir / filename

@@ -885,6 +885,7 @@ async def update_captcha_config(
     capsolver_base_url = request.get("capsolver_base_url")
     browser_proxy_enabled = request.get("browser_proxy_enabled", False)
     browser_proxy_url = request.get("browser_proxy_url", "")
+    browser_count = request.get("browser_count", 1)
 
     # 验证浏览器代理URL格式
     if browser_proxy_enabled and browser_proxy_url:
@@ -903,8 +904,18 @@ async def update_captcha_config(
         capsolver_api_key=capsolver_api_key,
         capsolver_base_url=capsolver_base_url,
         browser_proxy_enabled=browser_proxy_enabled,
-        browser_proxy_url=browser_proxy_url if browser_proxy_enabled else None
+        browser_proxy_url=browser_proxy_url if browser_proxy_enabled else None,
+        browser_count=max(1, int(browser_count)) if browser_count else 1
     )
+
+    # 如果使用 browser 打码，热重载浏览器数量配置
+    if captcha_method == "browser":
+        try:
+            from ..services.browser_captcha import BrowserCaptchaService
+            service = await BrowserCaptchaService.get_instance(db)
+            await service.reload_browser_count()
+        except Exception:
+            pass
 
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
@@ -927,7 +938,8 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
         "capsolver_api_key": captcha_config.capsolver_api_key,
         "capsolver_base_url": captcha_config.capsolver_base_url,
         "browser_proxy_enabled": captcha_config.browser_proxy_enabled,
-        "browser_proxy_url": captcha_config.browser_proxy_url or ""
+        "browser_proxy_url": captcha_config.browser_proxy_url or "",
+        "browser_count": captcha_config.browser_count
     }
 
 
