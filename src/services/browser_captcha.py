@@ -12,7 +12,7 @@ from typing import Optional, Dict
 from datetime import datetime
 from urllib.parse import urlparse, unquote
 
-from playwright.async_api import async_playwright, Route, BrowserContext
+from patchright.async_api import async_playwright, Route, BrowserContext
 
 from ..core.logger import debug_logger
 
