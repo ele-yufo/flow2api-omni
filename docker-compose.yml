@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   flow2api:
-    image: thesmallhancat/flow2api:latest
+    image: ghcr.io/thesmallhancat/flow2api:latest
     container_name: flow2api
     ports:
       - "38000:8000"
