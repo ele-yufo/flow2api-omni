@@ -2,9 +2,12 @@
 基于 RT 的本地 reCAPTCHA 打码服务 (终极闭环版 - 无 fake_useragent 纯净版)
 支持：自动刷新 Session Token、外部触发指纹切换、死磕重试
 """
+import os
+# 修复 Windows 上 patchright 的 asyncio 兼容性问题
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
+
 import asyncio
 import time
-import os
 import re
 import random
 from pathlib import Path
