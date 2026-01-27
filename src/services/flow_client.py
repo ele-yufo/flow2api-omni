@@ -1177,14 +1177,20 @@ class FlowClient:
                 return None, None
         # API打码服务
         elif captcha_method in ["yescaptcha", "capmonster", "ezcaptcha", "capsolver"]:
-            token = await self._get_api_captcha_token(captcha_method, project_id)
+            token = await self._get_api_captcha_token(captcha_method, project_id, action)
             return token, None
         else:
             debug_logger.log_info(f"[reCAPTCHA] 未知的打码方式: {captcha_method}")
             return None, None
 
-    async def _get_api_captcha_token(self, method: str, project_id: str) -> Optional[str]:
-        """通用API打码服务"""
+    async def _get_api_captcha_token(self, method: str, project_id: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
+        """通用API打码服务
+        
+        Args:
+            method: 打码服务类型
+            project_id: 项目ID
+            action: reCAPTCHA action类型 (IMAGE_GENERATION 或 VIDEO_GENERATION)
+        """
         # 获取配置
         if method == "yescaptcha":
             client_key = config.yescaptcha_api_key
@@ -1212,7 +1218,7 @@ class FlowClient:
 
         website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
         website_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
-        page_action = "FLOW_GENERATION"
+        page_action = action
 
         try:
             async with AsyncSession() as session:

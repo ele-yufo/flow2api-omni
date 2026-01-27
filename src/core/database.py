@@ -223,7 +223,7 @@ class Database:
                         capsolver_api_key TEXT DEFAULT '',
                         capsolver_base_url TEXT DEFAULT 'https://api.capsolver.com',
                         website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
-                        page_action TEXT DEFAULT 'FLOW_GENERATION',
+                        page_action TEXT DEFAULT 'IMAGE_GENERATION',
                         browser_proxy_enabled BOOLEAN DEFAULT 0,
                         browser_proxy_url TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -509,7 +509,8 @@ class Database:
                     capsolver_api_key TEXT DEFAULT '',
                     capsolver_base_url TEXT DEFAULT 'https://api.capsolver.com',
                     website_key TEXT DEFAULT '6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV',
-                    page_action TEXT DEFAULT 'FLOW_GENERATION',
+                    page_action TEXT DEFAULT 'IMAGE_GENERATION',
+
                     browser_proxy_enabled BOOLEAN DEFAULT 0,
                     browser_proxy_url TEXT,
                     browser_count INTEGER DEFAULT 1,

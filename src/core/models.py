@@ -157,7 +157,7 @@ class CaptchaConfig(BaseModel):
     capsolver_api_key: str = ""
     capsolver_base_url: str = "https://api.capsolver.com"
     website_key: str = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
-    page_action: str = "FLOW_GENERATION"
+    page_action: str = "IMAGE_GENERATION"
     browser_proxy_enabled: bool = False  # 浏览器打码是否启用代理
     browser_proxy_url: Optional[str] = None  # 浏览器打码代理URL
     browser_count: int = 1  # 浏览器打码实例数量
