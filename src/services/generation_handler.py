@@ -182,14 +182,14 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_t2v_fast_ultra (横竖屏)
-    "veo_3_1_t2v_fast_ultra_portrait": {
+    "veo_3_1_t2v_fast_portrait_ultra": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False
     },
-    "veo_3_1_t2v_fast_ultra_landscape": {
+    "veo_3_1_t2v_fast_ultra": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_ultra",
@@ -198,14 +198,14 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_t2v_fast_ultra_relaxed (横竖屏)
-    "veo_3_1_t2v_fast_ultra_relaxed_portrait": {
+    "veo_3_1_t2v_fast_portrait_ultra_relaxed": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False
     },
-    "veo_3_1_t2v_fast_ultra_relaxed_landscape": {
+    "veo_3_1_t2v_fast_ultra_relaxed": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_ultra_relaxed",
@@ -233,19 +233,19 @@ MODEL_CONFIG = {
     # 支持1-2张图片：1张作为首帧，2张作为首尾帧
 
     # veo_3_1_i2v_s_fast_fl (需要新增横竖屏)
-    "veo_3_1_i2v_s_fast_fl_portrait": {
+    "veo_3_1_i2v_s_fast_portrait_fl": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_portrait_fl_ultra_relaxed",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_fl",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 1,
         "max_images": 2
     },
-    "veo_3_1_i2v_s_fast_fl_landscape": {
+    "veo_3_1_i2v_s_fast_fl": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_fl_ultra_relaxed",
+        "model_key": "veo_3_1_i2v_s_fast_fl",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 1,
@@ -293,7 +293,7 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_i2v_s_fast_ultra (横竖屏)
-    "veo_3_1_i2v_s_fast_ultra_portrait": {
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
@@ -302,7 +302,7 @@ MODEL_CONFIG = {
         "min_images": 1,
         "max_images": 2
     },
-    "veo_3_1_i2v_s_fast_ultra_landscape": {
+    "veo_3_1_i2v_s_fast_ultra_fl": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
@@ -313,16 +313,16 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_i2v_s_fast_ultra_relaxed (需要新增横竖屏)
-    "veo_3_1_i2v_s_fast_ultra_relaxed_portrait": {
+    "veo_3_1_i2v_s_fast_portrait_ultra_relaxed": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s_fast_ultra_relaxed",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 1,
         "max_images": 2
     },
-    "veo_3_1_i2v_s_fast_ultra_relaxed_landscape": {
+    "veo_3_1_i2v_s_fast_ultra_relaxed": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_ultra_relaxed",
@@ -359,16 +359,16 @@ MODEL_CONFIG = {
     "veo_3_1_r2v_fast_portrait": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_portrait",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_1_r2v_fast_landscape": {
+    "veo_3_1_r2v_fast": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
@@ -376,7 +376,7 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_r2v_fast_ultra (横竖屏)
-    "veo_3_1_r2v_fast_ultra_portrait": {
+    "veo_3_1_r2v_fast_portrait_ultra": {
         "type": "video",
         "video_type": "r2v",
         "model_key": "veo_3_1_r2v_fast_portrait_ultra",
@@ -385,10 +385,10 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_1_r2v_fast_ultra_landscape": {
+    "veo_3_1_r2v_fast_ultra": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "model_key": "veo_3_1_r2v_fast_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
@@ -396,7 +396,7 @@ MODEL_CONFIG = {
     },
 
     # veo_3_1_r2v_fast_ultra_relaxed (横竖屏)
-    "veo_3_1_r2v_fast_ultra_relaxed_portrait": {
+    "veo_3_1_r2v_fast_portrait_ultra_relaxed": {
         "type": "video",
         "video_type": "r2v",
         "model_key": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
@@ -405,10 +405,10 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": None  # 不限制
     },
-    "veo_3_1_r2v_fast_ultra_relaxed_landscape": {
+    "veo_3_1_r2v_fast_ultra_relaxed": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
@@ -427,7 +427,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
-    "veo_3_1_t2v_fast_landscape_4k": {
+    "veo_3_1_t2v_fast_4k": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast",
@@ -435,7 +435,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
-    "veo_3_1_t2v_fast_ultra_portrait_4k": {
+    "veo_3_1_t2v_fast_portrait_ultra_4k": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra",
@@ -443,7 +443,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
-    "veo_3_1_t2v_fast_ultra_landscape_4k": {
+    "veo_3_1_t2v_fast_ultra_4k": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_ultra",
@@ -461,7 +461,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
-    "veo_3_1_t2v_fast_landscape_1080p": {
+    "veo_3_1_t2v_fast_1080p": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast",
@@ -469,7 +469,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
-    "veo_3_1_t2v_fast_ultra_portrait_1080p": {
+    "veo_3_1_t2v_fast_portrait_ultra_1080p": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_portrait_ultra",
@@ -477,7 +477,7 @@ MODEL_CONFIG = {
         "supports_images": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
-    "veo_3_1_t2v_fast_ultra_landscape_1080p": {
+    "veo_3_1_t2v_fast_ultra_1080p": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_fast_ultra",
@@ -487,7 +487,7 @@ MODEL_CONFIG = {
     },
 
     # I2V 4K 放大版
-    "veo_3_1_i2v_s_fast_ultra_portrait_4k": {
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl_4k": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
@@ -497,7 +497,7 @@ MODEL_CONFIG = {
         "max_images": 2,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
-    "veo_3_1_i2v_s_fast_ultra_landscape_4k": {
+    "veo_3_1_i2v_s_fast_ultra_fl_4k": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
@@ -509,7 +509,7 @@ MODEL_CONFIG = {
     },
 
     # I2V 1080P 放大版
-    "veo_3_1_i2v_s_fast_ultra_portrait_1080p": {
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl_1080p": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
@@ -519,7 +519,7 @@ MODEL_CONFIG = {
         "max_images": 2,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
-    "veo_3_1_i2v_s_fast_ultra_landscape_1080p": {
+    "veo_3_1_i2v_s_fast_ultra_fl_1080p": {
         "type": "video",
         "video_type": "i2v",
         "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
@@ -531,7 +531,7 @@ MODEL_CONFIG = {
     },
 
     # R2V 4K 放大版
-    "veo_3_1_r2v_fast_ultra_portrait_4k": {
+    "veo_3_1_r2v_fast_portrait_ultra_4k": {
         "type": "video",
         "video_type": "r2v",
         "model_key": "veo_3_1_r2v_fast_portrait_ultra",
@@ -541,10 +541,10 @@ MODEL_CONFIG = {
         "max_images": None,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
-    "veo_3_1_r2v_fast_ultra_landscape_4k": {
+    "veo_3_1_r2v_fast_ultra_4k": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "model_key": "veo_3_1_r2v_fast_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
@@ -553,7 +553,7 @@ MODEL_CONFIG = {
     },
 
     # R2V 1080P 放大版
-    "veo_3_1_r2v_fast_ultra_portrait_1080p": {
+    "veo_3_1_r2v_fast_portrait_ultra_1080p": {
         "type": "video",
         "video_type": "r2v",
         "model_key": "veo_3_1_r2v_fast_portrait_ultra",
@@ -563,10 +563,10 @@ MODEL_CONFIG = {
         "max_images": None,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
-    "veo_3_1_r2v_fast_ultra_landscape_1080p": {
+    "veo_3_1_r2v_fast_ultra_1080p": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "model_key": "veo_3_1_r2v_fast_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
