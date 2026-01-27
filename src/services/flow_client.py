@@ -574,8 +574,8 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/flow/upsampleImage"
 
-        # 获取 reCAPTCHA token - 使用 VIDEO_GENERATION action
-        recaptcha_token, _ = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+        # 获取 reCAPTCHA token - 使用 IMAGE_GENERATION action
+        recaptcha_token, _ = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
         recaptcha_token = recaptcha_token or ""
         session_id = self._generate_session_id()
 
@@ -1148,8 +1148,8 @@ class FlowClient:
         Args:
             project_id: 项目ID
             action: reCAPTCHA action类型
-                - IMAGE_GENERATION: 图片生成 (默认)
-                - VIDEO_GENERATION: 视频生成和2K/4K图片放大
+                - IMAGE_GENERATION: 图片生成和2K/4K图片放大 (默认)
+                - VIDEO_GENERATION: 视频生成和视频放大
         
         Returns:
             (token, browser_id) 元组，browser_id 用于失败时调用 report_error
