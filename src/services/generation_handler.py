@@ -1001,14 +1001,15 @@ class GenerationHandler:
                 # 如果模型 key 不包含 ultra，自动添加
                 if "ultra" not in model_key:
                     # veo_3_1_i2v_s_fast_fl -> veo_3_1_i2v_s_fast_ultra_fl
+                    # veo_3_1_i2v_s_fast_portrait_fl -> veo_3_1_i2v_s_fast_portrait_ultra_fl
                     # veo_3_1_t2v_fast -> veo_3_1_t2v_fast_ultra
+                    # veo_3_1_t2v_fast_portrait -> veo_3_1_t2v_fast_portrait_ultra
                     # veo_3_0_r2v_fast -> veo_3_0_r2v_fast_ultra
                     if "_fl" in model_key:
                         model_key = model_key.replace("_fl", "_ultra_fl")
-                    elif model_key.endswith("_fast"):
+                    else:
+                        # 直接在末尾添加 _ultra
                         model_key = model_key + "_ultra"
-                    elif "_fast_" in model_key:
-                        model_key = model_key.replace("_fast_", "_fast_ultra_")
                     
                     if stream:
                         yield self._create_stream_chunk(f"TIER_TWO 账号自动切换到 ultra 模型: {model_key}\n")

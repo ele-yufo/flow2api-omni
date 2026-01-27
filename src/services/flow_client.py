@@ -503,7 +503,8 @@ class FlowClient:
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
 
             # 构建请求 - clientContext 只在外层，requests 内不重复
@@ -576,7 +577,8 @@ class FlowClient:
 
         # 获取 reCAPTCHA token - 使用 IMAGE_GENERATION action
         recaptcha_token, _ = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
-        recaptcha_token = recaptcha_token or ""
+        if not recaptcha_token:
+            raise Exception("Failed to obtain reCAPTCHA token")
         session_id = self._generate_session_id()
 
         json_data = {
@@ -646,7 +648,8 @@ class FlowClient:
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
 
@@ -731,7 +734,8 @@ class FlowClient:
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
 
@@ -819,7 +823,8 @@ class FlowClient:
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
 
@@ -910,7 +915,8 @@ class FlowClient:
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
 
@@ -998,7 +1004,8 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
-            recaptcha_token = recaptcha_token or ""
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
 
@@ -1203,7 +1210,7 @@ class FlowClient:
         elif method == "ezcaptcha":
             client_key = config.ezcaptcha_api_key
             base_url = config.ezcaptcha_base_url
-            task_type = "ReCaptchaV3TaskProxyless"
+            task_type = "ReCaptchaV3TaskProxylessS9"
         elif method == "capsolver":
             client_key = config.capsolver_api_key
             base_url = config.capsolver_base_url
