@@ -172,8 +172,8 @@ class Database:
         count = await cursor.fetchone()
         if count[0] == 0:
             await db.execute("""
-                INSERT INTO plugin_config (id, connection_token)
-                VALUES (1, '')
+                INSERT INTO plugin_config (id, connection_token, auto_enable_on_update)
+                VALUES (1, '', 1)
             """)
 
     async def check_and_migrate_db(self, config_dict: dict = None):
@@ -238,6 +238,7 @@ class Database:
                     CREATE TABLE plugin_config (
                         id INTEGER PRIMARY KEY DEFAULT 1,
                         connection_token TEXT DEFAULT '',
+                        auto_enable_on_update BOOLEAN DEFAULT 1,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -524,6 +525,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS plugin_config (
                     id INTEGER PRIMARY KEY DEFAULT 1,
                     connection_token TEXT DEFAULT '',
+                    auto_enable_on_update BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
