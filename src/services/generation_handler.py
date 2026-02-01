@@ -1121,10 +1121,12 @@ class GenerationHandler:
                         user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
                     )
                 else:
-                    # 只有首帧 - 需要将 model_key 中的 _fl_ 替换为 _
-                    # 例如: veo_3_1_i2v_s_fast_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_ultra_relaxed
-                    #       veo_3_1_i2v_s_fast_portrait_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_portrait_ultra_relaxed
+                    # 只有首帧 - 需要去掉 model_key 中的 _fl
+                    # 情况1: _fl_ 在中间 (如 veo_3_1_i2v_s_fast_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_ultra_relaxed)
+                    # 情况2: _fl 在结尾 (如 veo_3_1_i2v_s_fast_ultra_fl -> veo_3_1_i2v_s_fast_ultra)
                     actual_model_key = model_config["model_key"].replace("_fl_", "_")
+                    if actual_model_key.endswith("_fl"):
+                        actual_model_key = actual_model_key[:-3]
                     debug_logger.log_info(f"[I2V] 单帧模式，model_key: {model_config['model_key']} -> {actual_model_key}")
                     result = await self.flow_client.generate_video_start_image(
                         at=token.at,
