@@ -1183,7 +1183,7 @@ class FlowClient:
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Personal] 错误: {str(e)}")
                 return None, None
-        # 有头浏览器打码 (patchright/playwright)
+        # 有头浏览器打码 (playwright)
         elif captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
@@ -1197,7 +1197,7 @@ class FlowClient:
                 return None, None
             except ImportError as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] 导入失败: {str(e)}")
-                print(f"[reCAPTCHA] ❌ patchright 未安装，请运行: pip install patchright && python -m patchright install chromium")
+                print(f"[reCAPTCHA] ❌ playwright 未安装，请运行: pip install playwright && python -m playwright install chromium")
                 return None, None
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] 错误: {str(e)}")
