@@ -3,6 +3,8 @@
 支持：自动刷新 Session Token、外部触发指纹切换、死磕重试
 """
 import os
+import sys
+import subprocess
 # 修复 Windows 上 patchright 的 asyncio 兼容性问题
 os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 
@@ -15,9 +17,158 @@ from typing import Optional, Dict
 from datetime import datetime
 from urllib.parse import urlparse, unquote
 
-from patchright.async_api import async_playwright, Route, BrowserContext
-
 from ..core.logger import debug_logger
+
+
+# ==================== Docker 环境检测 ====================
+def _is_running_in_docker() -> bool:
+    """检测是否在 Docker 容器中运行"""
+    # 方法1: 检查 /.dockerenv 文件
+    if os.path.exists('/.dockerenv'):
+        return True
+    # 方法2: 检查 cgroup
+    try:
+        with open('/proc/1/cgroup', 'r') as f:
+            content = f.read()
+            if 'docker' in content or 'kubepods' in content or 'containerd' in content:
+                return True
+    except:
+        pass
+    # 方法3: 检查环境变量
+    if os.environ.get('DOCKER_CONTAINER') or os.environ.get('KUBERNETES_SERVICE_HOST'):
+        return True
+    return False
+
+
+IS_DOCKER = _is_running_in_docker()
+
+
+# ==================== patchright 自动安装 ====================
+def _run_pip_install(package: str, use_mirror: bool = False) -> bool:
+    """运行 pip install 命令"""
+    cmd = [sys.executable, '-m', 'pip', 'install', package]
+    if use_mirror:
+        cmd.extend(['-i', 'https://pypi.tuna.tsinghua.edu.cn/simple'])
+    
+    try:
+        debug_logger.log_info(f"[BrowserCaptcha] 正在安装 {package}...")
+        print(f"[BrowserCaptcha] 正在安装 {package}...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            debug_logger.log_info(f"[BrowserCaptcha] ✅ {package} 安装成功")
+            print(f"[BrowserCaptcha] ✅ {package} 安装成功")
+            return True
+        else:
+            debug_logger.log_warning(f"[BrowserCaptcha] {package} 安装失败: {result.stderr[:200]}")
+            return False
+    except Exception as e:
+        debug_logger.log_warning(f"[BrowserCaptcha] {package} 安装异常: {e}")
+        return False
+
+
+def _run_playwright_install(use_mirror: bool = False) -> bool:
+    """安装 patchright chromium 浏览器"""
+    cmd = [sys.executable, '-m', 'patchright', 'install', 'chromium']
+    env = os.environ.copy()
+    
+    if use_mirror:
+        # 使用国内镜像
+        env['PLAYWRIGHT_DOWNLOAD_HOST'] = 'https://npmmirror.com/mirrors/playwright'
+    
+    try:
+        debug_logger.log_info("[BrowserCaptcha] 正在安装 chromium 浏览器...")
+        print("[BrowserCaptcha] 正在安装 chromium 浏览器...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+        if result.returncode == 0:
+            debug_logger.log_info("[BrowserCaptcha] ✅ chromium 浏览器安装成功")
+            print("[BrowserCaptcha] ✅ chromium 浏览器安装成功")
+            return True
+        else:
+            debug_logger.log_warning(f"[BrowserCaptcha] chromium 安装失败: {result.stderr[:200]}")
+            return False
+    except Exception as e:
+        debug_logger.log_warning(f"[BrowserCaptcha] chromium 安装异常: {e}")
+        return False
+
+
+def _ensure_patchright_installed() -> bool:
+    """确保 patchright 已安装"""
+    try:
+        import patchright
+        debug_logger.log_info("[BrowserCaptcha] patchright 已安装")
+        return True
+    except ImportError:
+        pass
+    
+    debug_logger.log_info("[BrowserCaptcha] patchright 未安装，开始自动安装...")
+    print("[BrowserCaptcha] patchright 未安装，开始自动安装...")
+    
+    # 先尝试官方源
+    if _run_pip_install('patchright', use_mirror=False):
+        return True
+    
+    # 官方源失败，尝试国内镜像
+    debug_logger.log_info("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    print("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    if _run_pip_install('patchright', use_mirror=True):
+        return True
+    
+    debug_logger.log_error("[BrowserCaptcha] ❌ patchright 自动安装失败，请手动安装: pip install patchright")
+    print("[BrowserCaptcha] ❌ patchright 自动安装失败，请手动安装: pip install patchright")
+    return False
+
+
+def _ensure_browser_installed() -> bool:
+    """确保 chromium 浏览器已安装"""
+    try:
+        from patchright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            # 尝试获取浏览器路径，如果失败说明未安装
+            browser_path = p.chromium.executable_path
+            if browser_path and os.path.exists(browser_path):
+                debug_logger.log_info(f"[BrowserCaptcha] chromium 浏览器已安装: {browser_path}")
+                return True
+    except Exception as e:
+        debug_logger.log_info(f"[BrowserCaptcha] 检测浏览器时出错: {e}")
+    
+    debug_logger.log_info("[BrowserCaptcha] chromium 浏览器未安装，开始自动安装...")
+    print("[BrowserCaptcha] chromium 浏览器未安装，开始自动安装...")
+    
+    # 先尝试官方源
+    if _run_playwright_install(use_mirror=False):
+        return True
+    
+    # 官方源失败，尝试国内镜像
+    debug_logger.log_info("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    print("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    if _run_playwright_install(use_mirror=True):
+        return True
+    
+    debug_logger.log_error("[BrowserCaptcha] ❌ chromium 浏览器自动安装失败，请手动安装: python -m patchright install chromium")
+    print("[BrowserCaptcha] ❌ chromium 浏览器自动安装失败，请手动安装: python -m patchright install chromium")
+    return False
+
+
+# 尝试导入 patchright
+async_playwright = None
+Route = None
+BrowserContext = None
+PATCHRIGHT_AVAILABLE = False
+
+if IS_DOCKER:
+    debug_logger.log_warning("[BrowserCaptcha] 检测到 Docker 环境，有头浏览器打码不可用，请使用第三方打码服务")
+    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，有头浏览器打码不可用")
+    print("[BrowserCaptcha] 请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver")
+else:
+    if _ensure_patchright_installed():
+        try:
+            from patchright.async_api import async_playwright, Route, BrowserContext
+            PATCHRIGHT_AVAILABLE = True
+            # 检查并安装浏览器
+            _ensure_browser_installed()
+        except ImportError as e:
+            debug_logger.log_error(f"[BrowserCaptcha] patchright 导入失败: {e}")
+            print(f"[BrowserCaptcha] ❌ patchright 导入失败: {e}")
 
 
 # 配置
@@ -405,6 +556,19 @@ class BrowserCaptchaService:
                     await cls._instance._load_browser_count()
         return cls._instance
     
+    def _check_available(self):
+        """检查服务是否可用"""
+        if IS_DOCKER:
+            raise RuntimeError(
+                "有头浏览器打码在 Docker 环境中不可用。"
+                "请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver"
+            )
+        if not PATCHRIGHT_AVAILABLE or async_playwright is None:
+            raise RuntimeError(
+                "patchright 未安装或不可用。"
+                "请手动安装: pip install patchright && python -m patchright install chromium"
+            )
+    
     async def _load_browser_count(self):
         """从数据库加载浏览器数量配置"""
         if self.db:
@@ -471,6 +635,9 @@ class BrowserCaptchaService:
         Returns:
             (token, browser_id) 元组，调用方失败时用 browser_id 调用 report_error
         """
+        # 检查服务是否可用
+        self._check_available()
+        
         self._stats["req_total"] += 1
         
         # 全局并发限制（如果已配置）

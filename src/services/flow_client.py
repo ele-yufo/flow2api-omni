@@ -1164,23 +1164,43 @@ class FlowClient:
         """
         captcha_method = config.captcha_method
 
-        # 恒定浏览器打码
+        # 内置浏览器打码 (nodriver)
         if captcha_method == "personal":
             try:
                 from .browser_captcha_personal import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
                 return await service.get_token(project_id, action), None
-            except Exception as e:
-                debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
+            except RuntimeError as e:
+                # 捕获 Docker 环境或依赖缺失的明确错误
+                error_msg = str(e)
+                debug_logger.log_error(f"[reCAPTCHA Personal] {error_msg}")
+                print(f"[reCAPTCHA] ❌ 内置浏览器打码失败: {error_msg}")
                 return None, None
-        # 有头浏览器打码
+            except ImportError as e:
+                debug_logger.log_error(f"[reCAPTCHA Personal] 导入失败: {str(e)}")
+                print(f"[reCAPTCHA] ❌ nodriver 未安装，请运行: pip install nodriver")
+                return None, None
+            except Exception as e:
+                debug_logger.log_error(f"[reCAPTCHA Personal] 错误: {str(e)}")
+                return None, None
+        # 有头浏览器打码 (patchright/playwright)
         elif captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
                 return await service.get_token(project_id, action)
+            except RuntimeError as e:
+                # 捕获 Docker 环境或依赖缺失的明确错误
+                error_msg = str(e)
+                debug_logger.log_error(f"[reCAPTCHA Browser] {error_msg}")
+                print(f"[reCAPTCHA] ❌ 有头浏览器打码失败: {error_msg}")
+                return None, None
+            except ImportError as e:
+                debug_logger.log_error(f"[reCAPTCHA Browser] 导入失败: {str(e)}")
+                print(f"[reCAPTCHA] ❌ patchright 未安装，请运行: pip install patchright && python -m patchright install chromium")
+                return None, None
             except Exception as e:
-                debug_logger.log_error(f"[reCAPTCHA Browser] error: {str(e)}")
+                debug_logger.log_error(f"[reCAPTCHA Browser] 错误: {str(e)}")
                 return None, None
         # API打码服务
         elif captcha_method in ["yescaptcha", "capmonster", "ezcaptcha", "capsolver"]:
