@@ -6,11 +6,114 @@
 import asyncio
 import time
 import os
+import sys
+import subprocess
 from typing import Optional
 
-import nodriver as uc
-
 from ..core.logger import debug_logger
+
+
+# ==================== Docker 环境检测 ====================
+def _is_running_in_docker() -> bool:
+    """检测是否在 Docker 容器中运行"""
+    # 方法1: 检查 /.dockerenv 文件
+    if os.path.exists('/.dockerenv'):
+        return True
+    # 方法2: 检查 cgroup
+    try:
+        with open('/proc/1/cgroup', 'r') as f:
+            content = f.read()
+            if 'docker' in content or 'kubepods' in content or 'containerd' in content:
+                return True
+    except:
+        pass
+    # 方法3: 检查环境变量
+    if os.environ.get('DOCKER_CONTAINER') or os.environ.get('KUBERNETES_SERVICE_HOST'):
+        return True
+    return False
+
+
+IS_DOCKER = _is_running_in_docker()
+
+
+# ==================== nodriver 自动安装 ====================
+def _run_pip_install(package: str, use_mirror: bool = False) -> bool:
+    """运行 pip install 命令
+    
+    Args:
+        package: 包名
+        use_mirror: 是否使用国内镜像
+    
+    Returns:
+        是否安装成功
+    """
+    cmd = [sys.executable, '-m', 'pip', 'install', package]
+    if use_mirror:
+        cmd.extend(['-i', 'https://pypi.tuna.tsinghua.edu.cn/simple'])
+    
+    try:
+        debug_logger.log_info(f"[BrowserCaptcha] 正在安装 {package}...")
+        print(f"[BrowserCaptcha] 正在安装 {package}...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode == 0:
+            debug_logger.log_info(f"[BrowserCaptcha] ✅ {package} 安装成功")
+            print(f"[BrowserCaptcha] ✅ {package} 安装成功")
+            return True
+        else:
+            debug_logger.log_warning(f"[BrowserCaptcha] {package} 安装失败: {result.stderr[:200]}")
+            return False
+    except Exception as e:
+        debug_logger.log_warning(f"[BrowserCaptcha] {package} 安装异常: {e}")
+        return False
+
+
+def _ensure_nodriver_installed() -> bool:
+    """确保 nodriver 已安装
+    
+    Returns:
+        是否安装成功/已安装
+    """
+    try:
+        import nodriver
+        debug_logger.log_info("[BrowserCaptcha] nodriver 已安装")
+        return True
+    except ImportError:
+        pass
+    
+    debug_logger.log_info("[BrowserCaptcha] nodriver 未安装，开始自动安装...")
+    print("[BrowserCaptcha] nodriver 未安装，开始自动安装...")
+    
+    # 先尝试官方源
+    if _run_pip_install('nodriver', use_mirror=False):
+        return True
+    
+    # 官方源失败，尝试国内镜像
+    debug_logger.log_info("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    print("[BrowserCaptcha] 官方源安装失败，尝试国内镜像...")
+    if _run_pip_install('nodriver', use_mirror=True):
+        return True
+    
+    debug_logger.log_error("[BrowserCaptcha] ❌ nodriver 自动安装失败，请手动安装: pip install nodriver")
+    print("[BrowserCaptcha] ❌ nodriver 自动安装失败，请手动安装: pip install nodriver")
+    return False
+
+
+# 尝试导入 nodriver
+uc = None
+NODRIVER_AVAILABLE = False
+
+if IS_DOCKER:
+    debug_logger.log_warning("[BrowserCaptcha] 检测到 Docker 环境，内置浏览器打码不可用，请使用第三方打码服务")
+    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，内置浏览器打码不可用")
+    print("[BrowserCaptcha] 请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver")
+else:
+    if _ensure_nodriver_installed():
+        try:
+            import nodriver as uc
+            NODRIVER_AVAILABLE = True
+        except ImportError as e:
+            debug_logger.log_error(f"[BrowserCaptcha] nodriver 导入失败: {e}")
+            print(f"[BrowserCaptcha] ❌ nodriver 导入失败: {e}")
 
 
 class ResidentTabInfo:
@@ -61,9 +164,25 @@ class BrowserCaptchaService:
                 if cls._instance is None:
                     cls._instance = cls(db)
         return cls._instance
+    
+    def _check_available(self):
+        """检查服务是否可用"""
+        if IS_DOCKER:
+            raise RuntimeError(
+                "内置浏览器打码在 Docker 环境中不可用。"
+                "请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver"
+            )
+        if not NODRIVER_AVAILABLE or uc is None:
+            raise RuntimeError(
+                "nodriver 未安装或不可用。"
+                "请手动安装: pip install nodriver"
+            )
 
     async def initialize(self):
         """初始化 nodriver 浏览器"""
+        # 检查服务是否可用
+        self._check_available()
+        
         if self._initialized and self.browser:
             # 检查浏览器是否仍然存活
             try:

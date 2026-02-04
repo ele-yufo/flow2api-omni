@@ -54,6 +54,7 @@ logs.txt
 *.cache
 
 browser_data
+browser_data_rt
 
 data
 config/setting.toml
