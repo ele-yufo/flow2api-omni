@@ -4,6 +4,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import secrets
+import time
+from curl_cffi.requests import AsyncSession
 from ..core.auth import AuthManager
 from ..core.database import Database
 from ..core.config import config
@@ -61,6 +63,14 @@ class UpdateTokenRequest(BaseModel):
 class ProxyConfigRequest(BaseModel):
     proxy_enabled: bool
     proxy_url: Optional[str] = None
+    media_proxy_enabled: Optional[bool] = None
+    media_proxy_url: Optional[str] = None
+
+
+class ProxyTestRequest(BaseModel):
+    proxy_url: str
+    test_url: Optional[str] = "https://labs.google/"
+    timeout_seconds: Optional[int] = 15
 
 
 class GenerationConfigRequest(BaseModel):
@@ -522,7 +532,9 @@ async def get_proxy_config(token: str = Depends(verify_admin_token)):
         "success": True,
         "config": {
             "enabled": config.enabled,
-            "proxy_url": config.proxy_url
+            "proxy_url": config.proxy_url,
+            "media_proxy_enabled": config.media_proxy_enabled,
+            "media_proxy_url": config.media_proxy_url
         }
     }
 
@@ -533,7 +545,9 @@ async def get_proxy_config_alias(token: str = Depends(verify_admin_token)):
     config = await proxy_manager.get_proxy_config()
     return {
         "proxy_enabled": config.enabled,  # Frontend expects proxy_enabled
-        "proxy_url": config.proxy_url
+        "proxy_url": config.proxy_url,
+        "media_proxy_enabled": config.media_proxy_enabled,
+        "media_proxy_url": config.media_proxy_url
     }
 
 
@@ -543,7 +557,15 @@ async def update_proxy_config_alias(
     token: str = Depends(verify_admin_token)
 ):
     """Update proxy configuration (alias for frontend compatibility)"""
-    await proxy_manager.update_proxy_config(request.proxy_enabled, request.proxy_url)
+    try:
+        await proxy_manager.update_proxy_config(
+            enabled=request.proxy_enabled,
+            proxy_url=request.proxy_url,
+            media_proxy_enabled=request.media_proxy_enabled,
+            media_proxy_url=request.media_proxy_url
+        )
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
     return {"success": True, "message": "代理配置更新成功"}
 
 
@@ -553,8 +575,79 @@ async def update_proxy_config(
     token: str = Depends(verify_admin_token)
 ):
     """Update proxy configuration"""
-    await proxy_manager.update_proxy_config(request.proxy_enabled, request.proxy_url)
+    try:
+        await proxy_manager.update_proxy_config(
+            enabled=request.proxy_enabled,
+            proxy_url=request.proxy_url,
+            media_proxy_enabled=request.media_proxy_enabled,
+            media_proxy_url=request.media_proxy_url
+        )
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
     return {"success": True, "message": "代理配置更新成功"}
+
+
+@router.post("/api/proxy/test")
+async def test_proxy_connectivity(
+    request: ProxyTestRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """测试代理是否可访问目标站点（默认 https://labs.google/）"""
+    proxy_input = (request.proxy_url or "").strip()
+    test_url = (request.test_url or "https://labs.google/").strip()
+    timeout_seconds = int(request.timeout_seconds or 15)
+    timeout_seconds = max(5, min(timeout_seconds, 60))
+
+    if not proxy_input:
+        return {
+            "success": False,
+            "message": "代理地址为空",
+            "test_url": test_url
+        }
+
+    try:
+        proxy_url = proxy_manager.normalize_proxy_url(proxy_input)
+    except ValueError as e:
+        return {
+            "success": False,
+            "message": str(e),
+            "test_url": test_url
+        }
+
+    start_time = time.time()
+    try:
+        proxies = {"http": proxy_url, "https": proxy_url}
+        async with AsyncSession() as session:
+            resp = await session.get(
+                test_url,
+                proxies=proxies,
+                timeout=timeout_seconds,
+                impersonate="chrome120",
+                allow_redirects=True,
+                verify=False
+            )
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        status_code = resp.status_code
+        final_url = str(resp.url)
+        ok = 200 <= status_code < 400
+
+        return {
+            "success": ok,
+            "message": "代理可用" if ok else f"代理可连通，但目标返回状态码 {status_code}",
+            "test_url": test_url,
+            "final_url": final_url,
+            "status_code": status_code,
+            "elapsed_ms": elapsed_ms
+        }
+    except Exception as e:
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return {
+            "success": False,
+            "message": f"代理测试失败: {str(e)}",
+            "test_url": test_url,
+            "elapsed_ms": elapsed_ms
+        }
 
 
 @router.get("/api/config/generation")

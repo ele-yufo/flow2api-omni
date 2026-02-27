@@ -201,16 +201,32 @@
                         <div>
                             <label class="inline-flex items-center gap-2 cursor-pointer">
                                 <input type="checkbox" id="cfgProxyEnabled" class="h-4 w-4 rounded border-input">
-                                <span class="text-sm font-medium">启用代理</span>
+                                <span class="text-sm font-medium">启用请求代理</span>
                             </label>
                         </div>
                         <div>
-                            <label class="text-sm font-medium mb-2 block">代理地址</label>
+                            <label class="text-sm font-medium mb-2 block">请求代理地址</label>
                             <input id="cfgProxyUrl" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="http://127.0.0.1:7890 或 socks5://127.0.0.1:1080">
                             <p class="text-xs text-muted-foreground mt-1">支持 HTTP 和 SOCKS5 代理</p>
                         </div>
+                        <div class="pt-3 border-t border-border">
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" id="cfgMediaProxyEnabled" class="h-4 w-4 rounded border-input" onchange="toggleMediaProxyInput()">
+                                <span class="text-sm font-medium">媒体上传下载代理</span>
+                            </label>
+                            <p class="text-xs text-muted-foreground mt-1">启用后，图片上传与图片/视频缓存下载可单独走该代理</p>
+                        </div>
+                        <div id="mediaProxyUrlInput" class="hidden">
+                            <label class="text-sm font-medium mb-2 block">媒体上传下载代理地址</label>
+                            <input id="cfgMediaProxyUrl" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="http://127.0.0.1:7897 或 socks5://127.0.0.1:1080">
+                            <p class="text-xs text-muted-foreground mt-1">支持 HTTP 和 SOCKS5 代理</p>
+                        </div>
                     </div>
-                    <button onclick="saveProxyConfig()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 w-full mt-4">保存配置</button>
+                    <div class="grid grid-cols-2 gap-2 mt-4">
+                        <button id="btnTestProxy" onclick="testProxyConfig()" class="inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent h-9 px-4">测试代理</button>
+                        <button onclick="saveProxyConfig()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4">保存配置</button>
+                    </div>
+                    <p id="proxyTestResult" class="text-xs text-muted-foreground mt-2">测试目标：<code class="bg-muted px-1 py-0.5 rounded">https://labs.google/</code></p>
                 </div>
 
                 <!-- 生成超时配置 -->
@@ -742,8 +758,11 @@
         updateAdminPassword=async()=>{const username=$('cfgAdminUsername').value.trim(),oldPwd=$('cfgOldPassword').value.trim(),newPwd=$('cfgNewPassword').value.trim();if(!oldPwd||!newPwd)return showToast('请输入旧密码和新密码','error');if(newPwd.length<4)return showToast('新密码至少4个字符','error');try{const r=await apiRequest('/api/admin/password',{method:'POST',body:JSON.stringify({username:username||undefined,old_password:oldPwd,new_password:newPwd})});if(!r)return;const d=await r.json();if(d.success){showToast('密码修改成功，请重新登录','success');setTimeout(()=>{localStorage.removeItem('adminToken');location.href='/login'},2000)}else{showToast('修改失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('修改失败: '+e.message,'error')}},
         updateAPIKey=async()=>{const newKey=$('cfgNewAPIKey').value.trim();if(!newKey)return showToast('请输入新的 API Key','error');if(newKey.length<6)return showToast('API Key 至少6个字符','error');if(!confirm('确定要更新 API Key 吗？更新后需要通知所有客户端使用新密钥。'))return;try{const r=await apiRequest('/api/admin/apikey',{method:'POST',body:JSON.stringify({new_api_key:newKey})});if(!r)return;const d=await r.json();if(d.success){showToast('API Key 更新成功','success');$('cfgCurrentAPIKey').value=newKey;$('cfgNewAPIKey').value=''}else{showToast('更新失败: '+(d.detail||'未知错误'),'error')}}catch(e){showToast('更新失败: '+e.message,'error')}},
         toggleDebugMode=async()=>{const enabled=$('cfgDebugEnabled').checked;try{const r=await apiRequest('/api/admin/debug',{method:'POST',body:JSON.stringify({enabled:enabled})});if(!r)return;const d=await r.json();if(d.success){showToast(enabled?'调试模式已开启':'调试模式已关闭','success')}else{showToast('操作失败: '+(d.detail||'未知错误'),'error');$('cfgDebugEnabled').checked=!enabled}}catch(e){showToast('操作失败: '+e.message,'error');$('cfgDebugEnabled').checked=!enabled}},
-        loadProxyConfig=async()=>{try{const r=await apiRequest('/api/proxy/config');if(!r)return;const d=await r.json();$('cfgProxyEnabled').checked=d.proxy_enabled||false;$('cfgProxyUrl').value=d.proxy_url||''}catch(e){console.error('加载代理配置失败:',e)}},
-        saveProxyConfig=async()=>{try{const r=await apiRequest('/api/proxy/config',{method:'POST',body:JSON.stringify({proxy_enabled:$('cfgProxyEnabled').checked,proxy_url:$('cfgProxyUrl').value.trim()})});if(!r)return;const d=await r.json();d.success?showToast('代理配置保存成功','success'):showToast('保存失败','error')}catch(e){showToast('保存失败: '+e.message,'error')}},
+        loadProxyConfig=async()=>{try{const r=await apiRequest('/api/proxy/config');if(!r)return;const d=await r.json();$('cfgProxyEnabled').checked=d.proxy_enabled||false;$('cfgProxyUrl').value=d.proxy_url||'';$('cfgMediaProxyEnabled').checked=d.media_proxy_enabled||false;$('cfgMediaProxyUrl').value=d.media_proxy_url||'';toggleMediaProxyInput()}catch(e){console.error('加载代理配置失败:',e)}},
+        saveProxyConfig=async()=>{try{const r=await apiRequest('/api/proxy/config',{method:'POST',body:JSON.stringify({proxy_enabled:$('cfgProxyEnabled').checked,proxy_url:$('cfgProxyUrl').value.trim(),media_proxy_enabled:$('cfgMediaProxyEnabled').checked,media_proxy_url:$('cfgMediaProxyUrl').value.trim()})});if(!r)return;const d=await r.json();d.success?showToast('代理配置保存成功','success'):showToast('保存失败','error')}catch(e){showToast('保存失败: '+e.message,'error')}},
+        updateProxyTestResult=(message,isSuccess)=>{const el=$('proxyTestResult');if(!el)return;el.textContent=message;el.className=`text-xs mt-2 ${isSuccess?'text-green-600':'text-red-600'}`},
+        testProxyConfig=async()=>{const tests=[];const requestProxyUrl=$('cfgProxyUrl').value.trim();const mediaProxyUrl=$('cfgMediaProxyUrl').value.trim();const testUrl='https://labs.google/';if(requestProxyUrl)tests.push({name:'请求代理',proxy_url:requestProxyUrl});if(mediaProxyUrl&&mediaProxyUrl!==requestProxyUrl)tests.push({name:'媒体代理',proxy_url:mediaProxyUrl});if(tests.length===0){updateProxyTestResult('请先填写至少一个代理地址',false);showToast('请先填写代理地址','error');return}const btn=$('btnTestProxy');if(btn){btn.disabled=true;btn.textContent='测试中...'}try{const results=[];for(const item of tests){const r=await apiRequest('/api/proxy/test',{method:'POST',body:JSON.stringify({proxy_url:item.proxy_url,test_url:testUrl})});if(!r){results.push({name:item.name,success:false,message:'请求失败'});continue}const d=await r.json();results.push({name:item.name,success:!!d.success,message:d.message||'未知结果',status_code:d.status_code,elapsed_ms:d.elapsed_ms,final_url:d.final_url})}const allPass=results.every(x=>x.success);const summary=results.map(x=>`${x.name}: ${x.success?'✅':'❌'} ${x.message}${x.status_code?` (HTTP ${x.status_code})`:''}${x.elapsed_ms!==undefined?` ${x.elapsed_ms}ms`:''}`).join(' | ');updateProxyTestResult(summary,allPass);showToast(allPass?'代理测试通过':'代理测试未全部通过',allPass?'success':'error')}catch(e){updateProxyTestResult('代理测试失败: '+e.message,false);showToast('代理测试失败: '+e.message,'error')}finally{if(btn){btn.disabled=false;btn.textContent='测试代理'}}},
+        toggleMediaProxyInput=()=>{const enabled=$('cfgMediaProxyEnabled').checked;$('mediaProxyUrlInput').classList.toggle('hidden',!enabled)},
         toggleCacheOptions=()=>{const enabled=$('cfgCacheEnabled').checked;$('cacheOptions').style.display=enabled?'block':'none'},
         loadCacheConfig=async()=>{try{console.log('开始加载缓存配置...');const r=await apiRequest('/api/cache/config');if(!r){console.error('API请求失败');return}const d=await r.json();console.log('缓存配置数据:',d);if(d.success&&d.config){const enabled=d.config.enabled!==false;const timeout=d.config.timeout||7200;const baseUrl=d.config.base_url||'';const effectiveUrl=d.config.effective_base_url||'';console.log('设置缓存启用:',enabled);console.log('设置超时时间:',timeout);console.log('设置域名:',baseUrl);console.log('生效URL:',effectiveUrl);$('cfgCacheEnabled').checked=enabled;$('cfgCacheTimeout').value=timeout;$('cfgCacheBaseUrl').value=baseUrl;if(effectiveUrl){$('cacheEffectiveUrlValue').textContent=effectiveUrl;$('cacheEffectiveUrl').classList.remove('hidden')}else{$('cacheEffectiveUrl').classList.add('hidden')}toggleCacheOptions();console.log('缓存配置加载成功')}else{console.error('缓存配置数据格式错误:',d)}}catch(e){console.error('加载缓存配置失败:',e);showToast('加载缓存配置失败: '+e.message,'error')}},
         loadGenerationTimeout=async()=>{try{console.log('开始加载生成超时配置...');const r=await apiRequest('/api/generation/timeout');if(!r){console.error('API请求失败');return}const d=await r.json();console.log('生成超时配置数据:',d);if(d.success&&d.config){const imageTimeout=d.config.image_timeout||300;const videoTimeout=d.config.video_timeout||1500;console.log('设置图片超时:',imageTimeout);console.log('设置视频超时:',videoTimeout);$('cfgImageTimeout').value=imageTimeout;$('cfgVideoTimeout').value=videoTimeout;console.log('生成超时配置加载成功')}else{console.error('生成超时配置数据格式错误:',d)}}catch(e){console.error('加载生成超时配置失败:',e);showToast('加载生成超时配置失败: '+e.message,'error')}},
@@ -763,11 +782,114 @@
         loadLogs=async()=>{try{const r=await apiRequest('/api/logs?limit=100');if(!r)return;const logs=await r.json();window.allLogs=logs;const tb=$('logsTableBody');tb.innerHTML=logs.map(l=>`<tr><td class="py-2.5 px-3">${l.operation}</td><td class="py-2.5 px-3"><span class="text-xs ${l.token_email?'text-blue-600':'text-muted-foreground'}">${l.token_email||'未知'}</span></td><td class="py-2.5 px-3"><span class="inline-flex items-center rounded px-2 py-0.5 text-xs ${l.status_code===200?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}">${l.status_code}</span></td><td class="py-2.5 px-3">${l.duration.toFixed(2)}</td><td class="py-2.5 px-3 text-xs text-muted-foreground">${l.created_at?new Date(l.created_at).toLocaleString('zh-CN'):'-'}</td><td class="py-2.5 px-3"><button onclick="showLogDetail(${l.id})" class="inline-flex items-center justify-center rounded-md hover:bg-blue-50 hover:text-blue-700 h-7 px-2 text-xs">查看</button></td></tr>`).join('')}catch(e){console.error('加载日志失败:',e)}},
         refreshLogs=async()=>{await loadLogs()},
         clearAllLogs=async()=>{if(!confirm('确定要清空所有日志吗？此操作不可恢复！'))return;try{const r=await apiRequest('/api/logs',{method:'DELETE'});if(!r)return;const d=await r.json();if(d.success){showToast('日志已清空','success');await loadLogs()}else{showToast('清空失败: '+(d.message||'未知错误'),'error')}}catch(e){showToast('清空失败: '+e.message,'error')}},
-        showLogDetail=(logId)=>{const log=window.allLogs.find(l=>l.id===logId);if(!log){showToast('日志不存在','error');return}const content=$('logDetailContent');let detailHtml='';if(log.status_code===200){try{const responseBody=log.response_body?JSON.parse(log.response_body):null;if(responseBody){if(responseBody.url){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">生成结果</h4><div class="rounded-md border border-border p-3 bg-muted/30"><p class="text-sm mb-2"><span class="font-medium">文件URL:</span></p><a href="${responseBody.url}" target="_blank" class="text-blue-600 hover:underline text-xs break-all">${responseBody.url}</a></div></div>`}else if(responseBody.data&&responseBody.data.length>0){const item=responseBody.data[0];if(item.url){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">生成结果</h4><div class="rounded-md border border-border p-3 bg-muted/30"><p class="text-sm mb-2"><span class="font-medium">文件URL:</span></p><a href="${item.url}" target="_blank" class="text-blue-600 hover:underline text-xs break-all">${item.url}</a></div></div>`}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${JSON.stringify(responseBody,null,2)}</pre></div>`}}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${JSON.stringify(responseBody,null,2)}</pre></div>`}}else{detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应信息</h4><p class="text-sm text-muted-foreground">无响应数据</p></div>`}}catch(e){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${log.response_body||'无'}</pre></div>`}}else{try{const responseBody=log.response_body?JSON.parse(log.response_body):null;if(responseBody&&responseBody.error){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误原因</h4><div class="rounded-md border border-red-200 p-3 bg-red-50"><p class="text-sm text-red-700">${responseBody.error.message||responseBody.error||'未知错误'}</p></div></div>`}else if(log.response_body&&log.response_body!=='{}'){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误信息</h4><pre class="rounded-md border border-red-200 p-3 bg-red-50 text-xs overflow-x-auto">${log.response_body}</pre></div>`}}catch(e){if(log.response_body&&log.response_body!=='{}'){detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误信息</h4><pre class="rounded-md border border-red-200 p-3 bg-red-50 text-xs overflow-x-auto">${log.response_body}</pre></div>`}}}detailHtml+=`<div class="space-y-2 pt-4 border-t border-border"><h4 class="font-medium text-sm">基本信息</h4><div class="grid grid-cols-2 gap-2 text-sm"><div><span class="text-muted-foreground">操作:</span> ${log.operation}</div><div><span class="text-muted-foreground">状态码:</span> <span class="inline-flex items-center rounded px-2 py-0.5 text-xs ${log.status_code===200?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}">${log.status_code}</span></div><div><span class="text-muted-foreground">耗时:</span> ${log.duration.toFixed(2)}秒</div><div><span class="text-muted-foreground">时间:</span> ${log.created_at?new Date(log.created_at).toLocaleString('zh-CN'):'-'}</div></div></div>`;content.innerHTML=detailHtml;$('logDetailModal').classList.remove('hidden')},
+        showLogDetail=(logId)=>{renderLogDetail(logId)},
         closeLogDetailModal=()=>{$('logDetailModal').classList.add('hidden')},
         showToast=(m,t='info')=>{const d=document.createElement('div'),bc={success:'bg-green-600',error:'bg-destructive',info:'bg-primary'};d.className=`fixed bottom-4 right-4 ${bc[t]||bc.info} text-white px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium z-50 animate-slide-up`;d.textContent=m;document.body.appendChild(d);setTimeout(()=>{d.style.opacity='0';d.style.transition='opacity .3s';setTimeout(()=>d.parentNode&&document.body.removeChild(d),300)},2000)},
         logout=()=>{if(!confirm('确定要退出登录吗?'))return;localStorage.removeItem('adminToken');location.href='/login'},
         switchTab=t=>{const cap=n=>n.charAt(0).toUpperCase()+n.slice(1);['tokens','settings','logs'].forEach(n=>{const active=n===t;$(`panel${cap(n)}`).classList.toggle('hidden',!active);$(`tab${cap(n)}`).classList.toggle('border-primary',active);$(`tab${cap(n)}`).classList.toggle('text-primary',active);$(`tab${cap(n)}`).classList.toggle('border-transparent',!active);$(`tab${cap(n)}`).classList.toggle('text-muted-foreground',!active)});if(t==='settings'){loadAdminConfig();loadProxyConfig();loadCacheConfig();loadGenerationTimeout();loadCaptchaConfig();loadPluginConfig();loadATAutoRefreshConfig()}else if(t==='logs'){loadLogs()}};
+
+        function escapeLogHtml(text){
+            if(text===null||text===undefined) return '';
+            return String(text).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        function parseLogJson(raw){
+            if(!raw) return null;
+            try{return JSON.parse(raw)}catch(_){return null}
+        }
+
+        function renderLogLink(label,url){
+            if(!url) return '';
+            const safeUrl=escapeLogHtml(url);
+            return `<p class="text-xs"><span class="font-medium">${label}:</span> <a href="${safeUrl}" target="_blank" class="text-blue-600 hover:underline break-all">${safeUrl}</a></p>`;
+        }
+
+        function isVideoUrl(url){
+            if(!url) return false;
+            const text=String(url).toLowerCase();
+            if(text.startsWith('data:video/')) return true;
+            return /(\.mp4|\.webm|\.mov|\.m3u8)(\?|$)/.test(text)||text.includes('/video/');
+        }
+
+        function isImageUrl(url){
+            if(!url) return false;
+            const text=String(url).toLowerCase();
+            if(text.startsWith('data:image/')) return true;
+            return /(\.png|\.jpg|\.jpeg|\.webp|\.gif|\.avif|\.bmp)(\?|$)/.test(text)||text.includes('/image/');
+        }
+
+        function renderMediaPreview(label,url,withUrl=true){
+            if(!url) return '';
+            const safeUrl=escapeLogHtml(url);
+            let previewHtml='';
+            if(isVideoUrl(url)){
+                previewHtml=`<video src="${safeUrl}" controls class="w-full max-h-80 rounded-md border border-border bg-black"></video>`;
+            }else if(isImageUrl(url)){
+                previewHtml=`<img src="${safeUrl}" alt="${escapeLogHtml(label)}" loading="lazy" class="max-h-80 rounded-md border border-border object-contain bg-background">`;
+            }
+            return `<div class="space-y-2"><p class="text-xs font-medium">${escapeLogHtml(label)}</p>${withUrl?renderLogLink('URL',url):''}${previewHtml}</div>`;
+        }
+
+        function renderLogDetail(logId){
+            const log=(window.allLogs||[]).find(l=>l.id===logId);
+            if(!log){showToast('日志不存在','error');return}
+
+            const requestBodyObj=parseLogJson(log.request_body);
+            const responseBodyObj=parseLogJson(log.response_body);
+            let detailHtml='';
+
+            detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">请求数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${escapeLogHtml(requestBodyObj?JSON.stringify(requestBodyObj,null,2):(log.request_body||'无'))}</pre></div>`;
+
+            if(log.status_code===200){
+                if(responseBodyObj){
+                    const directUrl=responseBodyObj.url||((responseBodyObj.data&&responseBodyObj.data[0]&&responseBodyObj.data[0].url)?responseBodyObj.data[0].url:null);
+                    if(directUrl){
+                        detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">生成结果</h4><div class="rounded-md border border-border p-3 bg-muted/30 space-y-3">${renderMediaPreview('主结果',directUrl)}</div></div>`;
+                    }
+
+                    const assets=responseBodyObj.generated_assets;
+                    if(assets&&typeof assets==='object'){
+                        let assetsHtml='';
+
+                        if(assets.upscaled_image&&typeof assets.upscaled_image==='object'){
+                            const up=assets.upscaled_image;
+                            const upResolution=up.resolution||'放大';
+                            const upPreviewUrl=up.local_url||up.url||(up.base64?`data:image/jpeg;base64,${up.base64}`:'');
+                            assetsHtml+=`<p class="text-xs"><span class="font-medium">放大分辨率:</span> ${escapeLogHtml(upResolution)}</p>`;
+                            if(upPreviewUrl){
+                                assetsHtml+=renderMediaPreview(`${upResolution}结果`,upPreviewUrl,false);
+                            }
+                            if(up.base64){
+                                const preview=String(up.base64).length>600?`${String(up.base64).slice(0,600)}...`:String(up.base64);
+                                assetsHtml+=`<p class="text-xs"><span class="font-medium">Base64长度:</span> ${String(up.base64).length}</p><details class="rounded border border-border p-2 bg-background"><summary class="cursor-pointer text-xs text-muted-foreground">查看Base64预览</summary><pre class="mt-2 text-xs overflow-x-auto">${escapeLogHtml(preview)}</pre></details>`;
+                            }
+                        }else{
+                            const extraMediaUrl=assets.final_video_url||assets.final_image_url||null;
+                            if(extraMediaUrl&&extraMediaUrl!==directUrl){
+                                assetsHtml+=renderMediaPreview('额外结果',extraMediaUrl,false);
+                            }
+                        }
+
+                        detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">2K/4K 资产信息</h4><div class="rounded-md border border-border p-3 bg-muted/30 space-y-2">${assetsHtml||'<p class="text-xs text-muted-foreground">无资产详情</p>'}</div></div>`;
+                    }
+
+                    detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">完整响应</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${escapeLogHtml(JSON.stringify(responseBodyObj,null,2))}</pre></div>`;
+                }else{
+                    detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm">响应数据</h4><pre class="rounded-md border border-border p-3 bg-muted/30 text-xs overflow-x-auto">${escapeLogHtml(log.response_body||'无')}</pre></div>`;
+                }
+            }else{
+                if(responseBodyObj&&responseBodyObj.error){
+                    detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误原因</h4><div class="rounded-md border border-red-200 p-3 bg-red-50"><p class="text-sm text-red-700">${escapeLogHtml(responseBodyObj.error.message||responseBodyObj.error||'未知错误')}</p></div></div>`;
+                }
+                detailHtml+=`<div class="space-y-2"><h4 class="font-medium text-sm text-red-600">错误响应</h4><pre class="rounded-md border border-red-200 p-3 bg-red-50 text-xs overflow-x-auto">${escapeLogHtml(responseBodyObj?JSON.stringify(responseBodyObj,null,2):(log.response_body||'无'))}</pre></div>`;
+            }
+
+            detailHtml+=`<div class="space-y-2 pt-4 border-t border-border"><h4 class="font-medium text-sm">基本信息</h4><div class="grid grid-cols-2 gap-2 text-sm"><div><span class="text-muted-foreground">操作:</span> ${escapeLogHtml(log.operation||'-')}</div><div><span class="text-muted-foreground">状态码:</span> <span class="inline-flex items-center rounded px-2 py-0.5 text-xs ${log.status_code===200?'bg-green-50 text-green-700':'bg-red-50 text-red-700'}">${log.status_code}</span></div><div><span class="text-muted-foreground">耗时:</span> ${Number(log.duration||0).toFixed(2)}秒</div><div><span class="text-muted-foreground">时间:</span> ${log.created_at?new Date(log.created_at).toLocaleString('zh-CN'):'-'}</div></div></div>`;
+
+            $('logDetailContent').innerHTML=detailHtml;
+            $('logDetailModal').classList.remove('hidden');
+        }
+
         window.addEventListener('DOMContentLoaded',()=>{checkAuth();refreshTokens();loadATAutoRefreshConfig()});
     </script>
 </body>

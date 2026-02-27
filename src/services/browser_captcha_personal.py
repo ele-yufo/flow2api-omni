@@ -8,7 +8,7 @@ import time
 import os
 import sys
 import subprocess
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from ..core.logger import debug_logger
 
@@ -155,6 +155,7 @@ class BrowserCaptchaService:
         self.resident_tab = None                         # 向后兼容
         self._running = False                            # 向后兼容
         self._recaptcha_ready = False                    # 向后兼容
+        self._last_fingerprint: Optional[Dict[str, Any]] = None
 
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
@@ -429,6 +430,53 @@ class BrowserCaptchaService:
         
         return token
 
+    async def _extract_tab_fingerprint(self, tab) -> Optional[Dict[str, Any]]:
+        """从 nodriver 标签页提取浏览器指纹信息。"""
+        try:
+            fingerprint = await tab.evaluate("""
+                () => {
+                    const ua = navigator.userAgent || "";
+                    const lang = navigator.language || "";
+                    const uaData = navigator.userAgentData || null;
+                    let secChUa = "";
+                    let secChUaMobile = "";
+                    let secChUaPlatform = "";
+
+                    if (uaData) {
+                        if (Array.isArray(uaData.brands) && uaData.brands.length > 0) {
+                            secChUa = uaData.brands
+                                .map((item) => `"${item.brand}";v="${item.version}"`)
+                                .join(", ");
+                        }
+                        secChUaMobile = uaData.mobile ? "?1" : "?0";
+                        if (uaData.platform) {
+                            secChUaPlatform = `"${uaData.platform}"`;
+                        }
+                    }
+
+                    return {
+                        user_agent: ua,
+                        accept_language: lang,
+                        sec_ch_ua: secChUa,
+                        sec_ch_ua_mobile: secChUaMobile,
+                        sec_ch_ua_platform: secChUaPlatform,
+                    };
+                }
+            """)
+            if not isinstance(fingerprint, dict):
+                return None
+
+            # personal 模式当前未单独配置浏览器代理，显式使用直连，避免与全局代理混淆。
+            result: Dict[str, Any] = {"proxy_url": None}
+            for key in ("user_agent", "accept_language", "sec_ch_ua", "sec_ch_ua_mobile", "sec_ch_ua_platform"):
+                value = fingerprint.get(key)
+                if isinstance(value, str) and value:
+                    result[key] = value
+            return result
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 提取 nodriver 指纹失败: {e}")
+            return None
+
     # ========== 主要 API ==========
 
     async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
@@ -447,6 +495,7 @@ class BrowserCaptchaService:
         """
         # 确保浏览器已初始化
         await self.initialize()
+        self._last_fingerprint = None
         
         # 尝试从常驻标签页获取 token
         async with self._resident_lock:
@@ -470,6 +519,7 @@ class BrowserCaptchaService:
                 token = await self._execute_recaptcha_on_tab(resident_info.tab, action)
                 duration_ms = (time.time() - start_time) * 1000
                 if token:
+                    self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
                     debug_logger.log_info(f"[BrowserCaptcha] ✅ Token生成成功（耗时 {duration_ms:.0f}ms）")
                     return token
                 else:
@@ -487,6 +537,7 @@ class BrowserCaptchaService:
                     try:
                         token = await self._execute_recaptcha_on_tab(resident_info.tab, action)
                         if token:
+                            self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
                             debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Token生成成功")
                             return token
                     except Exception:
@@ -621,6 +672,7 @@ class BrowserCaptchaService:
             duration_ms = (time.time() - start_time) * 1000
 
             if token:
+                self._last_fingerprint = await self._extract_tab_fingerprint(tab)
                 debug_logger.log_info(f"[BrowserCaptcha] [Legacy] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
                 return token
             else:
@@ -637,6 +689,12 @@ class BrowserCaptchaService:
                     await tab.close()
                 except Exception:
                     pass
+
+    def get_last_fingerprint(self) -> Optional[Dict[str, Any]]:
+        """返回最近一次打码时的浏览器指纹快照。"""
+        if not self._last_fingerprint:
+            return None
+        return dict(self._last_fingerprint)
 
     async def close(self):
         """关闭浏览器"""

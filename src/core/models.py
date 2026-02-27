@@ -112,8 +112,10 @@ class AdminConfig(BaseModel):
 class ProxyConfig(BaseModel):
     """Proxy configuration"""
     id: int = 1
-    enabled: bool = False
-    proxy_url: Optional[str] = None
+    enabled: bool = False  # 请求代理开关
+    proxy_url: Optional[str] = None  # 请求代理地址
+    media_proxy_enabled: bool = False  # 图片上传/下载代理开关
+    media_proxy_url: Optional[str] = None  # 图片上传/下载代理地址
 
 
 class GenerationConfig(BaseModel):
