@@ -127,6 +127,93 @@ MODEL_CONFIG = {
         "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT"
     },
 
+    # 图片生成 - NARWHAL (新版)
+    "gemini-3.1-flash-image-landscape": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE"
+    },
+    "gemini-3.1-flash-image-portrait": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT"
+    },
+    "gemini-3.1-flash-image-square": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE"
+    },
+    "gemini-3.1-flash-image-four-three": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE"
+    },
+    "gemini-3.1-flash-image-three-four": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR"
+    },
+    "gemini-3.1-flash-image-landscape-2k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.1-flash-image-portrait-2k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.1-flash-image-square-2k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.1-flash-image-four-three-2k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.1-flash-image-three-four-2k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
+    },
+    "gemini-3.1-flash-image-landscape-4k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.1-flash-image-portrait-4k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.1-flash-image-square-4k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.1-flash-image-four-three-4k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+    "gemini-3.1-flash-image-three-four-4k": {
+        "type": "image",
+        "model_name": "NARWHAL",
+        "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+        "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+    },
+
     # ========== 文生视频 (T2V - Text to Video) ==========
     # 不支持上传图片，只使用文本提示词生成
 
@@ -822,7 +909,7 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk("正在生成图片...\n")
 
-            result = await self.flow_client.generate_image(
+            result, generation_session_id = await self.flow_client.generate_image(
                 at=token.at,
                 project_id=project_id,
                 prompt=prompt,
@@ -856,7 +943,9 @@ class GenerationHandler:
                             at=token.at,
                             project_id=project_id,
                             media_id=media_id,
-                            target_resolution=upsample_resolution
+                            target_resolution=upsample_resolution,
+                            user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_NOT_PAID",
+                            session_id=generation_session_id
                         )
 
                         if encoded_image:

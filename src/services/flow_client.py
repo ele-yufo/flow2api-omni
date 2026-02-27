@@ -471,28 +471,21 @@ class FlowClient:
         model_name: str,
         aspect_ratio: str,
         image_inputs: Optional[List[Dict]] = None
-    ) -> dict:
+    ) -> tuple[dict, str]:
         """生成图片(同步返回)
 
         Args:
             at: Access Token
             project_id: 项目ID
             prompt: 提示词
-            model_name: GEM_PIX, GEM_PIX_2 或 IMAGEN_3_5
+            model_name: NARWHAL / GEM_PIX / GEM_PIX_2 / IMAGEN_3_5
             aspect_ratio: 图片宽高比
             image_inputs: 参考图片列表(图生图时使用)
 
         Returns:
-            {
-                "media": [{
-                    "image": {
-                        "generatedImage": {
-                            "fifeUrl": "图片URL",
-                            ...
-                        }
-                    }
-                }]
-            }
+            (result, session_id)
+            result: 上游返回的生成结果
+            session_id: 本次成功图片生成请求使用的 sessionId
         """
         url = f"{self.api_base_url}/projects/{project_id}/flowMedia:batchGenerateImages"
 
@@ -507,7 +500,7 @@ class FlowClient:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
 
-            # 构建请求 - clientContext 只在外层，requests 内不重复
+            # 构建请求 - 新版接口在外层和 requests 内都带 clientContext
             client_context = {
                 "recaptchaContext": {
                     "token": recaptcha_token,
@@ -518,16 +511,26 @@ class FlowClient:
                 "tool": "PINHOLE"
             }
 
+            # 新版图片接口使用结构化提示词 + new media 开关
             request_data = {
-                "seed": random.randint(1, 99999),
+                "clientContext": client_context,
+                "seed": random.randint(1, 999999),
                 "imageModelName": model_name,
                 "imageAspectRatio": aspect_ratio,
-                "prompt": prompt,
+                "structuredPrompt": {
+                    "parts": [{
+                        "text": prompt
+                    }]
+                },
                 "imageInputs": image_inputs or []
             }
 
             json_data = {
                 "clientContext": client_context,
+                "mediaGenerationContext": {
+                    "batchId": str(uuid.uuid4())
+                },
+                "useNewMedia": True,
                 "requests": [request_data]
             }
 
@@ -539,7 +542,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
-                return result
+                return result, session_id
             except Exception as e:
                 error_str = str(e)
                 last_error = e
@@ -560,7 +563,9 @@ class FlowClient:
         at: str,
         project_id: str,
         media_id: str,
-        target_resolution: str = "UPSAMPLE_IMAGE_RESOLUTION_4K"
+        target_resolution: str = "UPSAMPLE_IMAGE_RESOLUTION_4K",
+        user_paygate_tier: str = "PAYGATE_TIER_NOT_PAID",
+        session_id: Optional[str] = None
     ) -> str:
         """放大图片到 2K/4K
 
@@ -569,6 +574,8 @@ class FlowClient:
             project_id: 项目ID
             media_id: 图片的 mediaId (从 batchGenerateImages 返回的 media[0]["name"])
             target_resolution: UPSAMPLE_IMAGE_RESOLUTION_2K 或 UPSAMPLE_IMAGE_RESOLUTION_4K
+            user_paygate_tier: 用户等级 (如 PAYGATE_TIER_NOT_PAID / PAYGATE_TIER_ONE)
+            session_id: 可选，复用图片生成请求的 sessionId
 
         Returns:
             base64 编码的图片数据
@@ -579,7 +586,7 @@ class FlowClient:
         recaptcha_token, _ = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
         if not recaptcha_token:
             raise Exception("Failed to obtain reCAPTCHA token")
-        session_id = self._generate_session_id()
+        upsample_session_id = session_id or self._generate_session_id()
 
         json_data = {
             "mediaId": media_id,
@@ -589,9 +596,10 @@ class FlowClient:
                     "token": recaptcha_token,
                     "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
                 },
-                "sessionId": session_id,
+                "sessionId": upsample_session_id,
                 "projectId": project_id,
-                "tool": "PINHOLE"
+                "tool": "PINHOLE",
+                "userPaygateTier": user_paygate_tier
             }
         }
 
