@@ -11,6 +11,7 @@ import subprocess
 from typing import Optional, Dict, Any
 
 from ..core.logger import debug_logger
+from ..core.config import config
 
 
 # ==================== Docker 环境检测 ====================
@@ -156,6 +157,9 @@ class BrowserCaptchaService:
         self._running = False                            # 向后兼容
         self._recaptcha_ready = False                    # 向后兼容
         self._last_fingerprint: Optional[Dict[str, Any]] = None
+        # 自定义站点打码常驻页（用于 score-test）
+        self._custom_tabs: dict[str, Dict[str, Any]] = {}
+        self._custom_lock = asyncio.Lock()
 
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
@@ -371,6 +375,51 @@ class BrowserCaptchaService:
         debug_logger.log_warning("[BrowserCaptcha] reCAPTCHA 加载超时")
         return False
 
+    async def _wait_for_custom_recaptcha(
+        self,
+        tab,
+        website_key: str,
+        enterprise: bool = False,
+    ) -> bool:
+        """等待任意站点的 reCAPTCHA 加载，用于分数测试。"""
+        debug_logger.log_info("[BrowserCaptcha] 检测自定义 reCAPTCHA...")
+
+        ready_check = (
+            "typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined' && "
+            "typeof grecaptcha.enterprise.execute === 'function'"
+        ) if enterprise else (
+            "typeof grecaptcha !== 'undefined' && typeof grecaptcha.execute === 'function'"
+        )
+        script_path = "recaptcha/enterprise.js" if enterprise else "recaptcha/api.js"
+        label = "Enterprise" if enterprise else "V3"
+
+        is_ready = await tab.evaluate(ready_check)
+        if is_ready:
+            debug_logger.log_info(f"[BrowserCaptcha] 自定义 reCAPTCHA {label} 已加载")
+            return True
+
+        debug_logger.log_info("[BrowserCaptcha] 未检测到自定义 reCAPTCHA，注入脚本...")
+        await tab.evaluate(f"""
+            (() => {{
+                if (document.querySelector('script[src*="recaptcha"]')) return;
+                const script = document.createElement('script');
+                script.src = 'https://www.google.com/{script_path}?render={website_key}';
+                script.async = true;
+                document.head.appendChild(script);
+            }})()
+        """)
+
+        await tab.sleep(3)
+        for i in range(20):
+            is_ready = await tab.evaluate(ready_check)
+            if is_ready:
+                debug_logger.log_info(f"[BrowserCaptcha] 自定义 reCAPTCHA {label} 已加载（等待了 {i * 0.5} 秒）")
+                return True
+            await tab.sleep(0.5)
+
+        debug_logger.log_warning("[BrowserCaptcha] 自定义 reCAPTCHA 加载超时")
+        return False
+
     async def _execute_recaptcha_on_tab(self, tab, action: str = "IMAGE_GENERATION") -> Optional[str]:
         """在指定标签页执行 reCAPTCHA 获取 token
         
@@ -429,6 +478,192 @@ class BrowserCaptchaService:
             pass
         
         return token
+
+    async def _execute_custom_recaptcha_on_tab(
+        self,
+        tab,
+        website_key: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> Optional[str]:
+        """在指定标签页执行任意站点的 reCAPTCHA。"""
+        ts = int(time.time() * 1000)
+        token_var = f"_custom_recaptcha_token_{ts}"
+        error_var = f"_custom_recaptcha_error_{ts}"
+        execute_target = "grecaptcha.enterprise.execute" if enterprise else "grecaptcha.execute"
+
+        execute_script = f"""
+            (() => {{
+                window.{token_var} = null;
+                window.{error_var} = null;
+
+                try {{
+                    grecaptcha.ready(function() {{
+                        {execute_target}('{website_key}', {{action: '{action}'}})
+                            .then(function(token) {{
+                                window.{token_var} = token;
+                            }})
+                            .catch(function(err) {{
+                                window.{error_var} = err.message || 'execute failed';
+                            }});
+                    }});
+                }} catch (e) {{
+                    window.{error_var} = e.message || 'exception';
+                }}
+            }})()
+        """
+
+        await tab.evaluate(execute_script)
+
+        token = None
+        for _ in range(30):
+            await tab.sleep(0.5)
+            token = await tab.evaluate(f"window.{token_var}")
+            if token:
+                break
+            error = await tab.evaluate(f"window.{error_var}")
+            if error:
+                debug_logger.log_error(f"[BrowserCaptcha] 自定义 reCAPTCHA 错误: {error}")
+                break
+
+        try:
+            await tab.evaluate(f"delete window.{token_var}; delete window.{error_var};")
+        except:
+            pass
+
+        if token:
+            post_wait_seconds = 3
+            try:
+                post_wait_seconds = float(getattr(config, "browser_recaptcha_settle_seconds", 3) or 3)
+            except Exception:
+                pass
+            if post_wait_seconds > 0:
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] 自定义 reCAPTCHA 已完成，额外等待 {post_wait_seconds:.1f}s 后返回 token"
+                )
+                await tab.sleep(post_wait_seconds)
+
+        return token
+
+    async def _verify_score_on_tab(self, tab, token: str, verify_url: str) -> Dict[str, Any]:
+        """直接读取测试页面展示的分数，避免 verify.php 与页面显示口径不一致。"""
+        _ = token
+        _ = verify_url
+        started_at = time.time()
+        timeout_seconds = 25.0
+        refresh_clicked = False
+        last_snapshot: Dict[str, Any] = {}
+
+        try:
+            timeout_seconds = float(getattr(config, "browser_score_dom_wait_seconds", 25) or 25)
+        except Exception:
+            pass
+
+        while (time.time() - started_at) < timeout_seconds:
+            try:
+                result = await tab.evaluate("""
+                    (() => {
+                        const bodyText = ((document.body && document.body.innerText) || "")
+                            .replace(/\\u00a0/g, " ")
+                            .replace(/\\r/g, "");
+                        const patterns = [
+                            { source: "current_score", regex: /Your score is:\\s*([01](?:\\.\\d+)?)/i },
+                            { source: "selected_score", regex: /Selected Score Test:[\\s\\S]{0,400}?Score:\\s*([01](?:\\.\\d+)?)/i },
+                            { source: "history_score", regex: /(?:^|\\n)\\s*Score:\\s*([01](?:\\.\\d+)?)\\s*;/i },
+                        ];
+                        let score = null;
+                        let source = "";
+                        for (const item of patterns) {
+                            const match = bodyText.match(item.regex);
+                            if (!match) continue;
+                            const parsed = Number(match[1]);
+                            if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+                                score = parsed;
+                                source = item.source;
+                                break;
+                            }
+                        }
+                        const uaMatch = bodyText.match(/Current User Agent:\\s*([^\\n]+)/i);
+                        const ipMatch = bodyText.match(/Current IP Address:\\s*([^\\n]+)/i);
+                        return {
+                            score,
+                            source,
+                            raw_text: bodyText.slice(0, 4000),
+                            current_user_agent: uaMatch ? uaMatch[1].trim() : "",
+                            current_ip_address: ipMatch ? ipMatch[1].trim() : "",
+                            title: document.title || "",
+                            url: location.href || "",
+                        };
+                    })()
+                """)
+            except Exception as e:
+                result = {"error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+            if isinstance(result, dict):
+                last_snapshot = result
+                score = result.get("score")
+                if isinstance(score, (int, float)):
+                    elapsed_ms = int((time.time() - started_at) * 1000)
+                    return {
+                        "verify_mode": "browser_page_dom",
+                        "verify_elapsed_ms": elapsed_ms,
+                        "verify_http_status": None,
+                        "verify_result": {
+                            "success": True,
+                            "score": score,
+                            "source": result.get("source") or "antcpt_dom",
+                            "raw_text": result.get("raw_text") or "",
+                            "current_user_agent": result.get("current_user_agent") or "",
+                            "current_ip_address": result.get("current_ip_address") or "",
+                            "page_title": result.get("title") or "",
+                            "page_url": result.get("url") or "",
+                        },
+                    }
+
+            if not refresh_clicked and (time.time() - started_at) >= 2:
+                refresh_clicked = True
+                try:
+                    await tab.evaluate("""
+                        (() => {
+                            const nodes = Array.from(
+                                document.querySelectorAll('button, input[type="button"], input[type="submit"], a')
+                            );
+                            const target = nodes.find((node) => {
+                                const text = (node.innerText || node.textContent || node.value || "").trim();
+                                return /Refresh score now!?/i.test(text);
+                            });
+                            if (target) {
+                                target.click();
+                                return true;
+                            }
+                            return false;
+                        })()
+                    """)
+                except Exception:
+                    pass
+
+            await tab.sleep(0.5)
+
+        elapsed_ms = int((time.time() - started_at) * 1000)
+        if not isinstance(last_snapshot, dict):
+            last_snapshot = {"raw": last_snapshot}
+
+        return {
+            "verify_mode": "browser_page_dom",
+            "verify_elapsed_ms": elapsed_ms,
+            "verify_http_status": None,
+            "verify_result": {
+                "success": False,
+                "score": None,
+                "source": "antcpt_dom_timeout",
+                "raw_text": last_snapshot.get("raw_text") or "",
+                "current_user_agent": last_snapshot.get("current_user_agent") or "",
+                "current_ip_address": last_snapshot.get("current_ip_address") or "",
+                "page_title": last_snapshot.get("title") or "",
+                "page_url": last_snapshot.get("url") or "",
+                "error": last_snapshot.get("error") or "未在页面中读取到分数",
+            },
+        }
 
     async def _extract_tab_fingerprint(self, tab) -> Optional[Dict[str, Any]]:
         """从 nodriver 标签页提取浏览器指纹信息。"""
@@ -702,6 +937,16 @@ class BrowserCaptchaService:
         await self.stop_resident_mode()
         
         try:
+            custom_items = list(self._custom_tabs.values())
+            self._custom_tabs.clear()
+            for item in custom_items:
+                tab = item.get("tab") if isinstance(item, dict) else None
+                if tab:
+                    try:
+                        await tab.close()
+                    except Exception:
+                        pass
+
             if self.browser:
                 try:
                     self.browser.stop()
@@ -857,3 +1102,210 @@ class BrowserCaptchaService:
         if self._resident_tabs:
             return next(iter(self._resident_tabs.keys()))
         return self.resident_project_id
+
+    async def get_custom_token(
+        self,
+        website_url: str,
+        website_key: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> Optional[str]:
+        """为任意站点执行 reCAPTCHA，用于分数测试等场景。
+
+        与普通 legacy 模式不同，这里会复用同一个常驻标签页，避免每次冷启动新 tab。
+        """
+        await self.initialize()
+        self._last_fingerprint = None
+
+        cache_key = f"{website_url}|{website_key}|{1 if enterprise else 0}"
+        warmup_seconds = float(getattr(config, "browser_score_test_warmup_seconds", 12) or 12)
+        per_request_settle_seconds = float(
+            getattr(config, "browser_score_test_settle_seconds", 2.5) or 2.5
+        )
+        max_retries = 2
+
+        async with self._custom_lock:
+            for attempt in range(max_retries):
+                start_time = time.time()
+                custom_info = self._custom_tabs.get(cache_key)
+                tab = custom_info.get("tab") if isinstance(custom_info, dict) else None
+
+                try:
+                    if tab is None:
+                        debug_logger.log_info(f"[BrowserCaptcha] [Custom] 创建常驻测试标签页: {website_url}")
+                        tab = await self.browser.get(website_url, new_tab=True)
+                        custom_info = {
+                            "tab": tab,
+                            "recaptcha_ready": False,
+                            "warmed_up": False,
+                            "created_at": time.time(),
+                        }
+                        self._custom_tabs[cache_key] = custom_info
+
+                    page_loaded = False
+                    for _ in range(20):
+                        ready_state = await tab.evaluate("document.readyState")
+                        if ready_state == "complete":
+                            page_loaded = True
+                            break
+                        await tab.sleep(0.5)
+
+                    if not page_loaded:
+                        raise RuntimeError("自定义页面加载超时")
+
+                    if not custom_info.get("recaptcha_ready"):
+                        recaptcha_ready = await self._wait_for_custom_recaptcha(
+                            tab=tab,
+                            website_key=website_key,
+                            enterprise=enterprise,
+                        )
+                        if not recaptcha_ready:
+                            raise RuntimeError("自定义 reCAPTCHA 无法加载")
+                        custom_info["recaptcha_ready"] = True
+
+                    try:
+                        await tab.evaluate("""
+                            (() => {
+                                try {
+                                    const body = document.body || document.documentElement;
+                                    const width = window.innerWidth || 1280;
+                                    const height = window.innerHeight || 720;
+                                    const x = Math.max(24, Math.floor(width * 0.38));
+                                    const y = Math.max(24, Math.floor(height * 0.32));
+                                    const moveEvent = new MouseEvent('mousemove', {
+                                        bubbles: true,
+                                        clientX: x,
+                                        clientY: y
+                                    });
+                                    const overEvent = new MouseEvent('mouseover', {
+                                        bubbles: true,
+                                        clientX: x,
+                                        clientY: y
+                                    });
+                                    window.focus();
+                                    window.dispatchEvent(new Event('focus'));
+                                    document.dispatchEvent(moveEvent);
+                                    document.dispatchEvent(overEvent);
+                                    if (body) {
+                                        body.dispatchEvent(moveEvent);
+                                        body.dispatchEvent(overEvent);
+                                    }
+                                    window.scrollTo(0, Math.min(320, document.body?.scrollHeight || 320));
+                                } catch (e) {}
+                            })()
+                        """)
+                    except Exception:
+                        pass
+
+                    if not custom_info.get("warmed_up"):
+                        if warmup_seconds > 0:
+                            debug_logger.log_info(
+                                f"[BrowserCaptcha] [Custom] 首次预热测试页面 {warmup_seconds:.1f}s 后再执行 token"
+                            )
+                            try:
+                                await tab.evaluate("""
+                                    (() => {
+                                        try {
+                                            window.scrollTo(0, Math.min(240, document.body.scrollHeight || 240));
+                                            window.dispatchEvent(new Event('mousemove'));
+                                            window.dispatchEvent(new Event('focus'));
+                                        } catch (e) {}
+                                    })()
+                                """)
+                            except Exception:
+                                pass
+                            await tab.sleep(warmup_seconds)
+                        custom_info["warmed_up"] = True
+                    elif per_request_settle_seconds > 0:
+                        debug_logger.log_info(
+                            f"[BrowserCaptcha] [Custom] 复用测试标签页，执行前额外等待 {per_request_settle_seconds:.1f}s"
+                        )
+                        await tab.sleep(per_request_settle_seconds)
+
+                    debug_logger.log_info(f"[BrowserCaptcha] [Custom] 使用常驻测试标签页执行验证 (action: {action})...")
+                    token = await self._execute_custom_recaptcha_on_tab(
+                        tab=tab,
+                        website_key=website_key,
+                        action=action,
+                        enterprise=enterprise,
+                    )
+
+                    duration_ms = (time.time() - start_time) * 1000
+                    if token:
+                        extracted_fingerprint = await self._extract_tab_fingerprint(tab)
+                        if not extracted_fingerprint:
+                            try:
+                                fallback_ua = await tab.evaluate("navigator.userAgent || ''")
+                                fallback_lang = await tab.evaluate("navigator.language || ''")
+                                extracted_fingerprint = {
+                                    "user_agent": fallback_ua or "",
+                                    "accept_language": fallback_lang or "",
+                                    "proxy_url": None,
+                                }
+                            except Exception:
+                                extracted_fingerprint = None
+                        self._last_fingerprint = extracted_fingerprint
+                        debug_logger.log_info(
+                            f"[BrowserCaptcha] [Custom] ✅ 常驻测试标签页 Token获取成功（耗时 {duration_ms:.0f}ms）"
+                        )
+                        return token
+
+                    raise RuntimeError("自定义 token 获取失败（返回 null）")
+                except Exception as e:
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] [Custom] 尝试 {attempt + 1}/{max_retries} 失败: {str(e)}"
+                    )
+                    stale_info = self._custom_tabs.pop(cache_key, None)
+                    stale_tab = stale_info.get("tab") if isinstance(stale_info, dict) else None
+                    if stale_tab:
+                        try:
+                            await stale_tab.close()
+                        except Exception:
+                            pass
+                    if attempt >= max_retries - 1:
+                        debug_logger.log_error(f"[BrowserCaptcha] [Custom] 获取token异常: {str(e)}")
+                        return None
+
+            return None
+
+    async def get_custom_score(
+        self,
+        website_url: str,
+        website_key: str,
+        verify_url: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> Dict[str, Any]:
+        """在同一个常驻标签页里获取 token 并直接校验页面分数。"""
+        token_started_at = time.time()
+        token = await self.get_custom_token(
+            website_url=website_url,
+            website_key=website_key,
+            action=action,
+            enterprise=enterprise,
+        )
+        token_elapsed_ms = int((time.time() - token_started_at) * 1000)
+
+        if not token:
+            return {
+                "token": None,
+                "token_elapsed_ms": token_elapsed_ms,
+                "verify_mode": "browser_page",
+                "verify_elapsed_ms": 0,
+                "verify_http_status": None,
+                "verify_result": {},
+            }
+
+        cache_key = f"{website_url}|{website_key}|{1 if enterprise else 0}"
+        async with self._custom_lock:
+            custom_info = self._custom_tabs.get(cache_key)
+            tab = custom_info.get("tab") if isinstance(custom_info, dict) else None
+            if tab is None:
+                raise RuntimeError("页面分数测试标签页不存在")
+            verify_payload = await self._verify_score_on_tab(tab, token, verify_url)
+
+        return {
+            "token": token,
+            "token_elapsed_ms": token_elapsed_ms,
+            **verify_payload,
+        }

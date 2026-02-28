@@ -192,9 +192,42 @@ def parse_proxy_url(proxy_url: str) -> Optional[Dict[str, str]]:
         return proxy_config
     return None
 
+def normalize_browser_proxy_url(proxy_url: str) -> tuple[Optional[str], Optional[str]]:
+    """将浏览器代理标准化为 Playwright/Chromium 可接受的格式。
+
+    Chromium 不支持带账号密码的 socks5 代理认证。
+    对于 `socks5://user:pass@host:port`，自动降级为 `http://user:pass@host:port`，
+    方便兼容同时提供 HTTP/SOCKS5 双入口的代理服务商。
+
+    Returns:
+        (normalized_proxy_url, warning_message)
+    """
+    if not proxy_url:
+        return None, None
+
+    proxy_url = proxy_url.strip()
+    match = re.match(r'^(socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', proxy_url)
+    if not match:
+        if not re.match(r'^(http|https|socks5)://', proxy_url):
+            proxy_url = f"http://{proxy_url}"
+        return proxy_url, None
+
+    protocol, username, password, host, port = match.groups()
+    if protocol == "socks5" and username and password:
+        normalized = f"http://{username}:{password}@{host}:{port}"
+        warning = (
+            "检测到带认证的 SOCKS5 代理。"
+            "Chromium 不支持 socks5 用户名密码认证，"
+            f"已自动改用 HTTP 代理启动浏览器: http://{host}:{port}"
+        )
+        return normalized, warning
+
+    return proxy_url, None
+
 def validate_browser_proxy_url(proxy_url: str) -> tuple[bool, str]:
     if not proxy_url: return True, None
-    parsed = parse_proxy_url(proxy_url)
+    normalized_proxy_url, _ = normalize_browser_proxy_url(proxy_url)
+    parsed = parse_proxy_url(normalized_proxy_url)
     if not parsed: return False, "代理格式错误"
     return True, None
 
@@ -203,46 +236,33 @@ class TokenBrowser:
     
     每次都是新的随机 UA，避免长时间运行导致的各种问题
     """
-    
-    # UA 池（去掉 120-127，加入移动端 UA，并保留一批不常见补丁版本）
+    # UA ???? 2026-03-01 ??????? score >= 0.3 ? UA?
     UA_LIST = [
-        # Windows Chrome (128-132)
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        # Windows Chrome 不常见补丁版本
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.265 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-
-        # Windows Edge (128-132)
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
-        # Windows Edge 不常见补丁版本
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 Edg/132.0.2957.171",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.265 Safari/537.36 Edg/131.0.2903.146",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Safari/537.36 Edg/130.0.2849.142",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Safari/537.36 Edg/129.0.2792.124",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Safari/537.36 Edg/128.0.2739.111",
-
-        # Windows Firefox (128-134)
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
-
-        # macOS Chrome (128-132)
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
@@ -252,73 +272,50 @@ class TokenBrowser:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        # macOS Chrome 不常见补丁版本
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.265 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Safari/537.36",
-
-        # macOS Safari
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_3_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
-
-        # macOS Edge (128-132)
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0",
-        # macOS Edge 不常见补丁版本
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 Edg/132.0.2957.171",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.265 Safari/537.36 Edg/131.0.2903.146",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Safari/537.36 Edg/130.0.2849.142",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Safari/537.36 Edg/129.0.2792.124",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Safari/537.36 Edg/128.0.2739.111",
-
-        # macOS Firefox (128-134)
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:134.0) Gecko/20100101 Firefox/134.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.3; rv:133.0) Gecko/20100101 Firefox/133.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.2; rv:132.0) Gecko/20100101 Firefox/132.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1; rv:131.0) Gecko/20100101 Firefox/131.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:130.0) Gecko/20100101 Firefox/130.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:129.0) Gecko/20100101 Firefox/129.0",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0",
-
-        # Android Chrome Mobile (128-132)
         "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.163 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 14; SM-S9180) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.260 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 12; M2102J20SG) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 11; M2012K11AC) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Mobile Safari/537.36",
-
-        # Android Edge Mobile
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.163 Mobile Safari/537.36 EdgA/132.0.2957.171",
         "Mozilla/5.0 (Linux; Android 14; SM-S9180) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.6778.260 Mobile Safari/537.36 EdgA/131.0.2903.146",
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.172 Mobile Safari/537.36 EdgA/130.0.2849.142",
         "Mozilla/5.0 (Linux; Android 12; M2102J20SG) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.6668.177 Mobile Safari/537.36 EdgA/129.0.2792.124",
         "Mozilla/5.0 (Linux; Android 11; M2012K11AC) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.6613.186 Mobile Safari/537.36 EdgA/128.0.2739.111",
-
-        # Android Samsung Browser (相对少见)
         "Mozilla/5.0 (Linux; Android 14; SM-S9180) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/28.0 Chrome/132.0.6834.163 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 13; SM-S9110) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/130.0.6723.172 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 12; SM-G9910) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/26.0 Chrome/128.0.6613.186 Mobile Safari/537.36",
-
-        # iOS Safari
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPad; CPU OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1",
-
-        # iOS Chrome / Edge
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/132.0.6834.95 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.112 Mobile/15E148 Safari/604.1",
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/130.0.6723.90 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/132.2957.171 Mobile/15E148 Safari/604.1",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) EdgiOS/131.2903.146 Mobile/15E148 Safari/604.1",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 Edg/132.0.2957.171",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 Edg/132.0.2957.171",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.210 Safari/537.36 OPR/117.0.0.0",
     ]
     
     # 分辨率池
@@ -341,6 +338,7 @@ class TokenBrowser:
         self._solve_count = 0
         self._error_count = 0
         self._last_fingerprint: Optional[Dict[str, Any]] = None
+        self._browser_proxy_active = False
         # 打码成功后延迟关闭浏览器：等待上游图片/视频请求完成通知
         self._pending_release_events: List[asyncio.Event] = []
         self._pending_release_tasks: List[asyncio.Task] = []
@@ -361,14 +359,19 @@ class TokenBrowser:
         # 代理配置
         proxy_option = None
         raw_proxy_url = None
+        self._browser_proxy_active = False
         try:
             if self.db:
                 captcha_config = await self.db.get_captcha_config()
                 if captcha_config.browser_proxy_enabled and captcha_config.browser_proxy_url:
                     candidate_proxy_url = captcha_config.browser_proxy_url.strip()
-                    proxy_option = parse_proxy_url(candidate_proxy_url)
+                    normalized_proxy_url, proxy_warning = normalize_browser_proxy_url(candidate_proxy_url)
+                    if proxy_warning:
+                        debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} {proxy_warning}")
+                    proxy_option = parse_proxy_url(normalized_proxy_url)
                     if proxy_option:
-                        raw_proxy_url = candidate_proxy_url
+                        raw_proxy_url = normalized_proxy_url
+                        self._browser_proxy_active = True
                         debug_logger.log_info(f"[BrowserCaptcha] Token-{self.token_id} 使用代理: {proxy_option['server']}")
         except: pass
         
@@ -384,6 +387,8 @@ class TokenBrowser:
                 proxy=proxy_option,
                 args=[
                     '--disable-blink-features=AutomationControlled',
+                    '--disable-quic',
+                    '--disable-features=UseDnsHttpsSvcb',
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-setuid-sandbox',
@@ -454,6 +459,130 @@ class TokenBrowser:
                     self._last_fingerprint[key] = value
         except Exception as e:
             debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 提取浏览器指纹失败: {type(e).__name__}: {str(e)[:200]}")
+
+    async def _verify_score_in_page(self, page, token: str, verify_url: str) -> Dict[str, Any]:
+        """直接读取测试页面展示的分数，避免 verify.php 与页面显示口径不一致。"""
+        _ = token
+        _ = verify_url
+        started_at = time.time()
+        timeout_seconds = 25.0
+        refresh_clicked = False
+        last_snapshot: Dict[str, Any] = {}
+
+        try:
+            timeout_seconds = float(getattr(config, "browser_score_dom_wait_seconds", 25) or 25)
+        except Exception:
+            pass
+
+        while (time.time() - started_at) < timeout_seconds:
+            try:
+                result = await page.evaluate(
+                    """
+                        () => {
+                            const bodyText = ((document.body && document.body.innerText) || "")
+                                .replace(/\\u00a0/g, " ")
+                                .replace(/\\r/g, "");
+                            const patterns = [
+                                { source: "current_score", regex: /Your score is:\\s*([01](?:\\.\\d+)?)/i },
+                                { source: "selected_score", regex: /Selected Score Test:[\\s\\S]{0,400}?Score:\\s*([01](?:\\.\\d+)?)/i },
+                                { source: "history_score", regex: /(?:^|\\n)\\s*Score:\\s*([01](?:\\.\\d+)?)\\s*;/i },
+                            ];
+                            let score = null;
+                            let source = "";
+                            for (const item of patterns) {
+                                const match = bodyText.match(item.regex);
+                                if (!match) continue;
+                                const parsed = Number(match[1]);
+                                if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+                                    score = parsed;
+                                    source = item.source;
+                                    break;
+                                }
+                            }
+                            const uaMatch = bodyText.match(/Current User Agent:\\s*([^\\n]+)/i);
+                            const ipMatch = bodyText.match(/Current IP Address:\\s*([^\\n]+)/i);
+                            return {
+                                score,
+                                source,
+                                raw_text: bodyText.slice(0, 4000),
+                                current_user_agent: uaMatch ? uaMatch[1].trim() : "",
+                                current_ip_address: ipMatch ? ipMatch[1].trim() : "",
+                                title: document.title || "",
+                                url: location.href || "",
+                            };
+                        }
+                    """
+                )
+            except Exception as e:
+                result = {"error": f"{type(e).__name__}: {str(e)[:200]}"}
+
+            if isinstance(result, dict):
+                last_snapshot = result
+                score = result.get("score")
+                if isinstance(score, (int, float)):
+                    elapsed_ms = int((time.time() - started_at) * 1000)
+                    return {
+                        "verify_mode": "browser_page_dom",
+                        "verify_elapsed_ms": elapsed_ms,
+                        "verify_http_status": None,
+                        "verify_result": {
+                            "success": True,
+                            "score": score,
+                            "source": result.get("source") or "antcpt_dom",
+                            "raw_text": result.get("raw_text") or "",
+                            "current_user_agent": result.get("current_user_agent") or "",
+                            "current_ip_address": result.get("current_ip_address") or "",
+                            "page_title": result.get("title") or "",
+                            "page_url": result.get("url") or "",
+                        },
+                    }
+
+            if not refresh_clicked and (time.time() - started_at) >= 2:
+                refresh_clicked = True
+                try:
+                    await page.evaluate(
+                        """
+                            () => {
+                                const nodes = Array.from(
+                                    document.querySelectorAll('button, input[type="button"], input[type="submit"], a')
+                                );
+                                const target = nodes.find((node) => {
+                                    const text = (node.innerText || node.textContent || node.value || "").trim();
+                                    return /Refresh score now!?/i.test(text);
+                                });
+                                if (target) {
+                                    target.click();
+                                    return true;
+                                }
+                                return false;
+                            }
+                        """
+                    )
+                except Exception:
+                    pass
+
+            await asyncio.sleep(0.5)
+
+        elapsed_ms = int((time.time() - started_at) * 1000)
+        if not isinstance(last_snapshot, dict):
+            last_snapshot = {"raw": last_snapshot}
+
+        return {
+            "verify_mode": "browser_page_dom",
+            "verify_elapsed_ms": elapsed_ms,
+            "verify_http_status": None,
+            "verify_result": {
+                "success": False,
+                "score": None,
+                "source": "antcpt_dom_timeout",
+                "raw_text": last_snapshot.get("raw_text") or "",
+                "current_user_agent": last_snapshot.get("current_user_agent") or "",
+                "current_ip_address": last_snapshot.get("current_ip_address") or "",
+                "page_title": last_snapshot.get("title") or "",
+                "page_url": last_snapshot.get("url") or "",
+                "error": last_snapshot.get("error") or "未在页面中读取到分数",
+            },
+        }
     
     async def _close_browser(self, playwright, browser, context):
         """关闭浏览器实例"""
@@ -576,17 +705,51 @@ class TokenBrowser:
             await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             
             page_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
+            primary_host = "https://www.recaptcha.net" if self._browser_proxy_active else "https://www.google.com"
+            secondary_host = "https://www.google.com" if primary_host == "https://www.recaptcha.net" else "https://www.recaptcha.net"
+            debug_logger.log_info(
+                f"[BrowserCaptcha] Token-{self.token_id} 加载 enterprise.js: primary={primary_host}, secondary={secondary_host}"
+            )
             
             async def handle_route(route):
                 if route.request.url.rstrip('/') == page_url.rstrip('/'):
-                    html = f"""<html><head><script src="https://www.google.com/recaptcha/enterprise.js?render={website_key}"></script></head><body></body></html>"""
+                    html = f"""<html><head><script>
+                    (() => {{
+                        const urls = [
+                            '{primary_host}/recaptcha/enterprise.js?render={website_key}',
+                            '{secondary_host}/recaptcha/enterprise.js?render={website_key}'
+                        ];
+                        const loadScript = (index) => {{
+                            if (index >= urls.length) return;
+                            const script = document.createElement('script');
+                            script.src = urls[index];
+                            script.async = true;
+                            script.onerror = () => loadScript(index + 1);
+                            document.head.appendChild(script);
+                        }};
+                        loadScript(0);
+                    }})();
+                    </script></head><body></body></html>"""
                     await route.fulfill(status=200, content_type="text/html", body=html)
                 elif any(d in route.request.url for d in ["google.com", "gstatic.com", "recaptcha.net"]):
                     await route.continue_()
                 else:
                     await route.abort()
+
+            def handle_request_failed(request):
+                try:
+                    failed_url = request.url or ""
+                    if not any(d in failed_url for d in ["google.com", "gstatic.com", "recaptcha.net"]):
+                        return
+                    failure = request.failure or ""
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} 资源加载失败: url={failed_url[:200]}, error={failure}"
+                    )
+                except Exception:
+                    pass
             
             await page.route("**/*", handle_route)
+            page.on("requestfailed", handle_request_failed)
             reload_ok_event = asyncio.Event()
             clr_ok_event = asyncio.Event()
 
@@ -676,6 +839,194 @@ class TokenBrowser:
                 except:
                     pass
 
+    async def _execute_custom_captcha(
+        self,
+        context,
+        website_url: str,
+        website_key: str,
+        action: str,
+        verify_url: Optional[str] = None,
+        enterprise: bool = False,
+    ) -> Any:
+        """在任意站点执行 reCAPTCHA，用于分数测试等非 Flow 场景。"""
+        page = None
+        try:
+            page = await context.new_page()
+            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+
+            primary_host = "https://www.recaptcha.net" if self._browser_proxy_active else "https://www.google.com"
+            secondary_host = "https://www.google.com" if primary_host == "https://www.recaptcha.net" else "https://www.recaptcha.net"
+            script_path = "recaptcha/enterprise.js" if enterprise else "recaptcha/api.js"
+            execute_target = "grecaptcha.enterprise.execute" if enterprise else "grecaptcha.execute"
+            ready_target = "grecaptcha.enterprise.ready" if enterprise else "grecaptcha.ready"
+            wait_expression = (
+                "typeof grecaptcha !== 'undefined' && typeof grecaptcha.enterprise !== 'undefined' && "
+                "typeof grecaptcha.enterprise.execute === 'function'"
+            ) if enterprise else (
+                "typeof grecaptcha !== 'undefined' && typeof grecaptcha.execute === 'function'"
+            )
+            api_label = "enterprise.js" if enterprise else "api.js"
+
+            debug_logger.log_info(
+                f"[BrowserCaptcha] Token-{self.token_id} 加载真实自定义页面 {api_label}: primary={primary_host}, secondary={secondary_host}, url={website_url}"
+            )
+
+            def handle_request_failed(request):
+                try:
+                    failed_url = request.url or ""
+                    if not any(d in failed_url for d in ["google.com", "gstatic.com", "recaptcha.net", "antcpt.com"]):
+                        return
+                    failure = request.failure or ""
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} 自定义资源加载失败: url={failed_url[:200]}, error={failure}"
+                    )
+                except Exception:
+                    pass
+
+            page.on("requestfailed", handle_request_failed)
+
+            try:
+                await page.goto(website_url, wait_until="domcontentloaded", timeout=30000)
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] Token-{self.token_id} 自定义 page.goto 失败: {type(e).__name__}: {str(e)[:200]}"
+                )
+                return None
+
+            page_loaded = False
+            for _ in range(20):
+                try:
+                    ready_state = await page.evaluate("document.readyState")
+                    if ready_state == "complete":
+                        page_loaded = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+            if not page_loaded:
+                debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 自定义页面 readyState 未达到 complete，继续尝试预热")
+
+            # 模拟更自然的前台交互，避免冷启动空白上下文直接 execute。
+            try:
+                await page.mouse.move(320, 220)
+                await page.mouse.move(520, 320, steps=12)
+                await page.mouse.wheel(0, 240)
+                await page.bring_to_front()
+                await page.evaluate("""
+                    (() => {
+                        try {
+                            window.focus();
+                            window.dispatchEvent(new Event('focus'));
+                            document.dispatchEvent(new MouseEvent('mousemove', {
+                                bubbles: true,
+                                clientX: Math.max(32, Math.floor((window.innerWidth || 1280) * 0.4)),
+                                clientY: Math.max(32, Math.floor((window.innerHeight || 720) * 0.35))
+                            }));
+                            window.scrollTo(0, Math.min(280, document.body?.scrollHeight || 280));
+                        } catch (e) {}
+                    })()
+                """)
+            except Exception:
+                pass
+
+            warmup_seconds = float(getattr(config, "browser_score_test_warmup_seconds", 12) or 12)
+            if warmup_seconds > 0:
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] Token-{self.token_id} 真实页面预热 {warmup_seconds:.1f}s 后再执行自定义打码"
+                )
+                await asyncio.sleep(warmup_seconds)
+
+            try:
+                await page.wait_for_function(wait_expression, timeout=15000)
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] Token-{self.token_id} 自定义 grecaptcha 未就绪，尝试补注入脚本: {type(e).__name__}: {str(e)[:200]}"
+                )
+                try:
+                    await page.evaluate(f"""
+                        (primaryUrl, secondaryUrl) => {{
+                            const existing = Array.from(document.scripts || []).some((script) => {{
+                                const src = script?.src || "";
+                                return src.includes('/recaptcha/');
+                            }});
+                            if (existing) return;
+                            const urls = [primaryUrl, secondaryUrl];
+                            const loadScript = (index) => {{
+                                if (index >= urls.length) return;
+                                const script = document.createElement('script');
+                                script.src = urls[index];
+                                script.async = true;
+                                script.onerror = () => loadScript(index + 1);
+                                document.head.appendChild(script);
+                            }};
+                            loadScript(0);
+                        }}
+                    """, f"{primary_host}/{script_path}?render={website_key}", f"{secondary_host}/{script_path}?render={website_key}")
+                    await page.wait_for_function(wait_expression, timeout=15000)
+                except Exception as inject_error:
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} 自定义 grecaptcha 最终未就绪: {type(inject_error).__name__}: {str(inject_error)[:200]}"
+                    )
+                    return None
+
+            await self._capture_page_fingerprint(page)
+
+            token = await asyncio.wait_for(
+                page.evaluate(
+                    f"""
+                        (actionName) => {{
+                            return new Promise((resolve, reject) => {{
+                                const timeout = setTimeout(() => reject(new Error('timeout')), 25000);
+                                try {{
+                                    {ready_target}(function() {{
+                                        {execute_target}('{website_key}', {{action: actionName}})
+                                            .then(t => {{
+                                                clearTimeout(timeout);
+                                                resolve(t);
+                                            }})
+                                            .catch(e => {{
+                                                clearTimeout(timeout);
+                                                reject(e);
+                                            }});
+                                    }});
+                                }} catch (e) {{
+                                    clearTimeout(timeout);
+                                    reject(e);
+                                }}
+                            }});
+                        }}
+                    """,
+                    action,
+                ),
+                timeout=30,
+            )
+
+            post_wait_seconds = float(getattr(config, "browser_recaptcha_settle_seconds", 3) or 3)
+            if post_wait_seconds > 0:
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] Token-{self.token_id} 自定义打码已完成，额外等待 {post_wait_seconds:.1f}s 后返回 token"
+                )
+                await asyncio.sleep(post_wait_seconds)
+
+            if verify_url:
+                verify_payload = await self._verify_score_in_page(page, token, verify_url)
+                return {
+                    "token": token,
+                    **verify_payload,
+                }
+
+            return token
+        except Exception as e:
+            msg = f"{type(e).__name__}: {str(e)}"
+            debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 自定义打码失败: {msg[:200]}")
+            return None
+        finally:
+            if page:
+                try:
+                    await page.close()
+                except:
+                    pass
+
     def get_last_fingerprint(self) -> Optional[Dict[str, Any]]:
         """返回最近一次打码浏览器的指纹快照。"""
         if not self._last_fingerprint:
@@ -730,6 +1081,115 @@ class TokenBrowser:
                     await asyncio.sleep(1)
             
             return None
+
+    async def get_custom_token(
+        self,
+        website_url: str,
+        website_key: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> Optional[str]:
+        """获取任意站点的 reCAPTCHA token，成功后立即关闭浏览器。"""
+        async with self._semaphore:
+            max_retries = 3
+
+            for attempt in range(max_retries):
+                playwright = None
+                browser = None
+                context = None
+                try:
+                    start_ts = time.time()
+                    playwright, browser, context = await self._create_browser()
+                    token = await self._execute_custom_captcha(
+                        context=context,
+                        website_url=website_url,
+                        website_key=website_key,
+                        action=action,
+                        enterprise=enterprise,
+                    )
+
+                    if token:
+                        self._solve_count += 1
+                        debug_logger.log_info(
+                            f"[BrowserCaptcha] Token-{self.token_id} 自定义 token 获取成功 ({(time.time()-start_ts)*1000:.0f}ms)"
+                        )
+                        return token
+
+                    self._error_count += 1
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} 自定义打码尝试 {attempt+1}/{max_retries} 失败"
+                    )
+                except Exception as e:
+                    self._error_count += 1
+                    debug_logger.log_error(
+                        f"[BrowserCaptcha] Token-{self.token_id} 自定义浏览器错误: {type(e).__name__}: {str(e)[:200]}"
+                    )
+                finally:
+                    await self._close_browser(playwright, browser, context)
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+
+            return None
+
+    async def get_custom_score(
+        self,
+        website_url: str,
+        website_key: str,
+        verify_url: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> Dict[str, Any]:
+        """在同一个浏览器页面里获取 token 并直接校验分数。"""
+        async with self._semaphore:
+            max_retries = 3
+
+            for attempt in range(max_retries):
+                playwright = None
+                browser = None
+                context = None
+                try:
+                    started_at = time.time()
+                    playwright, browser, context = await self._create_browser()
+                    payload = await self._execute_custom_captcha(
+                        context=context,
+                        website_url=website_url,
+                        website_key=website_key,
+                        action=action,
+                        verify_url=verify_url,
+                        enterprise=enterprise,
+                    )
+
+                    if isinstance(payload, dict) and payload.get("token"):
+                        self._solve_count += 1
+                        payload.setdefault("token_elapsed_ms", int((time.time() - started_at) * 1000))
+                        debug_logger.log_info(
+                            f"[BrowserCaptcha] Token-{self.token_id} 页面内分数校验成功 ({(time.time()-started_at)*1000:.0f}ms)"
+                        )
+                        return payload
+
+                    self._error_count += 1
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} 页面内分数校验尝试 {attempt+1}/{max_retries} 失败"
+                    )
+                except Exception as e:
+                    self._error_count += 1
+                    debug_logger.log_error(
+                        f"[BrowserCaptcha] Token-{self.token_id} 页面内分数校验异常: {type(e).__name__}: {str(e)[:200]}"
+                    )
+                finally:
+                    await self._close_browser(playwright, browser, context)
+
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+
+            return {
+                "token": None,
+                "verify_mode": "browser_page",
+                "verify_elapsed_ms": 0,
+                "verify_http_status": None,
+                "verify_result": {}
+            }
     
 
 class BrowserCaptchaService:
@@ -888,6 +1348,73 @@ class BrowserCaptchaService:
         self._log_stats()
         return token, browser_id
 
+    async def get_custom_token(
+        self,
+        website_url: str,
+        website_key: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> tuple[Optional[str], int]:
+        """获取任意站点的 reCAPTCHA token，用于分数测试。"""
+        self._check_available()
+
+        if self._token_semaphore:
+            async with self._token_semaphore:
+                browser_id = self._get_next_browser_id()
+                browser = await self._get_or_create_browser(browser_id)
+                token = await browser.get_custom_token(
+                    website_url=website_url,
+                    website_key=website_key,
+                    action=action,
+                    enterprise=enterprise,
+                )
+            return token, browser_id
+
+        browser_id = self._get_next_browser_id()
+        browser = await self._get_or_create_browser(browser_id)
+        token = await browser.get_custom_token(
+            website_url=website_url,
+            website_key=website_key,
+            action=action,
+            enterprise=enterprise,
+        )
+        return token, browser_id
+
+    async def get_custom_score(
+        self,
+        website_url: str,
+        website_key: str,
+        verify_url: str,
+        action: str = "homepage",
+        enterprise: bool = False,
+    ) -> tuple[Dict[str, Any], int]:
+        """在浏览器页面内完成 token 获取与分数校验。"""
+        self._check_available()
+
+        if self._token_semaphore:
+            async with self._token_semaphore:
+                browser_id = self._get_next_browser_id()
+                browser = await self._get_or_create_browser(browser_id)
+                payload = await browser.get_custom_score(
+                    website_url=website_url,
+                    website_key=website_key,
+                    verify_url=verify_url,
+                    action=action,
+                    enterprise=enterprise,
+                )
+            return payload, browser_id
+
+        browser_id = self._get_next_browser_id()
+        browser = await self._get_or_create_browser(browser_id)
+        payload = await browser.get_custom_score(
+            website_url=website_url,
+            website_key=website_key,
+            verify_url=verify_url,
+            action=action,
+            enterprise=enterprise,
+        )
+        return payload, browser_id
+
     async def get_fingerprint(self, browser_id: int) -> Optional[Dict[str, Any]]:
         """获取指定浏览器最近一次打码时的指纹快照。"""
         async with self._browsers_lock:
@@ -946,3 +1473,4 @@ class BrowserCaptchaService:
             "browsers": []
         }
         return base_stats
+
