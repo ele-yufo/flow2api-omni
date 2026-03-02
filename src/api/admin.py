@@ -13,6 +13,7 @@ from ..core.database import Database
 from ..core.config import config
 from ..services.token_manager import TokenManager
 from ..services.proxy_manager import ProxyManager
+from ..services.concurrency_manager import ConcurrencyManager
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ router = APIRouter()
 token_manager: TokenManager = None
 proxy_manager: ProxyManager = None
 db: Database = None
+concurrency_manager: Optional[ConcurrencyManager] = None
 
 # Store active admin session tokens (in production, use Redis or database)
 active_admin_tokens = set()
@@ -206,12 +208,13 @@ async def _solve_recaptcha_with_api_service(
     raise RuntimeError(f"{method} 获取 token 超时")
 
 
-def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database):
+def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, cm: Optional[ConcurrencyManager] = None):
     """Set service instances"""
-    global token_manager, proxy_manager, db
+    global token_manager, proxy_manager, db, concurrency_manager
     token_manager = tm
     proxy_manager = pm
     db = database
+    concurrency_manager = cm
 
 
 # ========== Request Models ==========
@@ -441,6 +444,14 @@ async def add_token(
             video_concurrency=request.video_concurrency
         )
 
+        # 热更新并发限制，避免必须重启服务
+        if concurrency_manager:
+            await concurrency_manager.reset_token(
+                new_token.id,
+                image_concurrency=new_token.image_concurrency,
+                video_concurrency=new_token.video_concurrency
+            )
+
         return {
             "success": True,
             "message": "Token添加成功",
@@ -494,6 +505,16 @@ async def update_token(
             image_concurrency=request.image_concurrency,
             video_concurrency=request.video_concurrency
         )
+
+        # 热更新并发限制，确保管理台修改立即生效
+        if concurrency_manager:
+            updated_token = await token_manager.get_token(token_id)
+            if updated_token:
+                await concurrency_manager.reset_token(
+                    token_id,
+                    image_concurrency=updated_token.image_concurrency,
+                    video_concurrency=updated_token.video_concurrency
+                )
 
         return {"success": True, "message": "Token更新成功"}
     except Exception as e:

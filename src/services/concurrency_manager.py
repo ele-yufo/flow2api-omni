@@ -9,8 +9,12 @@ class ConcurrencyManager:
 
     def __init__(self):
         """Initialize concurrency manager"""
-        self._image_concurrency: Dict[int, int] = {}  # token_id -> remaining image concurrency
-        self._video_concurrency: Dict[int, int] = {}  # token_id -> remaining video concurrency
+        # token_id -> max concurrency limit (only stores >0 values, missing means unlimited)
+        self._image_limits: Dict[int, int] = {}
+        self._video_limits: Dict[int, int] = {}
+        # token_id -> current in-flight requests
+        self._image_inflight: Dict[int, int] = {}
+        self._video_inflight: Dict[int, int] = {}
         self._lock = asyncio.Lock()  # Protect concurrent access
 
     async def initialize(self, tokens: list):
@@ -21,11 +25,21 @@ class ConcurrencyManager:
             tokens: List of Token objects with image_concurrency and video_concurrency fields
         """
         async with self._lock:
+            self._image_limits.clear()
+            self._video_limits.clear()
+
+            # 初始化时重置 in-flight，避免重启后带入脏状态
+            self._image_inflight.clear()
+            self._video_inflight.clear()
+
             for token in tokens:
+                self._image_inflight[token.id] = 0
+                self._video_inflight[token.id] = 0
+
                 if token.image_concurrency and token.image_concurrency > 0:
-                    self._image_concurrency[token.id] = token.image_concurrency
+                    self._image_limits[token.id] = token.image_concurrency
                 if token.video_concurrency and token.video_concurrency > 0:
-                    self._video_concurrency[token.id] = token.video_concurrency
+                    self._video_limits[token.id] = token.video_concurrency
 
             debug_logger.log_info(f"Concurrency manager initialized with {len(tokens)} tokens")
 
@@ -40,13 +54,16 @@ class ConcurrencyManager:
             True if token has available image concurrency, False if concurrency is 0
         """
         async with self._lock:
-            # If not in dict, it means no limit (-1)
-            if token_id not in self._image_concurrency:
+            limit = self._image_limits.get(token_id)
+            # Missing limit means unlimited (-1)
+            if limit is None:
                 return True
 
-            remaining = self._image_concurrency[token_id]
-            if remaining <= 0:
-                debug_logger.log_info(f"Token {token_id} image concurrency exhausted (remaining: {remaining})")
+            inflight = self._image_inflight.get(token_id, 0)
+            if inflight >= limit:
+                debug_logger.log_info(
+                    f"Token {token_id} image concurrency exhausted (inflight: {inflight}/{limit})"
+                )
                 return False
 
             return True
@@ -62,13 +79,16 @@ class ConcurrencyManager:
             True if token has available video concurrency, False if concurrency is 0
         """
         async with self._lock:
-            # If not in dict, it means no limit (-1)
-            if token_id not in self._video_concurrency:
+            limit = self._video_limits.get(token_id)
+            # Missing limit means unlimited (-1)
+            if limit is None:
                 return True
 
-            remaining = self._video_concurrency[token_id]
-            if remaining <= 0:
-                debug_logger.log_info(f"Token {token_id} video concurrency exhausted (remaining: {remaining})")
+            inflight = self._video_inflight.get(token_id, 0)
+            if inflight >= limit:
+                debug_logger.log_info(
+                    f"Token {token_id} video concurrency exhausted (inflight: {inflight}/{limit})"
+                )
                 return False
 
             return True
@@ -84,15 +104,18 @@ class ConcurrencyManager:
             True if acquired, False if not available
         """
         async with self._lock:
-            if token_id not in self._image_concurrency:
-                # No limit
-                return True
+            limit = self._image_limits.get(token_id)
+            inflight = self._image_inflight.get(token_id, 0)
 
-            if self._image_concurrency[token_id] <= 0:
+            if limit is not None and inflight >= limit:
                 return False
 
-            self._image_concurrency[token_id] -= 1
-            debug_logger.log_info(f"Token {token_id} acquired image slot (remaining: {self._image_concurrency[token_id]})")
+            new_inflight = inflight + 1
+            self._image_inflight[token_id] = new_inflight
+            if limit is None:
+                debug_logger.log_info(f"Token {token_id} acquired image slot (inflight: {new_inflight}, limit: unlimited)")
+            else:
+                debug_logger.log_info(f"Token {token_id} acquired image slot (inflight: {new_inflight}/{limit})")
             return True
 
     async def acquire_video(self, token_id: int) -> bool:
@@ -106,15 +129,18 @@ class ConcurrencyManager:
             True if acquired, False if not available
         """
         async with self._lock:
-            if token_id not in self._video_concurrency:
-                # No limit
-                return True
+            limit = self._video_limits.get(token_id)
+            inflight = self._video_inflight.get(token_id, 0)
 
-            if self._video_concurrency[token_id] <= 0:
+            if limit is not None and inflight >= limit:
                 return False
 
-            self._video_concurrency[token_id] -= 1
-            debug_logger.log_info(f"Token {token_id} acquired video slot (remaining: {self._video_concurrency[token_id]})")
+            new_inflight = inflight + 1
+            self._video_inflight[token_id] = new_inflight
+            if limit is None:
+                debug_logger.log_info(f"Token {token_id} acquired video slot (inflight: {new_inflight}, limit: unlimited)")
+            else:
+                debug_logger.log_info(f"Token {token_id} acquired video slot (inflight: {new_inflight}/{limit})")
             return True
 
     async def release_image(self, token_id: int):
@@ -125,9 +151,19 @@ class ConcurrencyManager:
             token_id: Token ID
         """
         async with self._lock:
-            if token_id in self._image_concurrency:
-                self._image_concurrency[token_id] += 1
-                debug_logger.log_info(f"Token {token_id} released image slot (remaining: {self._image_concurrency[token_id]})")
+            inflight = self._image_inflight.get(token_id, 0)
+            if inflight <= 0:
+                self._image_inflight[token_id] = 0
+                debug_logger.log_warning(f"Token {token_id} release_image called with inflight=0")
+                return
+
+            new_inflight = inflight - 1
+            self._image_inflight[token_id] = new_inflight
+            limit = self._image_limits.get(token_id)
+            if limit is None:
+                debug_logger.log_info(f"Token {token_id} released image slot (inflight: {new_inflight}, limit: unlimited)")
+            else:
+                debug_logger.log_info(f"Token {token_id} released image slot (inflight: {new_inflight}/{limit})")
 
     async def release_video(self, token_id: int):
         """
@@ -137,9 +173,19 @@ class ConcurrencyManager:
             token_id: Token ID
         """
         async with self._lock:
-            if token_id in self._video_concurrency:
-                self._video_concurrency[token_id] += 1
-                debug_logger.log_info(f"Token {token_id} released video slot (remaining: {self._video_concurrency[token_id]})")
+            inflight = self._video_inflight.get(token_id, 0)
+            if inflight <= 0:
+                self._video_inflight[token_id] = 0
+                debug_logger.log_warning(f"Token {token_id} release_video called with inflight=0")
+                return
+
+            new_inflight = inflight - 1
+            self._video_inflight[token_id] = new_inflight
+            limit = self._video_limits.get(token_id)
+            if limit is None:
+                debug_logger.log_info(f"Token {token_id} released video slot (inflight: {new_inflight}, limit: unlimited)")
+            else:
+                debug_logger.log_info(f"Token {token_id} released video slot (inflight: {new_inflight}/{limit})")
 
     async def get_image_remaining(self, token_id: int) -> Optional[int]:
         """
@@ -152,7 +198,11 @@ class ConcurrencyManager:
             Remaining count or None if no limit
         """
         async with self._lock:
-            return self._image_concurrency.get(token_id)
+            limit = self._image_limits.get(token_id)
+            if limit is None:
+                return None
+            inflight = self._image_inflight.get(token_id, 0)
+            return max(0, limit - inflight)
 
     async def get_video_remaining(self, token_id: int) -> Optional[int]:
         """
@@ -165,7 +215,21 @@ class ConcurrencyManager:
             Remaining count or None if no limit
         """
         async with self._lock:
-            return self._video_concurrency.get(token_id)
+            limit = self._video_limits.get(token_id)
+            if limit is None:
+                return None
+            inflight = self._video_inflight.get(token_id, 0)
+            return max(0, limit - inflight)
+
+    async def get_image_inflight(self, token_id: int) -> int:
+        """Get current in-flight image request count for token"""
+        async with self._lock:
+            return self._image_inflight.get(token_id, 0)
+
+    async def get_video_inflight(self, token_id: int) -> int:
+        """Get current in-flight video request count for token"""
+        async with self._lock:
+            return self._video_inflight.get(token_id, 0)
 
     async def reset_token(self, token_id: int, image_concurrency: int = -1, video_concurrency: int = -1):
         """
@@ -178,13 +242,17 @@ class ConcurrencyManager:
         """
         async with self._lock:
             if image_concurrency > 0:
-                self._image_concurrency[token_id] = image_concurrency
-            elif token_id in self._image_concurrency:
-                del self._image_concurrency[token_id]
+                self._image_limits[token_id] = image_concurrency
+            elif token_id in self._image_limits:
+                del self._image_limits[token_id]
 
             if video_concurrency > 0:
-                self._video_concurrency[token_id] = video_concurrency
-            elif token_id in self._video_concurrency:
-                del self._video_concurrency[token_id]
+                self._video_limits[token_id] = video_concurrency
+            elif token_id in self._video_limits:
+                del self._video_limits[token_id]
+
+            # 重置时确保存在 in-flight 计数字段
+            self._image_inflight.setdefault(token_id, 0)
+            self._video_inflight.setdefault(token_id, 0)
 
             debug_logger.log_info(f"Token {token_id} concurrency reset (image: {image_concurrency}, video: {video_concurrency})")
