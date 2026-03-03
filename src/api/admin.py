@@ -391,39 +391,34 @@ async def change_password(
 @router.get("/api/tokens")
 async def get_tokens(token: str = Depends(verify_admin_token)):
     """Get all tokens with statistics"""
-    tokens = await token_manager.get_all_tokens()
-    result = []
+    token_rows = await db.get_all_tokens_with_stats()
+    to_iso = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
 
-    for t in tokens:
-        stats = await db.get_token_stats(t.id)
-
-        result.append({
-            "id": t.id,
-            "st": t.st,  # Session Token for editing
-            "at": t.at,  # Access Token for editing (从ST转换而来)
-            "at_expires": t.at_expires.isoformat() if t.at_expires else None,  # 🆕 AT过期时间
-            "token": t.at,  # 兼容前端 token.token 的访问方式
-            "email": t.email,
-            "name": t.name,
-            "remark": t.remark,
-            "is_active": t.is_active,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
-            "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
-            "use_count": t.use_count,
-            "credits": t.credits,  # 🆕 余额
-            "user_paygate_tier": t.user_paygate_tier,
-            "current_project_id": t.current_project_id,  # 🆕 项目ID
-            "current_project_name": t.current_project_name,  # 🆕 项目名称
-            "image_enabled": t.image_enabled,
-            "video_enabled": t.video_enabled,
-            "image_concurrency": t.image_concurrency,
-            "video_concurrency": t.video_concurrency,
-            "image_count": stats.image_count if stats else 0,
-            "video_count": stats.video_count if stats else 0,
-            "error_count": stats.error_count if stats else 0
-        })
-
-    return result  # 直接返回数组,兼容前端
+    return [{
+        "id": row.get("id"),
+        "st": row.get("st"),  # Session Token for editing
+        "at": row.get("at"),  # Access Token for editing (从ST转换而来)
+        "at_expires": to_iso(row.get("at_expires")) if row.get("at_expires") else None,  # 🆕 AT过期时间
+        "token": row.get("at"),  # 兼容前端 token.token 的访问方式
+        "email": row.get("email"),
+        "name": row.get("name"),
+        "remark": row.get("remark"),
+        "is_active": bool(row.get("is_active")),
+        "created_at": to_iso(row.get("created_at")) if row.get("created_at") else None,
+        "last_used_at": to_iso(row.get("last_used_at")) if row.get("last_used_at") else None,
+        "use_count": row.get("use_count"),
+        "credits": row.get("credits"),  # 🆕 余额
+        "user_paygate_tier": row.get("user_paygate_tier"),
+        "current_project_id": row.get("current_project_id"),  # 🆕 项目ID
+        "current_project_name": row.get("current_project_name"),  # 🆕 项目名称
+        "image_enabled": bool(row.get("image_enabled")),
+        "video_enabled": bool(row.get("video_enabled")),
+        "image_concurrency": row.get("image_concurrency"),
+        "video_concurrency": row.get("video_concurrency"),
+        "image_count": row.get("image_count", 0),
+        "video_count": row.get("video_count", 0),
+        "error_count": row.get("error_count", 0)
+    } for row in token_rows]  # 直接返回数组,兼容前端
 
 
 @router.post("/api/tokens")
@@ -653,6 +648,11 @@ async def import_tokens(
     added = 0
     updated = 0
     errors = []
+    # 保持与历史逻辑一致：按 created_at DESC 的结果中，优先命中同邮箱“最新一条”
+    existing_by_email = {}
+    for existing_token in await token_manager.get_all_tokens():
+        if existing_token.email and existing_token.email not in existing_by_email:
+            existing_by_email[existing_token.email] = existing_token
 
     for idx, item in enumerate(request.tokens):
         try:
@@ -686,8 +686,7 @@ async def import_tokens(
                         pass
 
                 # 使用邮箱检查是否已存在
-                existing_tokens = await token_manager.get_all_tokens()
-                existing = next((t for t in existing_tokens if t.email == email), None)
+                existing = existing_by_email.get(email)
 
                 if existing:
                     # 更新现有Token
@@ -704,6 +703,14 @@ async def import_tokens(
                     # 如果过期则禁用
                     if is_expired:
                         await token_manager.disable_token(existing.id)
+                        existing.is_active = False
+                    existing.st = st
+                    existing.at = at
+                    existing.at_expires = at_expires
+                    existing.image_enabled = item.image_enabled
+                    existing.video_enabled = item.video_enabled
+                    existing.image_concurrency = item.image_concurrency
+                    existing.video_concurrency = item.video_concurrency
                     updated += 1
                 else:
                     # 添加新Token
@@ -717,6 +724,8 @@ async def import_tokens(
                     # 如果过期则禁用
                     if is_expired:
                         await token_manager.disable_token(new_token.id)
+                        new_token.is_active = False
+                    existing_by_email[email] = new_token
                     added += 1
 
             except Exception as e:
@@ -894,17 +903,14 @@ async def update_generation_config(
 @router.get("/api/system/info")
 async def get_system_info(token: str = Depends(verify_admin_token)):
     """Get system information"""
-    tokens = await token_manager.get_all_tokens()
-    active_tokens = [t for t in tokens if t.is_active]
-
-    total_credits = sum(t.credits for t in active_tokens)
+    stats = await db.get_system_info_stats()
 
     return {
         "success": True,
         "info": {
-            "total_tokens": len(tokens),
-            "active_tokens": len(active_tokens),
-            "total_credits": total_credits,
+            "total_tokens": stats["total_tokens"],
+            "active_tokens": stats["active_tokens"],
+            "total_credits": stats["total_credits"],
             "version": "1.0.0"
         }
     }
@@ -927,37 +933,7 @@ async def logout(token: str = Depends(verify_admin_token)):
 @router.get("/api/stats")
 async def get_stats(token: str = Depends(verify_admin_token)):
     """Get statistics for dashboard"""
-    tokens = await token_manager.get_all_tokens()
-    active_tokens = [t for t in tokens if t.is_active]
-
-    # Calculate totals
-    total_images = 0
-    total_videos = 0
-    total_errors = 0
-    today_images = 0
-    today_videos = 0
-    today_errors = 0
-
-    for t in tokens:
-        stats = await db.get_token_stats(t.id)
-        if stats:
-            total_images += stats.image_count
-            total_videos += stats.video_count
-            total_errors += stats.error_count  # Historical total errors
-            today_images += stats.today_image_count
-            today_videos += stats.today_video_count
-            today_errors += stats.today_error_count
-
-    return {
-        "total_tokens": len(tokens),
-        "active_tokens": len(active_tokens),
-        "total_images": total_images,
-        "total_videos": total_videos,
-        "total_errors": total_errors,
-        "today_images": today_images,
-        "today_videos": today_videos,
-        "today_errors": today_errors
-    }
+    return await db.get_dashboard_stats()
 
 
 @router.get("/api/logs")
@@ -965,10 +941,33 @@ async def get_logs(
     limit: int = 100,
     token: str = Depends(verify_admin_token)
 ):
-    """Get request logs with token email"""
-    logs = await db.get_logs(limit=limit)
+    """Get lightweight request logs for list view"""
+    limit = max(1, min(limit, 100))
+    logs = await db.get_logs(limit=limit, include_payload=False)
 
     return [{
+        "id": log.get("id"),
+        "token_id": log.get("token_id"),
+        "token_email": log.get("token_email"),
+        "token_username": log.get("token_username"),
+        "operation": log.get("operation"),
+        "status_code": log.get("status_code"),
+        "duration": log.get("duration"),
+        "created_at": log.get("created_at")
+    } for log in logs]
+
+
+@router.get("/api/logs/{log_id}")
+async def get_log_detail(
+    log_id: int,
+    token: str = Depends(verify_admin_token)
+):
+    """Get single request log detail (payload loaded on demand)"""
+    log = await db.get_log_detail(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="日志不存在")
+
+    return {
         "id": log.get("id"),
         "token_id": log.get("token_id"),
         "token_email": log.get("token_email"),
@@ -979,7 +978,7 @@ async def get_logs(
         "created_at": log.get("created_at"),
         "request_body": log.get("request_body"),
         "response_body": log.get("response_body")
-    } for log in logs]
+    }
 
 
 @router.delete("/api/logs")

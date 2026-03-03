@@ -793,16 +793,14 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk("初始化生成环境...\n")
 
-            if not await self.token_manager.is_at_valid(token.id):
+            token = await self.token_manager.ensure_valid_token(token)
+            if not token:
                 error_msg = "Token AT无效或刷新失败"
                 debug_logger.log_error(f"[GENERATION] {error_msg}")
                 if stream:
                     yield self._create_stream_chunk(f"❌ {error_msg}\n")
                 yield self._create_error_response(error_msg)
                 return
-
-            # 重新获取token (AT可能已刷新)
-            token = await self.token_manager.get_token(token.id)
 
             # 4. 确保Project存在
             debug_logger.log_info(f"[GENERATION] 检查/创建Project...")

@@ -144,9 +144,11 @@ class LoadBalancer:
         # 只为候选列表中真正尝试到的 token 做 AT 校验，避免每次请求把所有 token 全扫一遍
         for item in available_tokens:
             token = item["token"]
+            token_id = token.id
 
-            if not await self.token_manager.is_at_valid(token.id):
-                debug_logger.log_info(f"[LOAD_BALANCER] 跳过 Token {token.id}: AT无效或已过期")
+            token = await self.token_manager.ensure_valid_token(token)
+            if not token:
+                debug_logger.log_info(f"[LOAD_BALANCER] 跳过 Token {token_id}: AT无效或已过期")
                 continue
 
             if reserve and not await self._reserve_slot(token.id, for_image_generation, for_video_generation):

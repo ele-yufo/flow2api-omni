@@ -230,43 +230,58 @@ class TokenManager:
 
     # ========== AT自动刷新逻辑 (核心) ==========
 
-    async def is_at_valid(self, token_id: int) -> bool:
-        """检查AT是否有效,如果无效或即将过期则自动刷新
-
-        Returns:
-            True if AT is valid or refreshed successfully
-            False if AT cannot be refreshed
-        """
-        token = await self.db.get_token(token_id)
-        if not token:
-            return False
-
-        # 如果AT不存在,需要刷新
+    def _should_refresh_at(self, token: Token) -> bool:
+        """根据当前 token 快照判断是否需要刷新 AT。"""
         if not token.at:
-            debug_logger.log_info(f"[AT_CHECK] Token {token_id}: AT不存在,需要刷新")
-            return await self._refresh_at(token_id)
+            debug_logger.log_info(f"[AT_CHECK] Token {token.id}: AT不存在,需要刷新")
+            return True
 
-        # 如果没有过期时间,假设需要刷新
         if not token.at_expires:
-            debug_logger.log_info(f"[AT_CHECK] Token {token_id}: AT过期时间未知,尝试刷新")
-            return await self._refresh_at(token_id)
+            debug_logger.log_info(f"[AT_CHECK] Token {token.id}: AT过期时间未知,尝试刷新")
+            return True
 
-        # 检查是否即将过期 (提前1小时刷新)
         now = datetime.now(timezone.utc)
-        # 确保at_expires也是timezone-aware
         if token.at_expires.tzinfo is None:
             at_expires_aware = token.at_expires.replace(tzinfo=timezone.utc)
         else:
             at_expires_aware = token.at_expires
 
         time_until_expiry = at_expires_aware - now
+        if time_until_expiry.total_seconds() < 3600:
+            debug_logger.log_info(
+                f"[AT_CHECK] Token {token.id}: AT即将过期 "
+                f"(剩余 {time_until_expiry.total_seconds():.0f} 秒),需要刷新"
+            )
+            return True
 
-        if time_until_expiry.total_seconds() < 3600:  # 1 hour (3600 seconds)
-            debug_logger.log_info(f"[AT_CHECK] Token {token_id}: AT即将过期 (剩余 {time_until_expiry.total_seconds():.0f} 秒),需要刷新")
-            return await self._refresh_at(token_id)
+        return False
 
-        # AT有效
-        return True
+    async def ensure_valid_token(self, token: Optional[Token]) -> Optional[Token]:
+        """确保 token 的 AT 可用，并在必要时返回刷新后的最新对象。"""
+        if not token:
+            return None
+
+        if not self._should_refresh_at(token):
+            return token
+
+        if not await self._refresh_at(token.id):
+            return None
+
+        return await self.db.get_token(token.id)
+
+    async def is_at_valid(self, token_id: int, token: Optional[Token] = None) -> bool:
+        """检查AT是否有效,如果无效或即将过期则自动刷新
+
+        Returns:
+            True if AT is valid or refreshed successfully
+            False if AT cannot be refreshed
+        """
+        token_obj = token if token and token.id == token_id else await self.db.get_token(token_id)
+        if not token_obj:
+            return False
+
+        valid_token = await self.ensure_valid_token(token_obj)
+        return valid_token is not None
 
 
     async def _refresh_at(self, token_id: int) -> bool:
@@ -572,11 +587,9 @@ class TokenManager:
             return 0
 
         # 确保AT有效
-        if not await self.is_at_valid(token_id):
+        token = await self.ensure_valid_token(token)
+        if not token:
             return 0
-
-        # 重新获取token (AT可能已刷新)
-        token = await self.db.get_token(token_id)
 
         try:
             result = await self.flow_client.get_credits(token.at)

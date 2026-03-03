@@ -2,7 +2,7 @@
 import aiosqlite
 import json
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig
 
@@ -577,9 +577,18 @@ class Database:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_task_id ON tasks(task_id)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_token_st ON tokens(st)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_project_id ON projects(project_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_tokens_email ON tokens(email)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_tokens_is_active_last_used_at ON tokens(is_active, last_used_at)")
 
             # Migrate request_logs table if needed
             await self._migrate_request_logs(db)
+
+            # Request logs query indexes (列表按 created_at 排序 / token 过滤)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at DESC)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_token_id_created_at ON request_logs(token_id, created_at DESC)")
+
+            # Token stats lookup index
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_token_stats_token_id ON token_stats(token_id)")
 
             await db.commit()
 
@@ -699,6 +708,81 @@ class Database:
             cursor = await db.execute("SELECT * FROM tokens ORDER BY created_at DESC")
             rows = await cursor.fetchall()
             return [Token(**dict(row)) for row in rows]
+
+    async def get_all_tokens_with_stats(self) -> List[Dict[str, Any]]:
+        """Get all tokens with merged statistics in one query"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT
+                    t.*,
+                    COALESCE(ts.image_count, 0) AS image_count,
+                    COALESCE(ts.video_count, 0) AS video_count,
+                    COALESCE(ts.error_count, 0) AS error_count
+                FROM tokens t
+                LEFT JOIN token_stats ts ON ts.token_id = t.id
+                ORDER BY t.created_at DESC
+            """)
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+    async def get_dashboard_stats(self) -> Dict[str, int]:
+        """Get dashboard counters with aggregated SQL queries"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            token_cursor = await db.execute("""
+                SELECT
+                    COUNT(*) AS total_tokens,
+                    COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) AS active_tokens
+                FROM tokens
+            """)
+            token_row = await token_cursor.fetchone()
+
+            stats_cursor = await db.execute("""
+                SELECT
+                    COALESCE(SUM(image_count), 0) AS total_images,
+                    COALESCE(SUM(video_count), 0) AS total_videos,
+                    COALESCE(SUM(error_count), 0) AS total_errors,
+                    COALESCE(SUM(today_image_count), 0) AS today_images,
+                    COALESCE(SUM(today_video_count), 0) AS today_videos,
+                    COALESCE(SUM(today_error_count), 0) AS today_errors
+                FROM token_stats
+            """)
+            stats_row = await stats_cursor.fetchone()
+
+            token_data = dict(token_row) if token_row else {}
+            stats_data = dict(stats_row) if stats_row else {}
+
+            return {
+                "total_tokens": int(token_data.get("total_tokens") or 0),
+                "active_tokens": int(token_data.get("active_tokens") or 0),
+                "total_images": int(stats_data.get("total_images") or 0),
+                "total_videos": int(stats_data.get("total_videos") or 0),
+                "total_errors": int(stats_data.get("total_errors") or 0),
+                "today_images": int(stats_data.get("today_images") or 0),
+                "today_videos": int(stats_data.get("today_videos") or 0),
+                "today_errors": int(stats_data.get("today_errors") or 0)
+            }
+
+    async def get_system_info_stats(self) -> Dict[str, int]:
+        """Get lightweight system counters used by admin dashboard"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT
+                    COUNT(*) AS total_tokens,
+                    COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) AS active_tokens,
+                    COALESCE(SUM(CASE WHEN is_active = 1 THEN credits ELSE 0 END), 0) AS total_credits
+                FROM tokens
+            """)
+            row = await cursor.fetchone()
+            data = dict(row) if row else {}
+            return {
+                "total_tokens": int(data.get("total_tokens") or 0),
+                "active_tokens": int(data.get("active_tokens") or 0),
+                "total_credits": int(data.get("total_credits") or 0)
+            }
 
     async def get_active_tokens(self) -> List[Token]:
         """Get all active tokens"""
@@ -1062,19 +1146,19 @@ class Database:
                   log.status_code, log.duration))
             await db.commit()
 
-    async def get_logs(self, limit: int = 100, token_id: Optional[int] = None):
-        """Get request logs with token email"""
+    async def get_logs(self, limit: int = 100, token_id: Optional[int] = None, include_payload: bool = False):
+        """Get request logs with token info, optionally including payload fields"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
+            payload_columns = "rl.request_body, rl.response_body," if include_payload else ""
 
             if token_id:
-                cursor = await db.execute("""
+                cursor = await db.execute(f"""
                     SELECT
                         rl.id,
                         rl.token_id,
                         rl.operation,
-                        rl.request_body,
-                        rl.response_body,
+                        {payload_columns}
                         rl.status_code,
                         rl.duration,
                         rl.created_at,
@@ -1087,13 +1171,12 @@ class Database:
                     LIMIT ?
                 """, (token_id, limit))
             else:
-                cursor = await db.execute("""
+                cursor = await db.execute(f"""
                     SELECT
                         rl.id,
                         rl.token_id,
                         rl.operation,
-                        rl.request_body,
-                        rl.response_body,
+                        {payload_columns}
                         rl.status_code,
                         rl.duration,
                         rl.created_at,
@@ -1107,6 +1190,30 @@ class Database:
 
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+    async def get_log_detail(self, log_id: int) -> Optional[Dict[str, Any]]:
+        """Get single request log detail including payload fields"""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT
+                    rl.id,
+                    rl.token_id,
+                    rl.operation,
+                    rl.request_body,
+                    rl.response_body,
+                    rl.status_code,
+                    rl.duration,
+                    rl.created_at,
+                    t.email as token_email,
+                    t.name as token_username
+                FROM request_logs rl
+                LEFT JOIN tokens t ON rl.token_id = t.id
+                WHERE rl.id = ?
+                LIMIT 1
+            """, (log_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
 
     async def clear_all_logs(self):
         """Clear all request logs"""
