@@ -283,6 +283,7 @@ class Database:
                     ("video_enabled", "BOOLEAN DEFAULT 1"),
                     ("image_concurrency", "INTEGER DEFAULT -1"),
                     ("video_concurrency", "INTEGER DEFAULT -1"),
+                    ("captcha_proxy_url", "TEXT"),  # token级打码代理
                     ("ban_reason", "TEXT"),  # 禁用原因
                     ("banned_at", "TIMESTAMP"),  # 禁用时间
                 ]
@@ -406,6 +407,7 @@ class Database:
                     video_enabled BOOLEAN DEFAULT 1,
                     image_concurrency INTEGER DEFAULT -1,
                     video_concurrency INTEGER DEFAULT -1,
+                    captcha_proxy_url TEXT,
                     ban_reason TEXT,
                     banned_at TIMESTAMP
                 )
@@ -653,13 +655,13 @@ class Database:
             cursor = await db.execute("""
                 INSERT INTO tokens (st, at, at_expires, email, name, remark, is_active,
                                    credits, user_paygate_tier, current_project_id, current_project_name,
-                                   image_enabled, video_enabled, image_concurrency, video_concurrency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   image_enabled, video_enabled, image_concurrency, video_concurrency, captcha_proxy_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (token.st, token.at, token.at_expires, token.email, token.name, token.remark,
                   token.is_active, token.credits, token.user_paygate_tier,
                   token.current_project_id, token.current_project_name,
                   token.image_enabled, token.video_enabled,
-                  token.image_concurrency, token.video_concurrency))
+                  token.image_concurrency, token.video_concurrency, token.captcha_proxy_url))
             await db.commit()
             token_id = cursor.lastrowid
 

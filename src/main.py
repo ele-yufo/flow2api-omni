@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
     elif captcha_config.captcha_method == "browser":
         from .services.browser_captcha import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
-        print("✓ Browser captcha service initialized (headless mode)")
+        print("✓ Browser captcha service initialized (headed mode)")
 
     # Initialize concurrency manager
     tokens = await token_manager.get_all_tokens()

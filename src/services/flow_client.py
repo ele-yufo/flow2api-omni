@@ -569,7 +569,8 @@ class FlowClient:
         prompt: str,
         model_name: str,
         aspect_ratio: str,
-        image_inputs: Optional[List[Dict]] = None
+        image_inputs: Optional[List[Dict]] = None,
+        token_id: Optional[int] = None
     ) -> tuple[dict, str]:
         """生成图片(同步返回)
 
@@ -594,7 +595,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="IMAGE_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -668,7 +673,8 @@ class FlowClient:
         media_id: str,
         target_resolution: str = "UPSAMPLE_IMAGE_RESOLUTION_4K",
         user_paygate_tier: str = "PAYGATE_TIER_NOT_PAID",
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        token_id: Optional[int] = None
     ) -> str:
         """放大图片到 2K/4K
 
@@ -691,7 +697,11 @@ class FlowClient:
 
         for retry_attempt in range(max_retries):
             # 获取 reCAPTCHA token - 使用 IMAGE_GENERATION action
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="IMAGE_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             upsample_session_id = session_id or self._generate_session_id()
@@ -751,7 +761,8 @@ class FlowClient:
         prompt: str,
         model_key: str,
         aspect_ratio: str,
-        user_paygate_tier: str = "PAYGATE_TIER_ONE"
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None
     ) -> dict:
         """文生视频,返回task_id
 
@@ -781,7 +792,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -847,7 +862,8 @@ class FlowClient:
         model_key: str,
         aspect_ratio: str,
         reference_images: List[Dict],
-        user_paygate_tier: str = "PAYGATE_TIER_ONE"
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None
     ) -> dict:
         """图生视频,返回task_id
 
@@ -871,7 +887,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -939,7 +959,8 @@ class FlowClient:
         aspect_ratio: str,
         start_media_id: str,
         end_media_id: str,
-        user_paygate_tier: str = "PAYGATE_TIER_ONE"
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None
     ) -> dict:
         """收尾帧生成视频,返回task_id
 
@@ -964,7 +985,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -1036,7 +1061,8 @@ class FlowClient:
         model_key: str,
         aspect_ratio: str,
         start_media_id: str,
-        user_paygate_tier: str = "PAYGATE_TIER_ONE"
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None
     ) -> dict:
         """仅首帧生成视频,返回task_id
 
@@ -1060,7 +1086,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -1131,7 +1161,8 @@ class FlowClient:
         video_media_id: str,
         aspect_ratio: str,
         resolution: str,
-        model_key: str
+        model_key: str,
+        token_id: Optional[int] = None
     ) -> dict:
         """视频放大到 4K/1080P，返回 task_id
 
@@ -1153,7 +1184,11 @@ class FlowClient:
         last_error = None
         
         for retry_attempt in range(max_retries):
-            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="VIDEO_GENERATION")
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
+            )
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
@@ -1371,7 +1406,12 @@ class FlowClient:
         """生成sceneId: UUID"""
         return str(uuid.uuid4())
 
-    async def _get_recaptcha_token(self, project_id: str, action: str = "IMAGE_GENERATION") -> tuple[Optional[str], Optional[int]]:
+    async def _get_recaptcha_token(
+        self,
+        project_id: str,
+        action: str = "IMAGE_GENERATION",
+        token_id: Optional[int] = None
+    ) -> tuple[Optional[str], Optional[int]]:
         """获取reCAPTCHA token - 支持多种打码方式
         
         Args:
@@ -1379,6 +1419,7 @@ class FlowClient:
             action: reCAPTCHA action类型
                 - IMAGE_GENERATION: 图片生成和2K/4K图片放大 (默认)
                 - VIDEO_GENERATION: 视频生成和视频放大
+            token_id: 当前业务 token id（browser 模式下用于读取 token 级打码代理）
         
         Returns:
             (token, browser_id) 元组，browser_id 用于失败时调用 report_error
@@ -1416,7 +1457,7 @@ class FlowClient:
             try:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
-                token, browser_id = await service.get_token(project_id, action)
+                token, browser_id = await service.get_token(project_id, action, token_id=token_id)
                 fingerprint = await service.get_fingerprint(browser_id) if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
                 return token, browser_id

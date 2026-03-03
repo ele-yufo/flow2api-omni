@@ -44,6 +44,19 @@ def _is_running_in_docker() -> bool:
 IS_DOCKER = _is_running_in_docker()
 
 
+def _is_truthy_env(name: str) -> bool:
+    """判断环境变量是否为 true。"""
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+ALLOW_DOCKER_HEADED = (
+    _is_truthy_env("ALLOW_DOCKER_HEADED_CAPTCHA")
+    or _is_truthy_env("ALLOW_DOCKER_BROWSER_CAPTCHA")
+)
+DOCKER_HEADED_BLOCKED = IS_DOCKER and not ALLOW_DOCKER_HEADED
+
+
 # ==================== playwright 自动安装 ====================
 def _run_pip_install(package: str, use_mirror: bool = False) -> bool:
     """运行 pip install 命令"""
@@ -156,11 +169,19 @@ Route = None
 BrowserContext = None
 PLAYWRIGHT_AVAILABLE = False
 
-if IS_DOCKER:
-    debug_logger.log_warning("[BrowserCaptcha] 检测到 Docker 环境，有头浏览器打码不可用，请使用第三方打码服务")
-    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，有头浏览器打码不可用")
-    print("[BrowserCaptcha] 请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver")
+if DOCKER_HEADED_BLOCKED:
+    debug_logger.log_warning(
+        "[BrowserCaptcha] 检测到 Docker 环境，默认禁用有头浏览器打码。"
+        "如需启用请设置 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb。"
+    )
+    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，默认禁用有头浏览器打码")
+    print("[BrowserCaptcha] 如需启用请设置 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb")
 else:
+    if IS_DOCKER and ALLOW_DOCKER_HEADED:
+        debug_logger.log_warning(
+            "[BrowserCaptcha] Docker 有头浏览器打码白名单已启用，请确保 DISPLAY/Xvfb 可用"
+        )
+        print("[BrowserCaptcha] ✅ Docker 有头浏览器打码白名单已启用")
     if _ensure_playwright_installed():
         try:
             from playwright.async_api import async_playwright, Route, BrowserContext
@@ -344,7 +365,7 @@ class TokenBrowser:
         self._pending_release_tasks: List[asyncio.Task] = []
         self._pending_release_lock = asyncio.Lock()
     
-    async def _create_browser(self) -> tuple:
+    async def _create_browser(self, token_proxy_url: Optional[str] = None) -> tuple:
         """创建新浏览器实例（新 UA），返回 (playwright, browser, context)"""
         import random
         
@@ -360,21 +381,36 @@ class TokenBrowser:
         # 代理配置
         proxy_option = None
         raw_proxy_url = None
+        proxy_source = "none"
         self._browser_proxy_active = False
         try:
-            if self.db:
+            candidate_proxy_url = None
+            if token_proxy_url and token_proxy_url.strip():
+                candidate_proxy_url = token_proxy_url.strip()
+                proxy_source = "token"
+            elif self.db:
                 captcha_config = await self.db.get_captcha_config()
                 if captcha_config.browser_proxy_enabled and captcha_config.browser_proxy_url:
                     candidate_proxy_url = captcha_config.browser_proxy_url.strip()
-                    normalized_proxy_url, proxy_warning = normalize_browser_proxy_url(candidate_proxy_url)
-                    if proxy_warning:
-                        debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} {proxy_warning}")
-                    proxy_option = parse_proxy_url(normalized_proxy_url)
-                    if proxy_option:
-                        raw_proxy_url = normalized_proxy_url
-                        self._browser_proxy_active = True
-                        debug_logger.log_info(f"[BrowserCaptcha] Token-{self.token_id} 使用代理: {proxy_option['server']}")
-        except: pass
+                    proxy_source = "global"
+
+            if candidate_proxy_url:
+                normalized_proxy_url, proxy_warning = normalize_browser_proxy_url(candidate_proxy_url)
+                if proxy_warning:
+                    debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} {proxy_warning}")
+                proxy_option = parse_proxy_url(normalized_proxy_url)
+                if proxy_option:
+                    raw_proxy_url = normalized_proxy_url
+                    self._browser_proxy_active = True
+                    debug_logger.log_info(
+                        f"[BrowserCaptcha] Token-{self.token_id} 使用{proxy_source}代理: {proxy_option['server']}"
+                    )
+                else:
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] Token-{self.token_id} {proxy_source}代理格式无效，已忽略"
+                    )
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 读取代理配置失败: {e}")
         
         # 先记录创建时的指纹，后续会在页面中补齐 sec-ch-* 等信息
         self._last_fingerprint = {
@@ -1049,7 +1085,13 @@ class TokenBrowser:
             return None
         return dict(self._last_fingerprint)
     
-    async def get_token(self, project_id: str, website_key: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
+    async def get_token(
+        self,
+        project_id: str,
+        website_key: str,
+        action: str = "IMAGE_GENERATION",
+        token_proxy_url: Optional[str] = None
+    ) -> Optional[str]:
         """获取 Token：启动新浏览器 -> 打码 -> 关闭浏览器"""
         async with self._semaphore:
             MAX_RETRIES = 3
@@ -1062,7 +1104,7 @@ class TokenBrowser:
                     start_ts = time.time()
                     
                     # 每次都启动新浏览器（新 UA）
-                    playwright, browser, context = await self._create_browser()
+                    playwright, browser, context = await self._create_browser(token_proxy_url=token_proxy_url)
                     
                     # 执行打码
                     token = await self._execute_captcha(context, project_id, website_key, action)
@@ -1251,10 +1293,15 @@ class BrowserCaptchaService:
     
     def _check_available(self):
         """检查服务是否可用"""
-        if IS_DOCKER:
+        if DOCKER_HEADED_BLOCKED:
             raise RuntimeError(
-                "有头浏览器打码在 Docker 环境中不可用。"
-                "请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver"
+                "检测到 Docker 环境，默认禁用有头浏览器打码。"
+                "如需启用请设置环境变量 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb。"
+            )
+        if IS_DOCKER and not os.environ.get("DISPLAY"):
+            raise RuntimeError(
+                "Docker 有头浏览器打码已启用，但 DISPLAY 未设置。"
+                "请设置 DISPLAY（例如 :99）并启动 Xvfb。"
             )
         if not PLAYWRIGHT_AVAILABLE or async_playwright is None:
             raise RuntimeError(
@@ -1316,6 +1363,18 @@ class BrowserCaptchaService:
         browser_id = self._round_robin_index % self._browser_count
         self._round_robin_index += 1
         return browser_id
+
+    async def _resolve_token_proxy_url(self, token_id: Optional[int]) -> Optional[str]:
+        """读取 token 级打码代理，为空时回退全局配置。"""
+        if not token_id or not self.db:
+            return None
+        try:
+            token = await self.db.get_token(token_id)
+            if token and token.captcha_proxy_url and token.captcha_proxy_url.strip():
+                return token.captcha_proxy_url.strip()
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 读取 token({token_id}) 打码代理失败: {e}")
+        return None
     
     async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION", token_id: int = None) -> tuple[Optional[str], int]:
         """获取 reCAPTCHA Token（轮询分配到不同浏览器）
@@ -1323,7 +1382,7 @@ class BrowserCaptchaService:
         Args:
             project_id: 项目 ID
             action: reCAPTCHA action
-            token_id: 忽略，使用轮询分配
+            token_id: 业务 token id（仅用于读取 token 级打码代理）
         
         Returns:
             (token, browser_id) 元组，调用方失败时用 browser_id 调用 report_error
@@ -1332,6 +1391,7 @@ class BrowserCaptchaService:
         self._check_available()
         
         self._stats["req_total"] += 1
+        token_proxy_url = await self._resolve_token_proxy_url(token_id)
         
         # 全局并发限制（如果已配置）
         if self._token_semaphore:
@@ -1340,7 +1400,12 @@ class BrowserCaptchaService:
                 browser_id = self._get_next_browser_id()
                 browser = await self._get_or_create_browser(browser_id)
                 
-                token = await browser.get_token(project_id, self.website_key, action)
+                token = await browser.get_token(
+                    project_id,
+                    self.website_key,
+                    action,
+                    token_proxy_url=token_proxy_url
+                )
             
             if token:
                 self._stats["gen_ok"] += 1
@@ -1354,7 +1419,12 @@ class BrowserCaptchaService:
         browser_id = self._get_next_browser_id()
         browser = await self._get_or_create_browser(browser_id)
         
-        token = await browser.get_token(project_id, self.website_key, action)
+        token = await browser.get_token(
+            project_id,
+            self.website_key,
+            action,
+            token_proxy_url=token_proxy_url
+        )
         
         if token:
             self._stats["gen_ok"] += 1

@@ -57,7 +57,8 @@ class TokenManager:
         image_enabled: bool = True,
         video_enabled: bool = True,
         image_concurrency: int = -1,
-        video_concurrency: int = -1
+        video_concurrency: int = -1,
+        captcha_proxy_url: Optional[str] = None
     ) -> Token:
         """Add a new token
 
@@ -70,6 +71,7 @@ class TokenManager:
             video_enabled: 是否启用视频生成
             image_concurrency: 图片并发限制
             video_concurrency: 视频并发限制
+            captcha_proxy_url: token级浏览器打码代理（可选，优先于全局）
 
         Returns:
             Token object
@@ -146,7 +148,8 @@ class TokenManager:
             image_enabled=image_enabled,
             video_enabled=video_enabled,
             image_concurrency=image_concurrency,
-            video_concurrency=video_concurrency
+            video_concurrency=video_concurrency,
+            captcha_proxy_url=captcha_proxy_url
         )
 
         # Step 6: 保存到数据库
@@ -177,7 +180,8 @@ class TokenManager:
         image_enabled: Optional[bool] = None,
         video_enabled: Optional[bool] = None,
         image_concurrency: Optional[int] = None,
-        video_concurrency: Optional[int] = None
+        video_concurrency: Optional[int] = None,
+        captcha_proxy_url: Optional[str] = None
     ):
         """Update token (支持修改project_id和project_name)
 
@@ -205,6 +209,8 @@ class TokenManager:
             update_fields["image_concurrency"] = image_concurrency
         if video_concurrency is not None:
             update_fields["video_concurrency"] = video_concurrency
+        if captcha_proxy_url is not None:
+            update_fields["captcha_proxy_url"] = captcha_proxy_url
 
         # 检查token是否因429被禁用，如果是且未过期，则清空429状态
         token = await self.db.get_token(token_id)

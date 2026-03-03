@@ -37,6 +37,19 @@ def _is_running_in_docker() -> bool:
 IS_DOCKER = _is_running_in_docker()
 
 
+def _is_truthy_env(name: str) -> bool:
+    """判断环境变量是否为 true。"""
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+ALLOW_DOCKER_HEADED = (
+    _is_truthy_env("ALLOW_DOCKER_HEADED_CAPTCHA")
+    or _is_truthy_env("ALLOW_DOCKER_BROWSER_CAPTCHA")
+)
+DOCKER_HEADED_BLOCKED = IS_DOCKER and not ALLOW_DOCKER_HEADED
+
+
 # ==================== nodriver 自动安装 ====================
 def _run_pip_install(package: str, use_mirror: bool = False) -> bool:
     """运行 pip install 命令
@@ -103,11 +116,19 @@ def _ensure_nodriver_installed() -> bool:
 uc = None
 NODRIVER_AVAILABLE = False
 
-if IS_DOCKER:
-    debug_logger.log_warning("[BrowserCaptcha] 检测到 Docker 环境，内置浏览器打码不可用，请使用第三方打码服务")
-    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，内置浏览器打码不可用")
-    print("[BrowserCaptcha] 请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver")
+if DOCKER_HEADED_BLOCKED:
+    debug_logger.log_warning(
+        "[BrowserCaptcha] 检测到 Docker 环境，默认禁用内置浏览器打码。"
+        "如需启用请设置 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb。"
+    )
+    print("[BrowserCaptcha] ⚠️ 检测到 Docker 环境，默认禁用内置浏览器打码")
+    print("[BrowserCaptcha] 如需启用请设置 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb")
 else:
+    if IS_DOCKER and ALLOW_DOCKER_HEADED:
+        debug_logger.log_warning(
+            "[BrowserCaptcha] Docker 内置浏览器打码白名单已启用，请确保 DISPLAY/Xvfb 可用"
+        )
+        print("[BrowserCaptcha] ✅ Docker 内置浏览器打码白名单已启用")
     if _ensure_nodriver_installed():
         try:
             import nodriver as uc
@@ -173,10 +194,15 @@ class BrowserCaptchaService:
     
     def _check_available(self):
         """检查服务是否可用"""
-        if IS_DOCKER:
+        if DOCKER_HEADED_BLOCKED:
             raise RuntimeError(
-                "内置浏览器打码在 Docker 环境中不可用。"
-                "请使用第三方打码服务: yescaptcha, capmonster, ezcaptcha, capsolver"
+                "检测到 Docker 环境，默认禁用内置浏览器打码。"
+                "如需启用请设置环境变量 ALLOW_DOCKER_HEADED_CAPTCHA=true，并提供 DISPLAY/Xvfb。"
+            )
+        if IS_DOCKER and not os.environ.get("DISPLAY"):
+            raise RuntimeError(
+                "Docker 内置浏览器打码已启用，但 DISPLAY 未设置。"
+                "请设置 DISPLAY（例如 :99）并启动 Xvfb。"
             )
         if not NODRIVER_AVAILABLE or uc is None:
             raise RuntimeError(
@@ -208,10 +234,17 @@ class BrowserCaptchaService:
             # 确保 user_data_dir 存在
             os.makedirs(self.user_data_dir, exist_ok=True)
 
+            browser_executable_path = os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip() or None
+            if browser_executable_path:
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"
+                )
+
             # 启动 nodriver 浏览器
             self.browser = await uc.start(
                 headless=self.headless,
                 user_data_dir=self.user_data_dir,
+                browser_executable_path=browser_executable_path,
                 sandbox=False,  # nodriver 需要此参数来禁用 sandbox
                 browser_args=[
                     '--no-sandbox',

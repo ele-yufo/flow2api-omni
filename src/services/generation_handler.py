@@ -954,7 +954,8 @@ class GenerationHandler:
                 prompt=prompt,
                 model_name=model_config["model_name"],
                 aspect_ratio=model_config["aspect_ratio"],
-                image_inputs=image_inputs
+                image_inputs=image_inputs,
+                token_id=token.id
             )
 
             # 提取URL和mediaId
@@ -988,7 +989,8 @@ class GenerationHandler:
                             media_id=media_id,
                             target_resolution=upsample_resolution,
                             user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_NOT_PAID",
-                            session_id=generation_session_id
+                            session_id=generation_session_id,
+                            token_id=token.id
                         )
 
                         if encoded_image:
@@ -1271,7 +1273,8 @@ class GenerationHandler:
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
                         end_media_id=end_media_id,
-                        user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
+                        user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
+                        token_id=token.id
                     )
                 else:
                     # 只有首帧 - 需要去掉 model_key 中的 _fl
@@ -1288,7 +1291,8 @@ class GenerationHandler:
                         model_key=actual_model_key,
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
-                        user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
+                        user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
+                        token_id=token.id
                     )
 
             # R2V: 多图生成
@@ -1300,7 +1304,8 @@ class GenerationHandler:
                     model_key=model_config["model_key"],
                     aspect_ratio=model_config["aspect_ratio"],
                     reference_images=reference_images,
-                    user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
+                    user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
+                    token_id=token.id
                 )
 
             # T2V 或 R2V无图: 纯文本生成
@@ -1311,7 +1316,8 @@ class GenerationHandler:
                     prompt=prompt,
                     model_key=model_config["model_key"],
                     aspect_ratio=model_config["aspect_ratio"],
-                    user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE"
+                    user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
+                    token_id=token.id
                 )
 
             # 获取task_id和operations
@@ -1417,7 +1423,8 @@ class GenerationHandler:
                                 video_media_id=video_media_id,
                                 aspect_ratio=aspect_ratio,
                                 resolution=upsample_config["resolution"],
-                                model_key=upsample_config["model_key"]
+                                model_key=upsample_config["model_key"],
+                                token_id=token.id
                             )
                             
                             upsample_operations = upsample_result.get("operations", [])

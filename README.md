@@ -32,6 +32,8 @@
 
 - 由于Flow增加了额外的验证码，你可以自行选择使用浏览器打码或第三发打码：
 注册[YesCaptcha](https://yescaptcha.com/i/13Xd8K)并获取api key，将其填入系统配置页面```YesCaptcha API密钥```区域
+- 默认 `docker-compose.yml` 建议搭配第三方打码（yescaptcha/capmonster/ezcaptcha/capsolver）。
+如需 Docker 内有头打码（browser/personal），请使用下方 `docker-compose.headed.yml`。
 
 - 自动更新st浏览器拓展：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater)
 
@@ -60,6 +62,23 @@ docker-compose -f docker-compose.warp.yml up -d
 # 查看日志
 docker-compose -f docker-compose.warp.yml logs -f
 ```
+
+#### Docker 有头打码模式（browser / personal）
+
+> 适用于你有虚拟化桌面需求、希望在容器里启用有头浏览器打码的场景。  
+> 该模式默认启动 `Xvfb + Fluxbox` 实现容器内部可视化，并设置 `ALLOW_DOCKER_HEADED_CAPTCHA=true`。  
+> 仅开放应用端口，不提供任何远程桌面连接端口。
+
+```bash
+# 启动有头模式（首次建议带 --build）
+docker compose -f docker-compose.headed.yml up -d --build
+
+# 查看日志
+docker compose -f docker-compose.headed.yml logs -f
+```
+
+- API 端口：`8000`
+- 进入管理后台后，将验证码方式设为 `browser` 或 `personal`
 
 ### 方式二：本地部署
 

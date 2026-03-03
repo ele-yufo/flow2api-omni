@@ -229,6 +229,7 @@ class AddTokenRequest(BaseModel):
     project_id: Optional[str] = None  # 用户可选输入project_id
     project_name: Optional[str] = None
     remark: Optional[str] = None
+    captcha_proxy_url: Optional[str] = None
     image_enabled: bool = True
     video_enabled: bool = True
     image_concurrency: int = -1
@@ -240,6 +241,7 @@ class UpdateTokenRequest(BaseModel):
     project_id: Optional[str] = None  # 用户可选输入project_id
     project_name: Optional[str] = None
     remark: Optional[str] = None
+    captcha_proxy_url: Optional[str] = None
     image_enabled: Optional[bool] = None
     video_enabled: Optional[bool] = None
     image_concurrency: Optional[int] = None
@@ -301,6 +303,7 @@ class ImportTokenItem(BaseModel):
     access_token: Optional[str] = None
     session_token: Optional[str] = None
     is_active: bool = True
+    captcha_proxy_url: Optional[str] = None
     image_enabled: bool = True
     video_enabled: bool = True
     image_concurrency: int = -1
@@ -411,6 +414,7 @@ async def get_tokens(token: str = Depends(verify_admin_token)):
         "user_paygate_tier": row.get("user_paygate_tier"),
         "current_project_id": row.get("current_project_id"),  # 🆕 项目ID
         "current_project_name": row.get("current_project_name"),  # 🆕 项目名称
+        "captcha_proxy_url": row.get("captcha_proxy_url") or "",
         "image_enabled": bool(row.get("image_enabled")),
         "video_enabled": bool(row.get("video_enabled")),
         "image_concurrency": row.get("image_concurrency"),
@@ -433,6 +437,7 @@ async def add_token(
             project_id=request.project_id,  # 🆕 支持用户指定project_id
             project_name=request.project_name,
             remark=request.remark,
+            captcha_proxy_url=request.captcha_proxy_url.strip() if request.captcha_proxy_url is not None else None,
             image_enabled=request.image_enabled,
             video_enabled=request.video_enabled,
             image_concurrency=request.image_concurrency,
@@ -495,6 +500,7 @@ async def update_token(
             project_id=request.project_id,
             project_name=request.project_name,
             remark=request.remark,
+            captcha_proxy_url=request.captcha_proxy_url.strip() if request.captcha_proxy_url is not None else None,
             image_enabled=request.image_enabled,
             video_enabled=request.video_enabled,
             image_concurrency=request.image_concurrency,
@@ -695,6 +701,7 @@ async def import_tokens(
                         st=st,
                         at=at,
                         at_expires=at_expires,
+                        captcha_proxy_url=item.captcha_proxy_url.strip() if item.captcha_proxy_url is not None else None,
                         image_enabled=item.image_enabled,
                         video_enabled=item.video_enabled,
                         image_concurrency=item.image_concurrency,
@@ -707,6 +714,7 @@ async def import_tokens(
                     existing.st = st
                     existing.at = at
                     existing.at_expires = at_expires
+                    existing.captcha_proxy_url = item.captcha_proxy_url
                     existing.image_enabled = item.image_enabled
                     existing.video_enabled = item.video_enabled
                     existing.image_concurrency = item.image_concurrency
@@ -716,6 +724,7 @@ async def import_tokens(
                     # 添加新Token
                     new_token = await token_manager.add_token(
                         st=st,
+                        captcha_proxy_url=item.captcha_proxy_url.strip() if item.captcha_proxy_url is not None else None,
                         image_enabled=item.image_enabled,
                         video_enabled=item.video_enabled,
                         image_concurrency=item.image_concurrency,
