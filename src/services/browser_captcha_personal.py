@@ -157,6 +157,7 @@ class BrowserCaptchaService:
         self._running = False                            # 向后兼容
         self._recaptcha_ready = False                    # 向后兼容
         self._last_fingerprint: Optional[Dict[str, Any]] = None
+        self._resident_error_streaks: dict[str, int] = {}
         # 自定义站点打码常驻页（用于 score-test）
         self._custom_tabs: dict[str, Dict[str, Any]] = {}
         self._custom_lock = asyncio.Lock()
@@ -300,6 +301,7 @@ class BrowserCaptchaService:
             if project_id:
                 # 关闭指定的常驻标签页
                 await self._close_resident_tab(project_id)
+                self._resident_error_streaks.pop(project_id, None)
                 debug_logger.log_info(f"[BrowserCaptcha] 已关闭 project_id={project_id} 的常驻模式")
             else:
                 # 关闭所有常驻标签页
@@ -311,6 +313,7 @@ class BrowserCaptchaService:
                             await resident_info.tab.close()
                         except Exception:
                             pass
+                self._resident_error_streaks.clear()
                 debug_logger.log_info(f"[BrowserCaptcha] 已关闭所有常驻标签页 (共 {len(project_ids)} 个)")
         
         # 向后兼容：清理旧属性
@@ -327,6 +330,216 @@ class BrowserCaptchaService:
         
         self.resident_project_id = None
         self._recaptcha_ready = False
+
+    async def _wait_for_document_ready(self, tab, retries: int = 30, interval_seconds: float = 1.0) -> bool:
+        """等待页面文档加载完成。"""
+        for _ in range(retries):
+            try:
+                ready_state = await tab.evaluate("document.readyState")
+                if ready_state == "complete":
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(interval_seconds)
+        return False
+
+    def _is_server_side_flow_error(self, error_text: str) -> bool:
+        error_lower = (error_text or "").lower()
+        return any(keyword in error_lower for keyword in [
+            "http error 500",
+            "public_error",
+            "internal error",
+            "reason=internal",
+            "reason: internal",
+            "\"reason\":\"internal\"",
+            "server error",
+            "upstream error",
+        ])
+
+    async def _clear_tab_site_storage(self, tab) -> Dict[str, Any]:
+        """清理当前站点的本地存储状态，但保留 cookies 登录态。"""
+        result = await tab.evaluate("""
+            (async () => {
+                const summary = {
+                    local_storage_cleared: false,
+                    session_storage_cleared: false,
+                    cache_storage_deleted: [],
+                    indexed_db_deleted: [],
+                    indexed_db_errors: [],
+                    service_worker_unregistered: 0,
+                };
+
+                try {
+                    window.localStorage.clear();
+                    summary.local_storage_cleared = true;
+                } catch (e) {
+                    summary.local_storage_error = String(e);
+                }
+
+                try {
+                    window.sessionStorage.clear();
+                    summary.session_storage_cleared = true;
+                } catch (e) {
+                    summary.session_storage_error = String(e);
+                }
+
+                try {
+                    if (typeof caches !== 'undefined') {
+                        const cacheKeys = await caches.keys();
+                        for (const key of cacheKeys) {
+                            const deleted = await caches.delete(key);
+                            if (deleted) {
+                                summary.cache_storage_deleted.push(key);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    summary.cache_storage_error = String(e);
+                }
+
+                try {
+                    if (navigator.serviceWorker) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (const registration of registrations) {
+                            const ok = await registration.unregister();
+                            if (ok) {
+                                summary.service_worker_unregistered += 1;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    summary.service_worker_error = String(e);
+                }
+
+                try {
+                    if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
+                        const dbs = await indexedDB.databases();
+                        const names = Array.from(new Set(
+                            dbs
+                                .map((item) => item && item.name)
+                                .filter((name) => typeof name === 'string' && name)
+                        ));
+                        for (const name of names) {
+                            try {
+                                await new Promise((resolve) => {
+                                    const request = indexedDB.deleteDatabase(name);
+                                    request.onsuccess = () => resolve(true);
+                                    request.onerror = () => resolve(false);
+                                    request.onblocked = () => resolve(false);
+                                });
+                                summary.indexed_db_deleted.push(name);
+                            } catch (e) {
+                                summary.indexed_db_errors.push(`${name}: ${String(e)}`);
+                            }
+                        }
+                    } else {
+                        summary.indexed_db_unsupported = true;
+                    }
+                } catch (e) {
+                    summary.indexed_db_errors.push(String(e));
+                }
+
+                return summary;
+            })()
+        """)
+        return result if isinstance(result, dict) else {}
+
+    async def _clear_resident_storage_and_reload(self, project_id: str) -> bool:
+        """清理常驻标签页的站点数据并刷新，尝试原地自愈。"""
+        async with self._resident_lock:
+            resident_info = self._resident_tabs.get(project_id)
+
+        if not resident_info or not resident_info.tab:
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 没有可清理的常驻标签页")
+            return False
+
+        try:
+            cleanup_summary = await self._clear_tab_site_storage(resident_info.tab)
+            debug_logger.log_warning(
+                f"[BrowserCaptcha] project_id={project_id} 已清理站点存储，准备刷新恢复: {cleanup_summary}"
+            )
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 清理站点存储失败: {e}")
+            return False
+
+        try:
+            resident_info.recaptcha_ready = False
+            await resident_info.tab.reload()
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 清理后刷新标签页失败: {e}")
+            return False
+
+        if not await self._wait_for_document_ready(resident_info.tab, retries=30, interval_seconds=1.0):
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 清理后页面加载超时")
+            return False
+
+        resident_info.recaptcha_ready = await self._wait_for_recaptcha(resident_info.tab)
+        if resident_info.recaptcha_ready:
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 清理后已恢复 reCAPTCHA")
+            return True
+
+        debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 清理后仍无法恢复 reCAPTCHA")
+        return False
+
+    async def _recreate_resident_tab(self, project_id: str) -> bool:
+        """关闭并重建常驻标签页。"""
+        async with self._resident_lock:
+            await self._close_resident_tab(project_id)
+            resident_info = await self._create_resident_tab(project_id)
+            if resident_info is None:
+                debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 重建常驻标签页失败")
+                return False
+            self._resident_tabs[project_id] = resident_info
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 已重建常驻标签页")
+            return True
+
+    async def _restart_browser_for_project(self, project_id: str) -> bool:
+        """重启整个 nodriver 浏览器，并恢复指定 project 的常驻标签页。"""
+        debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 准备重启 nodriver 浏览器以恢复")
+        await self.close()
+        await self.initialize()
+
+        async with self._resident_lock:
+            resident_info = await self._create_resident_tab(project_id)
+            if resident_info is None:
+                debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 浏览器重启后恢复常驻标签页失败")
+                return False
+            self._resident_tabs[project_id] = resident_info
+            debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id} 浏览器重启后已恢复常驻标签页")
+            return True
+
+    async def report_flow_error(self, project_id: str, error_reason: str, error_message: str = ""):
+        """上游生成接口异常时，对常驻标签页执行自愈恢复。"""
+        if not project_id:
+            return
+
+        streak = self._resident_error_streaks.get(project_id, 0) + 1
+        self._resident_error_streaks[project_id] = streak
+        error_text = f"{error_reason or ''} {error_message or ''}".strip()
+        debug_logger.log_warning(
+            f"[BrowserCaptcha] project_id={project_id} 收到上游异常，streak={streak}, reason={error_reason}, detail={error_message[:200]}"
+        )
+
+        if not self._initialized or not self.browser:
+            return
+
+        if self._is_server_side_flow_error(error_text):
+            recreate_threshold = max(2, int(getattr(config, "browser_personal_recreate_threshold", 2) or 2))
+            restart_threshold = max(3, int(getattr(config, "browser_personal_restart_threshold", 3) or 3))
+
+            if streak >= restart_threshold:
+                await self._restart_browser_for_project(project_id)
+                return
+            if streak >= recreate_threshold:
+                await self._recreate_resident_tab(project_id)
+                return
+
+            healed = await self._clear_resident_storage_and_reload(project_id)
+            if not healed:
+                await self._recreate_resident_tab(project_id)
+            return
+
+        await self._recreate_resident_tab(project_id)
 
     async def _wait_for_recaptcha(self, tab) -> bool:
         """等待 reCAPTCHA 加载
@@ -754,6 +967,7 @@ class BrowserCaptchaService:
                 token = await self._execute_recaptcha_on_tab(resident_info.tab, action)
                 duration_ms = (time.time() - start_time) * 1000
                 if token:
+                    self._resident_error_streaks.pop(project_id, None)
                     self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
                     debug_logger.log_info(f"[BrowserCaptcha] ✅ Token生成成功（耗时 {duration_ms:.0f}ms）")
                     return token
@@ -772,6 +986,7 @@ class BrowserCaptchaService:
                     try:
                         token = await self._execute_recaptcha_on_tab(resident_info.tab, action)
                         if token:
+                            self._resident_error_streaks.pop(project_id, None)
                             self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
                             debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Token生成成功")
                             return token
@@ -780,7 +995,10 @@ class BrowserCaptchaService:
         
         # 最终 Fallback: 使用传统模式
         debug_logger.log_warning(f"[BrowserCaptcha] 所有常驻方式失败，fallback 到传统模式 (project: {project_id})")
-        return await self._get_token_legacy(project_id, action)
+        legacy_token = await self._get_token_legacy(project_id, action)
+        if legacy_token:
+            self._resident_error_streaks.pop(project_id, None)
+        return legacy_token
 
     async def _create_resident_tab(self, project_id: str) -> Optional[ResidentTabInfo]:
         """为指定 project_id 创建常驻标签页
@@ -957,6 +1175,7 @@ class BrowserCaptchaService:
 
             self._initialized = False
             self._resident_tabs.clear()  # 确保清空常驻字典
+            self._resident_error_streaks.clear()
             debug_logger.log_info("[BrowserCaptcha] 浏览器已关闭")
         except Exception as e:
             debug_logger.log_error(f"[BrowserCaptcha] 关闭浏览器异常: {str(e)}")

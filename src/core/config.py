@@ -203,6 +203,17 @@ class Config:
         self._config["captcha"]["captcha_method"] = method
 
     @property
+    def browser_launch_background(self) -> bool:
+        """有头浏览器打码是否默认后台启动，避免抢占前台窗口。"""
+        return self._config.get("captcha", {}).get("browser_launch_background", True)
+
+    def set_browser_launch_background(self, enabled: bool):
+        """设置有头浏览器打码是否后台启动。"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["browser_launch_background"] = bool(enabled)
+
+    @property
     def yescaptcha_api_key(self) -> str:
         """Get YesCaptcha API key"""
         return self._config.get("captcha", {}).get("yescaptcha_api_key", "")

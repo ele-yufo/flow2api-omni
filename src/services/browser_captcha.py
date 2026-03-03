@@ -352,6 +352,7 @@ class TokenBrowser:
         base_w, base_h = random.choice(self.RESOLUTIONS)
         width, height = base_w, base_h - random.randint(0, 80)
         viewport = {"width": width, "height": height}
+        launch_in_background = bool(getattr(config, "browser_launch_background", True))
         
         playwright = await async_playwright().start()
         Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
@@ -382,22 +383,37 @@ class TokenBrowser:
         }
         
         try:
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--disable-quic',
+                '--disable-features=UseDnsHttpsSvcb',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-setuid-sandbox',
+                '--no-first-run',
+                '--no-zygote',
+                f'--window-size={width},{height}',
+                '--disable-infobars',
+                '--hide-scrollbars',
+            ]
+
+            if launch_in_background:
+                browser_args.extend([
+                    '--start-minimized',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-occluded-windows',
+                ])
+                if sys.platform.startswith("win"):
+                    browser_args.append('--window-position=-32000,-32000')
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] Token-{self.token_id} 有头浏览器将以后台模式启动"
+                )
+
             browser = await playwright.chromium.launch(
                 headless=False,
                 proxy=proxy_option,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-quic',
-                    '--disable-features=UseDnsHttpsSvcb',
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-setuid-sandbox',
-                    '--no-first-run',
-                    '--no-zygote',
-                    f'--window-size={width},{height}',
-                    '--disable-infobars',
-                    '--hide-scrollbars',
-                ]
+                args=browser_args
             )
             context = await browser.new_context(
                 user_agent=random_ua,
@@ -1423,16 +1439,27 @@ class BrowserCaptchaService:
                 return None
             return browser.get_last_fingerprint()
 
-    async def report_error(self, browser_id: int = None):
-        """上层举报：Token 无效（统计用）
+    async def report_error(self, browser_id: int = None, error_reason: Optional[str] = None):
+        """上层举报当前请求失败，必要时提前回收待释放浏览器。
         
         Args:
             browser_id: 浏览器 ID（当前架构下每次都是新浏览器，此参数仅用于日志）
         """
         async with self._browsers_lock:
-            self._stats["api_403"] += 1
+            browser = self._browsers.get(browser_id) if browser_id is not None else None
+            error_lower = (error_reason or "").lower()
+            if "403" in error_lower or "recaptcha" in error_lower:
+                self._stats["api_403"] += 1
             if browser_id is not None:
-                debug_logger.log_info(f"[BrowserCaptcha] 浏览器 {browser_id} 的 token 验证失败")
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] 浏览器 {browser_id} 的 token 验证失败，reason={error_reason or 'unknown'}"
+                )
+
+        if browser:
+            try:
+                await browser.force_close_pending_browser()
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] 浏览器 {browser_id} 失败后提前关闭异常: {e}")
 
     async def report_request_finished(self, browser_id: int = None):
         """上层通知：图片/视频请求已完成，可关闭对应打码浏览器。"""

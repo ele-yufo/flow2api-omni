@@ -643,16 +643,18 @@ class FlowClient:
                 )
                 return result, session_id
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[IMAGE] 生成遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[IMAGE] 生成",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -683,42 +685,62 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/flow/upsampleImage"
 
-        # 获取 reCAPTCHA token - 使用 IMAGE_GENERATION action
-        recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
-        if not recaptcha_token:
-            raise Exception("Failed to obtain reCAPTCHA token")
-        upsample_session_id = session_id or self._generate_session_id()
+        # 403/reCAPTCHA/500 重试逻辑 - 最多重试3次
+        max_retries = 3
+        last_error = None
 
-        json_data = {
-            "mediaId": media_id,
-            "targetResolution": target_resolution,
-            "clientContext": {
-                "recaptchaContext": {
-                    "token": recaptcha_token,
-                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                },
-                "sessionId": upsample_session_id,
-                "projectId": project_id,
-                "tool": "PINHOLE",
-                "userPaygateTier": user_paygate_tier
+        for retry_attempt in range(max_retries):
+            # 获取 reCAPTCHA token - 使用 IMAGE_GENERATION action
+            recaptcha_token, browser_id = await self._get_recaptcha_token(project_id, action="IMAGE_GENERATION")
+            if not recaptcha_token:
+                raise Exception("Failed to obtain reCAPTCHA token")
+            upsample_session_id = session_id or self._generate_session_id()
+
+            json_data = {
+                "mediaId": media_id,
+                "targetResolution": target_resolution,
+                "clientContext": {
+                    "recaptchaContext": {
+                        "token": recaptcha_token,
+                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+                    },
+                    "sessionId": upsample_session_id,
+                    "projectId": project_id,
+                    "tool": "PINHOLE",
+                    "userPaygateTier": user_paygate_tier
+                }
             }
-        }
 
-        # 4K/2K 放大使用专用超时，因为返回的 base64 数据量很大
-        try:
-            result = await self._make_request(
-                method="POST",
-                url=url,
-                json_data=json_data,
-                use_at=True,
-                at_token=at,
-                timeout=config.upsample_timeout
-            )
+            # 4K/2K 放大使用专用超时，因为返回的 base64 数据量很大
+            try:
+                result = await self._make_request(
+                    method="POST",
+                    url=url,
+                    json_data=json_data,
+                    use_at=True,
+                    at_token=at,
+                    timeout=config.upsample_timeout
+                )
 
-            # 返回 base64 编码的图片
-            return result.get("encodedImage", "")
-        finally:
-            await self._notify_browser_captcha_request_finished(browser_id)
+                # 返回 base64 编码的图片
+                return result.get("encodedImage", "")
+            except Exception as e:
+                last_error = e
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[IMAGE UPSAMPLE] 放大",
+                )
+                if should_retry:
+                    continue
+                raise
+            finally:
+                await self._notify_browser_captcha_request_finished(browser_id)
+
+        raise last_error
 
     # ========== 视频生成 (使用AT) - 异步返回 ==========
 
@@ -799,16 +821,18 @@ class FlowClient:
                 )
                 return result
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[VIDEO T2V] 生成遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO T2V] 生成",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -888,16 +912,18 @@ class FlowClient:
                 )
                 return result
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[VIDEO R2V] 生成遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO R2V] 生成",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -984,16 +1010,18 @@ class FlowClient:
                 )
                 return result
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[VIDEO I2V] 首尾帧生成遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO I2V] 首尾帧生成",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -1076,16 +1104,18 @@ class FlowClient:
                 )
                 return result
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[VIDEO I2V] 首帧生成遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO I2V] 首帧生成",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -1161,16 +1191,18 @@ class FlowClient:
                 )
                 return result
             except Exception as e:
-                error_str = str(e)
                 last_error = e
-                retry_reason = self._get_retry_reason(error_str)
-                if retry_reason and retry_attempt < max_retries - 1:
-                    debug_logger.log_warning(f"[VIDEO UPSAMPLE] 放大遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})...")
-                    await self._notify_browser_captcha_error(browser_id)
-                    await asyncio.sleep(1)
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO UPSAMPLE] 放大",
+                )
+                if should_retry:
                     continue
-                else:
-                    raise e
+                raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
         
@@ -1238,6 +1270,33 @@ class FlowClient:
 
     # ========== 辅助方法 ==========
 
+    async def _handle_retryable_generation_error(
+        self,
+        error: Exception,
+        retry_attempt: int,
+        max_retries: int,
+        browser_id: Optional[int],
+        project_id: str,
+        log_prefix: str,
+    ) -> bool:
+        """统一处理生成链路的重试判定与打码自愈通知。"""
+        error_str = str(error)
+        retry_reason = self._get_retry_reason(error_str)
+        if not retry_reason or retry_attempt >= max_retries - 1:
+            return False
+
+        debug_logger.log_warning(
+            f"{log_prefix}遇到{retry_reason}，正在重新获取验证码重试 ({retry_attempt + 2}/{max_retries})..."
+        )
+        await self._notify_browser_captcha_error(
+            browser_id=browser_id,
+            project_id=project_id,
+            error_reason=retry_reason,
+            error_message=error_str,
+        )
+        await asyncio.sleep(1)
+        return True
+
     def _get_retry_reason(self, error_str: str) -> Optional[str]:
         """判断是否需要重试，返回日志提示内容"""
         error_lower = error_str.lower()
@@ -1247,19 +1306,50 @@ class FlowClient:
             return "reCAPTCHA 验证失败"
         if "recaptcha" in error_lower:
             return "reCAPTCHA 错误"
+        if any(keyword in error_lower for keyword in [
+            "http error 500",
+            "public_error",
+            "internal error",
+            "reason=internal",
+            "reason: internal",
+            "\"reason\":\"internal\"",
+            "server error",
+            "upstream error",
+        ]):
+            return "500/内部错误"
         return None
 
-    async def _notify_browser_captcha_error(self, browser_id: int = None):
-        """通知有头浏览器打码切换指纹（仅当使用 browser 打码方式时）
+    async def _notify_browser_captcha_error(
+        self,
+        browser_id: int = None,
+        project_id: Optional[str] = None,
+        error_reason: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ):
+        """通知浏览器打码服务执行失败自愈。
         
         Args:
-            browser_id: 要标记为 bad 的浏览器 ID
+            browser_id: browser 模式使用的浏览器 ID
+            project_id: personal 模式使用的 project_id
+            error_reason: 已归类的错误原因
+            error_message: 原始错误文本
         """
         if config.captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
-                await service.report_error(browser_id)
+                await service.report_error(browser_id, error_reason=error_reason)
+            except Exception:
+                pass
+        elif config.captcha_method == "personal" and project_id:
+            try:
+                from .browser_captcha_personal import BrowserCaptchaService
+                service = await BrowserCaptchaService.get_instance(self.db)
+                await service.report_flow_error(
+                    project_id=project_id,
+                    error_reason=error_reason or "",
+                    error_message=error_message or "",
+                )
             except Exception:
                 pass
 
