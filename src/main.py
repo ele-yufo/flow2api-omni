@@ -78,6 +78,9 @@ async def lifespan(app: FastAPI):
     config.set_ezcaptcha_base_url(captcha_config.ezcaptcha_base_url)
     config.set_capsolver_api_key(captcha_config.capsolver_api_key)
     config.set_capsolver_base_url(captcha_config.capsolver_base_url)
+    config.set_remote_browser_base_url(captcha_config.remote_browser_base_url)
+    config.set_remote_browser_api_key(captcha_config.remote_browser_api_key)
+    config.set_remote_browser_timeout(captcha_config.remote_browser_timeout)
 
     # Initialize browser captcha service if needed
     browser_service = None

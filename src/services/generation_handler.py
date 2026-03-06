@@ -715,6 +715,13 @@ class GenerationHandler:
         token = None
         generation_type = None
         token_slot_reserved = False
+        pending_token_state = {"active": False}
+        request_id = f"gen-{int(start_time * 1000)}-{id(asyncio.current_task())}"
+        perf_trace: Dict[str, Any] = {
+            "request_id": request_id,
+            "model": model,
+            "status": "processing",
+        }
         self._last_generated_url = None
         self._last_generation_assets = None
 
@@ -762,19 +769,25 @@ class GenerationHandler:
 
         # 2. 选择Token
         debug_logger.log_info(f"[GENERATION] 正在选择可用Token...")
+        token_select_started_at = time.time()
 
         if generation_type == "image":
             token = await self.load_balancer.select_token(
                 for_image_generation=True,
                 model=model,
-                reserve=self.concurrency_manager is not None
+                reserve=False,
+                enforce_concurrency_filter=False,
+                track_pending=True,
             )
         else:
             token = await self.load_balancer.select_token(
                 for_video_generation=True,
                 model=model,
-                reserve=self.concurrency_manager is not None
+                reserve=False,
+                enforce_concurrency_filter=False,
+                track_pending=True,
             )
+        perf_trace["token_select_ms"] = int((time.time() - token_select_started_at) * 1000)
 
         if not token:
             error_msg = self._get_no_token_error_message(generation_type)
@@ -784,7 +797,7 @@ class GenerationHandler:
             yield self._create_error_response(error_msg)
             return
 
-        token_slot_reserved = self.concurrency_manager is not None
+        token_slot_reserved = False
         debug_logger.log_info(f"[GENERATION] 已选择Token: {token.id} ({token.email})")
 
         try:
@@ -793,7 +806,9 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk("初始化生成环境...\n")
 
+            ensure_at_started_at = time.time()
             token = await self.token_manager.ensure_valid_token(token)
+            perf_trace["ensure_at_ms"] = int((time.time() - ensure_at_started_at) * 1000)
             if not token:
                 error_msg = "Token AT无效或刷新失败"
                 debug_logger.log_error(f"[GENERATION] {error_msg}")
@@ -805,16 +820,22 @@ class GenerationHandler:
             # 4. 确保Project存在
             debug_logger.log_info(f"[GENERATION] 检查/创建Project...")
 
+            ensure_project_started_at = time.time()
             project_id = await self.token_manager.ensure_project_exists(token.id)
+            perf_trace["ensure_project_ms"] = int((time.time() - ensure_project_started_at) * 1000)
             debug_logger.log_info(f"[GENERATION] Project ID: {project_id}")
 
             # 5. 根据类型处理
+            generation_pipeline_started_at = time.time()
             if generation_type == "image":
                 debug_logger.log_info(f"[GENERATION] 开始图片生成流程...")
                 slot_reserved_for_handler = token_slot_reserved
                 token_slot_reserved = False
                 async for chunk in self._handle_image_generation(
-                    token, project_id, model_config, prompt, images, stream, slot_reserved=slot_reserved_for_handler
+                    token, project_id, model_config, prompt, images, stream,
+                    slot_reserved=slot_reserved_for_handler,
+                    perf_trace=perf_trace,
+                    pending_token_state=pending_token_state
                 ):
                     yield chunk
             else:  # video
@@ -822,9 +843,13 @@ class GenerationHandler:
                 slot_reserved_for_handler = token_slot_reserved
                 token_slot_reserved = False
                 async for chunk in self._handle_video_generation(
-                    token, project_id, model_config, prompt, images, stream, slot_reserved=slot_reserved_for_handler
+                    token, project_id, model_config, prompt, images, stream,
+                    slot_reserved=slot_reserved_for_handler,
+                    perf_trace=perf_trace,
+                    pending_token_state=pending_token_state
                 ):
                     yield chunk
+            perf_trace["generation_pipeline_ms"] = int((time.time() - generation_pipeline_started_at) * 1000)
 
             # 6. 记录使用
             is_video = (generation_type == "video")
@@ -837,6 +862,8 @@ class GenerationHandler:
 
             # 7. 记录成功日志
             duration = time.time() - start_time
+            perf_trace["status"] = "success"
+            perf_trace["total_ms"] = int(duration * 1000)
             # 日志中保留更完整的 prompt，避免管理页只看到过短内容
             prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
 
@@ -844,7 +871,8 @@ class GenerationHandler:
             response_data = {
                 "status": "success",
                 "model": model,
-                "prompt": prompt_for_log
+                "prompt": prompt_for_log,
+                "performance": perf_trace
             }
 
             # 添加生成的URL（如果有）
@@ -856,6 +884,19 @@ class GenerationHandler:
             # 清除临时存储，避免污染后续请求
             self._last_generated_url = None
             self._last_generation_assets = None
+            image_perf = perf_trace.get("image_generation", {}) if isinstance(perf_trace, dict) else {}
+            video_perf = perf_trace.get("video_generation", {}) if isinstance(perf_trace, dict) else {}
+            debug_logger.log_info(
+                f"[PERF] [{request_id}] total={perf_trace.get('total_ms', 0)}ms, "
+                f"select={perf_trace.get('token_select_ms', 0)}ms, "
+                f"ensure_at={perf_trace.get('ensure_at_ms', 0)}ms, "
+                f"project={perf_trace.get('ensure_project_ms', 0)}ms, "
+                f"pipeline={perf_trace.get('generation_pipeline_ms', 0)}ms, "
+                f"slot_wait={image_perf.get('slot_wait_ms', 0)}ms, "
+                f"launch_queue={image_perf.get('launch_queue_wait_ms', 0)}ms, "
+                f"launch_stagger={image_perf.get('launch_stagger_wait_ms', 0)}ms, "
+                f"video_slot_wait={video_perf.get('slot_wait_ms', 0)}ms"
+            )
 
             await self._log_request(
                 token.id,
@@ -878,16 +919,27 @@ class GenerationHandler:
 
             # 记录失败日志
             duration = time.time() - start_time
+            perf_trace["status"] = "failed"
+            perf_trace["total_ms"] = int(duration * 1000)
+            perf_trace["error"] = error_msg
             prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
             await self._log_request(
                 token.id if token else None,
                 f"generate_{generation_type if model_config else 'unknown'}",
                 {"model": model, "prompt": prompt_for_log, "has_images": images is not None and len(images) > 0},
-                {"error": error_msg},
+                {"error": error_msg, "performance": perf_trace},
                 500,
                 duration
             )
         finally:
+            if pending_token_state.get("active") and token and self.load_balancer:
+                await self.load_balancer.release_pending(
+                    token.id,
+                    for_image_generation=(generation_type == "image"),
+                    for_video_generation=(generation_type == "video"),
+                )
+                pending_token_state["active"] = False
+
             if token_slot_reserved and token and self.concurrency_manager:
                 if generation_type == "image":
                     await self.concurrency_manager.release_image(token.id)
@@ -909,21 +961,34 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]],
         stream: bool,
-        slot_reserved: bool = False
+        slot_reserved: bool = False,
+        perf_trace: Optional[Dict[str, Any]] = None,
+        pending_token_state: Optional[Dict[str, bool]] = None
     ) -> AsyncGenerator:
         """处理图片生成 (同步返回)"""
 
         slot_acquired = False
+        image_trace: Optional[Dict[str, Any]] = None
+        if isinstance(perf_trace, dict):
+            image_trace = perf_trace.setdefault("image_generation", {})
+            image_trace["input_image_count"] = len(images) if images else 0
 
         # 获取并发槽位
         if self.concurrency_manager and not slot_reserved:
-            if not await self.concurrency_manager.acquire_image(token.id):
+            slot_ok, slot_wait_ms = await self.concurrency_manager.wait_acquire_image(
+                token.id,
+                timeout_seconds=config.flow_image_slot_wait_timeout
+            )
+            if image_trace is not None:
+                image_trace["slot_wait_ms"] = slot_wait_ms
+            if not slot_ok:
                 yield self._create_error_response("图片并发限制已达上限")
                 return
             slot_acquired = True
 
         try:
             # 上传图片 (如果有)
+            upload_started_at = time.time()
             image_inputs = []
             if images and len(images) > 0:
                 if stream:
@@ -943,20 +1008,32 @@ class GenerationHandler:
                     })
                     if stream:
                         yield self._create_stream_chunk(f"已上传第 {idx + 1}/{len(images)} 张图片\n")
+            if image_trace is not None:
+                image_trace["upload_images_ms"] = int((time.time() - upload_started_at) * 1000)
 
             # 调用生成API
             if stream:
                 yield self._create_stream_chunk("正在生成图片...\n")
 
-            result, generation_session_id = await self.flow_client.generate_image(
+            generate_started_at = time.time()
+            result, generation_session_id, upstream_trace = await self.flow_client.generate_image(
                 at=token.at,
                 project_id=project_id,
                 prompt=prompt,
                 model_name=model_config["model_name"],
                 aspect_ratio=model_config["aspect_ratio"],
                 image_inputs=image_inputs,
-                token_id=token.id
+                token_id=token.id,
+                token_image_concurrency=token.image_concurrency,
             )
+            if image_trace is not None:
+                image_trace["generate_api_ms"] = int((time.time() - generate_started_at) * 1000)
+                image_trace["upstream_trace"] = upstream_trace
+                attempts = upstream_trace.get("generation_attempts") if isinstance(upstream_trace, dict) else None
+                if isinstance(attempts, list) and attempts:
+                    first_attempt = attempts[0] if isinstance(attempts[0], dict) else {}
+                    image_trace["launch_queue_wait_ms"] = int(first_attempt.get("launch_queue_ms") or 0)
+                    image_trace["launch_stagger_wait_ms"] = int(first_attempt.get("launch_stagger_ms") or 0)
 
             # 提取URL和mediaId
             media = result.get("media", [])
@@ -974,6 +1051,7 @@ class GenerationHandler:
             # 检查是否需要 upsample
             upsample_resolution = model_config.get("upsample")
             if upsample_resolution and media_id:
+                upsample_started_at = time.time()
                 resolution_name = "4K" if "4K" in upsample_resolution else "2K"
                 if stream:
                     yield self._create_stream_chunk(f"正在放大图片到 {resolution_name}...\n")
@@ -1030,6 +1108,8 @@ class GenerationHandler:
                                             local_url,
                                             media_type="image"
                                         )
+                                    if image_trace is not None:
+                                        image_trace["upsample_ms"] = int((time.time() - upsample_started_at) * 1000)
                                     return
                                 except Exception as e:
                                     debug_logger.log_error(f"Failed to cache {resolution_name} image: {str(e)}")
@@ -1050,6 +1130,8 @@ class GenerationHandler:
                                     base64_url,
                                     media_type="image"
                                 )
+                            if image_trace is not None:
+                                image_trace["upsample_ms"] = int((time.time() - upsample_started_at) * 1000)
                             return
                         else:
                             debug_logger.log_warning("[UPSAMPLE] 返回结果为空")
@@ -1073,9 +1155,12 @@ class GenerationHandler:
                             if stream:
                                 yield self._create_stream_chunk(f"⚠️ 放大失败: {error_str}，返回原图...\n")
                             break
+                if image_trace is not None:
+                    image_trace["upsample_ms"] = int((time.time() - upsample_started_at) * 1000)
 
             # 缓存图片 (如果启用)
             local_url = image_url
+            cache_started_at = time.time()
             if config.cache_enabled:
                 try:
                     if stream:
@@ -1093,6 +1178,8 @@ class GenerationHandler:
             else:
                 if stream:
                     yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
+            if image_trace is not None:
+                image_trace["cache_image_ms"] = int((time.time() - cache_started_at) * 1000)
 
             # 返回结果
             # 存储URL用于日志记录
@@ -1127,15 +1214,27 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]],
         stream: bool,
-        slot_reserved: bool = False
+        slot_reserved: bool = False,
+        perf_trace: Optional[Dict[str, Any]] = None,
+        pending_token_state: Optional[Dict[str, bool]] = None
     ) -> AsyncGenerator:
         """处理视频生成 (异步轮询)"""
 
         slot_acquired = False
+        video_trace: Optional[Dict[str, Any]] = None
+        if isinstance(perf_trace, dict):
+            video_trace = perf_trace.setdefault("video_generation", {})
+            video_trace["input_image_count"] = len(images) if images else 0
 
         # 获取并发槽位
         if self.concurrency_manager and not slot_reserved:
-            if not await self.concurrency_manager.acquire_video(token.id):
+            slot_ok, slot_wait_ms = await self.concurrency_manager.wait_acquire_video(
+                token.id,
+                timeout_seconds=config.flow_video_slot_wait_timeout
+            )
+            if video_trace is not None:
+                video_trace["slot_wait_ms"] = slot_wait_ms
+            if not slot_ok:
                 yield self._create_error_response("视频并发限制已达上限")
                 return
             slot_acquired = True
@@ -1260,6 +1359,7 @@ class GenerationHandler:
             # ========== 调用生成API ==========
             if stream:
                 yield self._create_stream_chunk("提交视频生成任务...\n")
+            submit_started_at = time.time()
 
             # I2V: 首尾帧生成
             if video_type == "i2v" and start_media_id:
@@ -1274,7 +1374,8 @@ class GenerationHandler:
                         start_media_id=start_media_id,
                         end_media_id=end_media_id,
                         user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
-                        token_id=token.id
+                        token_id=token.id,
+                        token_video_concurrency=token.video_concurrency,
                     )
                 else:
                     # 只有首帧 - 需要去掉 model_key 中的 _fl
@@ -1292,7 +1393,8 @@ class GenerationHandler:
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
                         user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
-                        token_id=token.id
+                        token_id=token.id,
+                        token_video_concurrency=token.video_concurrency,
                     )
 
             # R2V: 多图生成
@@ -1305,7 +1407,8 @@ class GenerationHandler:
                     aspect_ratio=model_config["aspect_ratio"],
                     reference_images=reference_images,
                     user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
-                    token_id=token.id
+                    token_id=token.id,
+                    token_video_concurrency=token.video_concurrency,
                 )
 
             # T2V 或 R2V无图: 纯文本生成
@@ -1317,8 +1420,11 @@ class GenerationHandler:
                     model_key=model_config["model_key"],
                     aspect_ratio=model_config["aspect_ratio"],
                     user_paygate_tier=token.user_paygate_tier or "PAYGATE_TIER_ONE",
-                    token_id=token.id
+                    token_id=token.id,
+                    token_video_concurrency=token.video_concurrency,
                 )
+            if video_trace is not None:
+                video_trace["submit_generation_ms"] = int((time.time() - submit_started_at) * 1000)
 
             # 获取task_id和operations
             operations = result.get("operations", [])
@@ -1424,7 +1530,8 @@ class GenerationHandler:
                                 aspect_ratio=aspect_ratio,
                                 resolution=upsample_config["resolution"],
                                 model_key=upsample_config["model_key"],
-                                token_id=token.id
+                                token_id=token.id,
+                                token_video_concurrency=token.video_concurrency,
                             )
                             
                             upsample_operations = upsample_result.get("operations", [])

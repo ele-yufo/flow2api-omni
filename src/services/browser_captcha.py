@@ -12,8 +12,9 @@ import asyncio
 import time
 import re
 import random
+import uuid
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
 from urllib.parse import urlparse, unquote, parse_qs
 
@@ -361,8 +362,9 @@ class TokenBrowser:
         self._last_fingerprint: Optional[Dict[str, Any]] = None
         self._browser_proxy_active = False
         # 打码成功后延迟关闭浏览器：等待上游图片/视频请求完成通知
-        self._pending_release_events: List[asyncio.Event] = []
-        self._pending_release_tasks: List[asyncio.Task] = []
+        # request_ref -> {"event": asyncio.Event, "task": asyncio.Task}
+        # 使用请求级句柄避免高并发下“按顺序 pop”导致的错配关闭。
+        self._pending_release_entries: Dict[str, Dict[str, Any]] = {}
         self._pending_release_lock = asyncio.Lock()
     
     async def _create_browser(self, token_proxy_url: Optional[str] = None) -> tuple:
@@ -653,6 +655,7 @@ class TokenBrowser:
 
     async def _wait_and_close_after_request(
         self,
+        request_ref: str,
         release_event: asyncio.Event,
         wait_timeout: int,
         playwright,
@@ -677,14 +680,10 @@ class TokenBrowser:
         finally:
             await self._close_browser(playwright, browser, context)
             debug_logger.log_info(
-                f"[BrowserCaptcha] Token-{self.token_id} {close_reason}，浏览器已关闭 (action={action})"
+                f"[BrowserCaptcha] Token-{self.token_id} {close_reason}，浏览器已关闭 (action={action}, request_ref={request_ref[:8]})"
             )
             async with self._pending_release_lock:
-                current_task = asyncio.current_task()
-                if current_task in self._pending_release_tasks:
-                    self._pending_release_tasks.remove(current_task)
-                if release_event in self._pending_release_events:
-                    self._pending_release_events.remove(release_event)
+                self._pending_release_entries.pop(request_ref, None)
 
     async def _defer_browser_close_until_request_done(
         self,
@@ -692,7 +691,7 @@ class TokenBrowser:
         browser,
         context,
         action: str
-    ):
+    ) -> str:
         """打码成功后延迟关闭浏览器，等待 Flow 请求结束通知。"""
         flow_timeout = int(getattr(config, "flow_timeout", 300) or 300)
         upsample_timeout = int(getattr(config, "upsample_timeout", 300) or 300)
@@ -703,9 +702,11 @@ class TokenBrowser:
         else:
             # 视频请求默认超时更长，给更大的缓冲避免“请求未结束就关闭”
             wait_timeout = max(flow_timeout + 300, 1800)
+        request_ref = uuid.uuid4().hex
         release_event = asyncio.Event()
         release_task = asyncio.create_task(
             self._wait_and_close_after_request(
+                request_ref=request_ref,
                 release_event=release_event,
                 wait_timeout=wait_timeout,
                 playwright=playwright,
@@ -716,34 +717,63 @@ class TokenBrowser:
         )
 
         async with self._pending_release_lock:
-            self._pending_release_events.append(release_event)
-            self._pending_release_tasks.append(release_task)
+            self._pending_release_entries[request_ref] = {
+                "event": release_event,
+                "task": release_task,
+            }
         debug_logger.log_info(
-            f"[BrowserCaptcha] Token-{self.token_id} 打码成功后进入延迟关闭，等待上游请求完成 (action={action}, timeout={wait_timeout}s)"
+            f"[BrowserCaptcha] Token-{self.token_id} 打码成功后进入延迟关闭，等待上游请求完成 "
+            f"(action={action}, timeout={wait_timeout}s, request_ref={request_ref[:8]})"
         )
+        return request_ref
 
-    async def notify_generation_request_finished(self):
+    async def notify_generation_request_finished(self, request_ref: Optional[str] = None):
         """通知当前 Token 对应的上游图片/视频请求已结束。"""
         async with self._pending_release_lock:
-            release_event = self._pending_release_events.pop(0) if self._pending_release_events else None
+            release_event = None
+            matched_ref = request_ref
+            if matched_ref and matched_ref in self._pending_release_entries:
+                entry = self._pending_release_entries.pop(matched_ref)
+                release_event = entry.get("event")
+            elif not matched_ref and self._pending_release_entries:
+                # 兼容旧调用方（无 request_ref），仅回收最早待释放项，避免一次性影响全部请求。
+                matched_ref = next(iter(self._pending_release_entries.keys()))
+                entry = self._pending_release_entries.pop(matched_ref)
+                release_event = entry.get("event")
         if release_event and not release_event.is_set():
             release_event.set()
             debug_logger.log_info(
-                f"[BrowserCaptcha] Token-{self.token_id} 收到上游请求完成通知，开始关闭浏览器"
+                f"[BrowserCaptcha] Token-{self.token_id} 收到上游请求完成通知，开始关闭浏览器 "
+                f"(request_ref={(matched_ref or 'unknown')[:8]})"
             )
 
-    async def force_close_pending_browser(self):
+    async def force_close_pending_browser(self, request_ref: Optional[str] = None, close_all: bool = False):
         """强制关闭待释放浏览器（服务关闭时调用）。"""
         async with self._pending_release_lock:
-            release_events = list(self._pending_release_events)
-            release_tasks = list(self._pending_release_tasks)
-            self._pending_release_events.clear()
-            self._pending_release_tasks.clear()
+            entries: List[Dict[str, Any]] = []
+            if close_all:
+                entries = list(self._pending_release_entries.values())
+                self._pending_release_entries.clear()
+            elif request_ref and request_ref in self._pending_release_entries:
+                entry = self._pending_release_entries.pop(request_ref)
+                entries = [entry]
+            elif self._pending_release_entries:
+                # 兼容旧调用方（无 request_ref）时，仅关闭最早的一项，避免误伤其它并发请求。
+                first_ref = next(iter(self._pending_release_entries.keys()))
+                entry = self._pending_release_entries.pop(first_ref)
+                entries = [entry]
+
+        release_events = [entry.get("event") for entry in entries if isinstance(entry, dict)]
+        release_tasks = [entry.get("task") for entry in entries if isinstance(entry, dict)]
 
         for release_event in release_events:
+            if not release_event:
+                continue
             if not release_event.is_set():
                 release_event.set()
         for release_task in release_tasks:
+            if not release_task:
+                continue
             try:
                 await asyncio.wait_for(release_task, timeout=5)
             except Exception:
@@ -1091,7 +1121,7 @@ class TokenBrowser:
         website_key: str,
         action: str = "IMAGE_GENERATION",
         token_proxy_url: Optional[str] = None
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], Optional[str]]:
         """获取 Token：启动新浏览器 -> 打码 -> 关闭浏览器"""
         async with self._semaphore:
             MAX_RETRIES = 3
@@ -1113,7 +1143,7 @@ class TokenBrowser:
                         self._solve_count += 1
                         debug_logger.log_info(f"[BrowserCaptcha] Token-{self.token_id} 获取成功 ({(time.time()-start_ts)*1000:.0f}ms)")
                         # 不立即关闭浏览器：等待图片/视频请求结束后再关闭
-                        await self._defer_browser_close_until_request_done(
+                        request_ref = await self._defer_browser_close_until_request_done(
                             playwright=playwright,
                             browser=browser,
                             context=context,
@@ -1122,7 +1152,7 @@ class TokenBrowser:
                         playwright = None
                         browser = None
                         context = None
-                        return token
+                        return token, request_ref
                     
                     self._error_count += 1
                     debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} 尝试 {attempt+1}/{MAX_RETRIES} 失败")
@@ -1138,7 +1168,7 @@ class TokenBrowser:
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(1)
             
-            return None
+            return None, None
 
     async def get_custom_token(
         self,
@@ -1364,6 +1394,32 @@ class BrowserCaptchaService:
         self._round_robin_index += 1
         return browser_id
 
+    @staticmethod
+    def _compose_browser_ref(browser_id: int, request_ref: Optional[str]) -> Union[int, str]:
+        """将 browser_id 与 request_ref 合并为可回传的请求句柄。"""
+        if request_ref:
+            return f"{browser_id}:{request_ref}"
+        return browser_id
+
+    @staticmethod
+    def _parse_browser_ref(browser_ref: Optional[Union[int, str]]) -> tuple[Optional[int], Optional[str]]:
+        """解析请求句柄，兼容旧的纯 int browser_id。"""
+        if browser_ref is None:
+            return None, None
+
+        if isinstance(browser_ref, int):
+            return browser_ref, None
+
+        if isinstance(browser_ref, str):
+            raw = browser_ref.strip()
+            if raw.isdigit():
+                return int(raw), None
+            browser_id_part, sep, request_ref = raw.partition(":")
+            if sep and browser_id_part.isdigit() and request_ref:
+                return int(browser_id_part), request_ref
+
+        return None, None
+
     async def _resolve_token_proxy_url(self, token_id: Optional[int]) -> Optional[str]:
         """读取 token 级打码代理，为空时回退全局配置。"""
         if not token_id or not self.db:
@@ -1376,7 +1432,7 @@ class BrowserCaptchaService:
             debug_logger.log_warning(f"[BrowserCaptcha] 读取 token({token_id}) 打码代理失败: {e}")
         return None
     
-    async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION", token_id: int = None) -> tuple[Optional[str], int]:
+    async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION", token_id: int = None) -> tuple[Optional[str], Union[int, str]]:
         """获取 reCAPTCHA Token（轮询分配到不同浏览器）
         
         Args:
@@ -1385,7 +1441,7 @@ class BrowserCaptchaService:
             token_id: 业务 token id（仅用于读取 token 级打码代理）
         
         Returns:
-            (token, browser_id) 元组，调用方失败时用 browser_id 调用 report_error
+            (token, browser_ref) 元组，browser_ref 包含 browser_id 与请求级 request_ref
         """
         # 检查服务是否可用
         self._check_available()
@@ -1400,7 +1456,7 @@ class BrowserCaptchaService:
                 browser_id = self._get_next_browser_id()
                 browser = await self._get_or_create_browser(browser_id)
                 
-                token = await browser.get_token(
+                token, request_ref = await browser.get_token(
                     project_id,
                     self.website_key,
                     action,
@@ -1413,13 +1469,13 @@ class BrowserCaptchaService:
                 self._stats["gen_fail"] += 1
                 
             self._log_stats()
-            return token, browser_id
+            return token, self._compose_browser_ref(browser_id, request_ref)
         
         # 无并发限制时直接执行
         browser_id = self._get_next_browser_id()
         browser = await self._get_or_create_browser(browser_id)
         
-        token = await browser.get_token(
+        token, request_ref = await browser.get_token(
             project_id,
             self.website_key,
             action,
@@ -1432,7 +1488,7 @@ class BrowserCaptchaService:
             self._stats["gen_fail"] += 1
             
         self._log_stats()
-        return token, browser_id
+        return token, self._compose_browser_ref(browser_id, request_ref)
 
     async def get_custom_token(
         self,
@@ -1501,20 +1557,26 @@ class BrowserCaptchaService:
         )
         return payload, browser_id
 
-    async def get_fingerprint(self, browser_id: int) -> Optional[Dict[str, Any]]:
+    async def get_fingerprint(self, browser_ref: Optional[Union[int, str]]) -> Optional[Dict[str, Any]]:
         """获取指定浏览器最近一次打码时的指纹快照。"""
+        browser_id, _ = self._parse_browser_ref(browser_ref)
+        if browser_id is None:
+            return None
+
         async with self._browsers_lock:
             browser = self._browsers.get(browser_id)
             if not browser:
                 return None
             return browser.get_last_fingerprint()
 
-    async def report_error(self, browser_id: int = None, error_reason: Optional[str] = None):
+    async def report_error(self, browser_ref: Optional[Union[int, str]] = None, error_reason: Optional[str] = None):
         """上层举报当前请求失败，必要时提前回收待释放浏览器。
         
         Args:
-            browser_id: 浏览器 ID（当前架构下每次都是新浏览器，此参数仅用于日志）
+            browser_ref: 浏览器请求句柄（browser_id[:request_ref]）
         """
+        browser_id, request_ref = self._parse_browser_ref(browser_ref)
+
         async with self._browsers_lock:
             browser = self._browsers.get(browser_id) if browser_id is not None else None
             error_lower = (error_reason or "").lower()
@@ -1527,12 +1589,17 @@ class BrowserCaptchaService:
 
         if browser:
             try:
-                await browser.force_close_pending_browser()
+                if request_ref:
+                    await browser.force_close_pending_browser(request_ref=request_ref)
+                else:
+                    # 未携带 request_ref 时只回收一项，避免高并发下误关其它请求链路。
+                    await browser.force_close_pending_browser()
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] 浏览器 {browser_id} 失败后提前关闭异常: {e}")
 
-    async def report_request_finished(self, browser_id: int = None):
+    async def report_request_finished(self, browser_ref: Optional[Union[int, str]] = None):
         """上层通知：图片/视频请求已完成，可关闭对应打码浏览器。"""
+        browser_id, request_ref = self._parse_browser_ref(browser_ref)
         if browser_id is None:
             return
 
@@ -1540,7 +1607,7 @@ class BrowserCaptchaService:
             browser = self._browsers.get(browser_id)
 
         if browser:
-            await browser.notify_generation_request_finished()
+            await browser.notify_generation_request_finished(request_ref=request_ref)
 
     async def remove_browser(self, browser_id: int):
         async with self._browsers_lock:
@@ -1554,7 +1621,7 @@ class BrowserCaptchaService:
 
         for browser in browsers:
             try:
-                await browser.force_close_pending_browser()
+                await browser.force_close_pending_browser(close_all=True)
             except Exception:
                 pass
             
