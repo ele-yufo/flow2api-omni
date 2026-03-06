@@ -440,7 +440,7 @@ MODEL_CONFIG = {
     },
 
     # ========== 多图生成 (R2V - Reference Images to Video) ==========
-    # 支持多张图片,不限制数量
+    # 当前上游协议最多支持 3 张参考图
 
     # veo_3_1_r2v_fast (横竖屏)
     "veo_3_1_r2v_fast_portrait": {
@@ -450,16 +450,16 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
     "veo_3_1_r2v_fast": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast",
+        "model_key": "veo_3_1_r2v_fast_landscape",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
 
     # veo_3_1_r2v_fast_ultra (横竖屏)
@@ -470,16 +470,16 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
     "veo_3_1_r2v_fast_ultra": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_ultra",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
 
     # veo_3_1_r2v_fast_ultra_relaxed (横竖屏)
@@ -490,16 +490,16 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
     "veo_3_1_r2v_fast_ultra_relaxed": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_ultra_relaxed",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None  # 不限制
+        "max_images": 3
     },
 
     # ========== 视频放大 (Video Upsampler) ==========
@@ -625,17 +625,17 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None,
+        "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
     "veo_3_1_r2v_fast_ultra_4k": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_ultra",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None,
+        "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
     },
 
@@ -647,17 +647,17 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None,
+        "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "veo_3_1_r2v_fast_ultra_1080p": {
         "type": "video",
         "video_type": "r2v",
-        "model_key": "veo_3_1_r2v_fast_ultra",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": None,
+        "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     }
 }
@@ -1258,7 +1258,7 @@ class GenerationHandler:
                     # veo_3_1_i2v_s_fast_portrait_fl -> veo_3_1_i2v_s_fast_portrait_ultra_fl
                     # veo_3_1_t2v_fast -> veo_3_1_t2v_fast_ultra
                     # veo_3_1_t2v_fast_portrait -> veo_3_1_t2v_fast_portrait_ultra
-                    # veo_3_0_r2v_fast -> veo_3_0_r2v_fast_ultra
+                    # veo_3_1_r2v_fast_landscape -> veo_3_1_r2v_fast_landscape_ultra
                     if "_fl" in model_key:
                         model_key = model_key.replace("_fl", "_ultra_fl")
                     else:
@@ -1275,6 +1275,7 @@ class GenerationHandler:
                 if "ultra" in model_key:
                     # veo_3_1_i2v_s_fast_ultra_fl -> veo_3_1_i2v_s_fast_fl
                     # veo_3_1_t2v_fast_ultra -> veo_3_1_t2v_fast
+                    # veo_3_1_r2v_fast_landscape_ultra -> veo_3_1_r2v_fast_landscape
                     model_key = model_key.replace("_ultra_fl", "_fl").replace("_ultra", "")
                     
                     if stream:
@@ -1308,10 +1309,14 @@ class GenerationHandler:
                     yield self._create_error_response(error_msg)
                     return
 
-            # R2V: 多图生成 - 支持多张图片,不限制数量
+            # R2V: 多图生成 - 当前上游协议最多 3 张参考图
             elif video_type == "r2v":
-                # 不再限制最大图片数量
-                pass
+                if max_images is not None and image_count > max_images:
+                    error_msg = f"❌ 多图视频模型最多支持 {max_images} 张参考图,当前提供了 {image_count} 张"
+                    if stream:
+                        yield self._create_stream_chunk(f"{error_msg}\n")
+                    yield self._create_error_response(error_msg)
+                    return
 
             # ========== 上传图片 ==========
             start_media_id = None
@@ -1346,7 +1351,7 @@ class GenerationHandler:
                 if stream:
                     yield self._create_stream_chunk(f"上传 {image_count} 张参考图片...\n")
 
-                for idx, img in enumerate(images):  # 上传所有图片,不限制数量
+                for img in images:
                     media_id = await self.flow_client.upload_image(
                         token.at, img, model_config["aspect_ratio"], project_id=project_id
                     )
@@ -1752,4 +1757,3 @@ class GenerationHandler:
         except Exception as e:
             # 日志记录失败不影响主流程
             debug_logger.log_error(f"Failed to log request: {e}")
-

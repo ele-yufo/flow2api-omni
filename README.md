@@ -203,7 +203,8 @@ python main.py
 > - 顶层新增 `mediaGenerationContext.batchId`
 > - 顶层新增 `useV2ModelConfig: true`
 > - 横屏 / 竖屏 `R2V` 模型共用同一套新版请求体
-> - 根据当前上游协议，`referenceImages` 建议最多传 **3 张**
+> - 横屏 `R2V` 的上游 `videoModelKey` 已切换为 `*_landscape` 形式
+> - 根据当前上游协议，`referenceImages` 当前最多传 **3 张**
 
 | 模型名称 | 说明| 尺寸 |
 |---------|---------|--------|
@@ -340,7 +341,8 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 ### 多图生成视频
 
 > `R2V` 会由服务端自动组装新版视频请求体，调用方仍然使用 OpenAI 兼容输入即可。
-> 当前建议最多传 **3 张参考图**。
+> 服务端会将横屏 `R2V` 自动映射到最新的 `*_landscape` 上游模型键。
+> 当前最多传 **3 张参考图**。
 
 ```bash
 curl -X POST "http://localhost:8000/v1/chat/completions" \
