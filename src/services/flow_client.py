@@ -871,7 +871,7 @@ class FlowClient:
             at: Access Token
             project_id: 项目ID
             prompt: 提示词
-            model_key: veo_3_0_r2v_fast
+            model_key: veo_3_1_r2v_fast
             aspect_ratio: 视频宽高比
             reference_images: 参考图片列表 [{"imageUsageType": "IMAGE_USAGE_TYPE_ASSET", "mediaId": "..."}]
             user_paygate_tier: 用户等级
@@ -895,9 +895,13 @@ class FlowClient:
             if not recaptcha_token:
                 raise Exception("Failed to obtain reCAPTCHA token")
             session_id = self._generate_session_id()
+            batch_id = str(uuid.uuid4())
             scene_id = str(uuid.uuid4())
 
             json_data = {
+                "mediaGenerationContext": {
+                    "batchId": batch_id
+                },
                 "clientContext": {
                     "recaptchaContext": {
                         "token": recaptcha_token,
@@ -912,14 +916,19 @@ class FlowClient:
                     "aspectRatio": aspect_ratio,
                     "seed": random.randint(1, 99999),
                     "textInput": {
-                        "prompt": prompt
+                        "structuredPrompt": {
+                            "parts": [{
+                                "text": prompt
+                            }]
+                        }
                     },
                     "videoModelKey": model_key,
                     "referenceImages": reference_images,
                     "metadata": {
                         "sceneId": scene_id
                     }
-                }]
+                }],
+                "useV2ModelConfig": True
             }
 
             try:
