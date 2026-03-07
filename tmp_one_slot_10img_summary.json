@@ -1,0 +1,7 @@
+{
+  "total_requests": 10,
+  "concurrency": 10,
+  "total_elapsed_s": 97.91,
+  "success_count": 9,
+  "failure_count": 1
+}
