@@ -354,6 +354,14 @@ class Config:
             return 3.0
 
     @property
+    def browser_idle_ttl_seconds(self) -> int:
+        value = self._config.get("captcha", {}).get("browser_idle_ttl_seconds", 600)
+        try:
+            return max(60, int(value))
+        except Exception:
+            return 600
+
+    @property
     def yescaptcha_api_key(self) -> str:
         """Get YesCaptcha API key"""
         return self._config.get("captcha", {}).get("yescaptcha_api_key", "")

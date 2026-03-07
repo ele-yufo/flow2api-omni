@@ -391,6 +391,7 @@ class TokenBrowser:
         self._shared_reuse_count = 0
         self._consecutive_browser_failures = 0
         self._solve_inflight = 0
+        self._last_idle_since = time.monotonic()
         self._refresh_browser_profile()
 
     def _refresh_browser_profile(self):
@@ -752,6 +753,7 @@ class TokenBrowser:
             self._shared_proxy_url = (self._last_fingerprint or {}).get("proxy_url")
             self._shared_launch_count += 1
             self._shared_reuse_count = 0
+            self.note_idle()
             return playwright, browser, context
 
     async def _capture_page_fingerprint(self, page):
@@ -1431,6 +1433,18 @@ class TokenBrowser:
     def is_busy(self) -> bool:
         return self._solve_inflight > 0
 
+    def note_idle(self):
+        if self._solve_inflight <= 0:
+            self._last_idle_since = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        if self.is_busy():
+            return 0.0
+        return max(0.0, time.monotonic() - self._last_idle_since)
+
+    def has_shared_browser(self) -> bool:
+        return bool(self._shared_browser or self._shared_context or self._shared_keepalive_page)
+
     def get_last_fingerprint(self) -> Optional[Dict[str, Any]]:
         """返回最近一次打码浏览器的指纹快照。"""
         if not self._last_fingerprint:
@@ -1495,6 +1509,7 @@ class TokenBrowser:
                 return None, None
             finally:
                 self._solve_inflight = max(0, self._solve_inflight - 1)
+                self.note_idle()
 
     async def get_custom_token(
         self,
@@ -1555,6 +1570,7 @@ class TokenBrowser:
                 return None
             finally:
                 self._solve_inflight = max(0, self._solve_inflight - 1)
+                self.note_idle()
 
     async def get_custom_score(
         self,
@@ -1624,6 +1640,7 @@ class TokenBrowser:
                 }
             finally:
                 self._solve_inflight = max(0, self._solve_inflight - 1)
+                self.note_idle()
 
 
 class BrowserCaptchaService:
@@ -1658,7 +1675,36 @@ class BrowserCaptchaService:
         
         # ?????? _load_browser_count ???????
         self._token_semaphore = None
+        self._idle_reaper_task: Optional[asyncio.Task] = None
     
+    async def _ensure_idle_reaper(self):
+        if self._idle_reaper_task is None or self._idle_reaper_task.done():
+            self._idle_reaper_task = asyncio.create_task(self._idle_reaper_loop())
+
+    async def _idle_reaper_loop(self):
+        while True:
+            try:
+                await asyncio.sleep(15)
+                idle_ttl = int(getattr(config, "browser_idle_ttl_seconds", 600) or 600)
+                browsers = []
+                async with self._browsers_lock:
+                    browsers = list(self._browsers.values())
+                for browser in browsers:
+                    try:
+                        if browser.is_busy():
+                            continue
+                        if not browser.has_shared_browser():
+                            continue
+                        if browser.idle_seconds() < idle_ttl:
+                            continue
+                        await browser.recycle_browser(reason=f"idle_ttl_{idle_ttl}s", rotate_profile=False)
+                    except Exception as e:
+                        debug_logger.log_warning(f"[BrowserCaptcha] idle reaper failed: {e}")
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                debug_logger.log_warning(f"[BrowserCaptcha] idle reaper loop error: {e}")
+
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
         if cls._instance is None:
@@ -1667,6 +1713,7 @@ class BrowserCaptchaService:
                     cls._instance = cls(db)
                     # 从数据库加载 browser_count 配置
                     await cls._instance._load_browser_count()
+                    await cls._instance._ensure_idle_reaper()
         return cls._instance
     
     def _check_available(self):
@@ -1707,6 +1754,7 @@ class BrowserCaptchaService:
         await self._load_browser_count()
         
         browsers_to_close: List[TokenBrowser] = []
+        await self._ensure_idle_reaper()
         if self._browser_count < old_count:
             async with self._browsers_lock:
                 for browser_id in list(self._browsers.keys()):
@@ -2041,6 +2089,13 @@ class BrowserCaptchaService:
         async with self._browsers_lock:
             browsers = list(self._browsers.values())
             self._browsers.clear()
+
+        if self._idle_reaper_task and not self._idle_reaper_task.done():
+            self._idle_reaper_task.cancel()
+            try:
+                await self._idle_reaper_task
+            except asyncio.CancelledError:
+                pass
 
         for browser in browsers:
             try:

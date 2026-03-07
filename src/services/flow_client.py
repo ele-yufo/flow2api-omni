@@ -357,6 +357,9 @@ class FlowClient:
         deadline = wait_started + wait_timeout
         launch_limit = self._resolve_image_launch_soft_limit(token_image_concurrency)
         stagger_seconds = max(0, config.flow_image_launch_stagger_ms) / 1000.0
+        if str(getattr(config, "captcha_method", "")).strip().lower() in {"browser", "remote_browser"}:
+            # For headed browser token acquisition, avoid artificial staggering so the same batch can start closer together.
+            stagger_seconds = 0.0
 
         while True:
             now = time.monotonic()
@@ -433,6 +436,8 @@ class FlowClient:
         deadline = wait_started + wait_timeout
         launch_limit = self._resolve_video_launch_soft_limit(token_video_concurrency)
         stagger_seconds = max(0, config.flow_video_launch_stagger_ms) / 1000.0
+        if str(getattr(config, "captcha_method", "")).strip().lower() in {"browser", "remote_browser"}:
+            stagger_seconds = 0.0
 
         while True:
             now = time.monotonic()
