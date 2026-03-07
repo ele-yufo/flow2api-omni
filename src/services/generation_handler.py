@@ -714,7 +714,6 @@ class GenerationHandler:
         start_time = time.time()
         token = None
         generation_type = None
-        token_slot_reserved = False
         pending_token_state = {"active": False}
         request_id = f"gen-{int(start_time * 1000)}-{id(asyncio.current_task())}"
         perf_trace: Dict[str, Any] = {
@@ -797,7 +796,6 @@ class GenerationHandler:
             yield self._create_error_response(error_msg)
             return
 
-        token_slot_reserved = False
         debug_logger.log_info(f"[GENERATION] 已选择Token: {token.id} ({token.email})")
 
         try:
@@ -829,22 +827,16 @@ class GenerationHandler:
             generation_pipeline_started_at = time.time()
             if generation_type == "image":
                 debug_logger.log_info(f"[GENERATION] 开始图片生成流程...")
-                slot_reserved_for_handler = token_slot_reserved
-                token_slot_reserved = False
                 async for chunk in self._handle_image_generation(
                     token, project_id, model_config, prompt, images, stream,
-                    slot_reserved=slot_reserved_for_handler,
                     perf_trace=perf_trace,
                     pending_token_state=pending_token_state
                 ):
                     yield chunk
             else:  # video
                 debug_logger.log_info(f"[GENERATION] 开始视频生成流程...")
-                slot_reserved_for_handler = token_slot_reserved
-                token_slot_reserved = False
                 async for chunk in self._handle_video_generation(
                     token, project_id, model_config, prompt, images, stream,
-                    slot_reserved=slot_reserved_for_handler,
                     perf_trace=perf_trace,
                     pending_token_state=pending_token_state
                 ):
@@ -940,11 +932,6 @@ class GenerationHandler:
                 )
                 pending_token_state["active"] = False
 
-            if token_slot_reserved and token and self.concurrency_manager:
-                if generation_type == "image":
-                    await self.concurrency_manager.release_image(token.id)
-                elif generation_type == "video":
-                    await self.concurrency_manager.release_video(token.id)
 
     def _get_no_token_error_message(self, generation_type: str) -> str:
         """获取无可用Token时的详细错误信息"""
@@ -961,30 +948,19 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]],
         stream: bool,
-        slot_reserved: bool = False,
         perf_trace: Optional[Dict[str, Any]] = None,
         pending_token_state: Optional[Dict[str, bool]] = None
     ) -> AsyncGenerator:
         """处理图片生成 (同步返回)"""
 
-        slot_acquired = False
         image_trace: Optional[Dict[str, Any]] = None
         if isinstance(perf_trace, dict):
             image_trace = perf_trace.setdefault("image_generation", {})
             image_trace["input_image_count"] = len(images) if images else 0
 
-        # 获取并发槽位
-        if self.concurrency_manager and not slot_reserved:
-            slot_ok, slot_wait_ms = await self.concurrency_manager.wait_acquire_image(
-                token.id,
-                timeout_seconds=config.flow_image_slot_wait_timeout
-            )
-            if image_trace is not None:
-                image_trace["slot_wait_ms"] = slot_wait_ms
-            if not slot_ok:
-                yield self._create_error_response("图片并发限制已达上限")
-                return
-            slot_acquired = True
+        # 不在本地等待图片硬并发槽位；请求一到就直接向上游提交。
+        if image_trace is not None:
+            image_trace["slot_wait_ms"] = 0
 
         try:
             # 上传图片 (如果有)
@@ -1202,9 +1178,7 @@ class GenerationHandler:
                 )
 
         finally:
-            # 释放并发槽位
-            if self.concurrency_manager and (slot_reserved or slot_acquired):
-                await self.concurrency_manager.release_image(token.id)
+            pass
 
     async def _handle_video_generation(
         self,
@@ -1214,30 +1188,19 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]],
         stream: bool,
-        slot_reserved: bool = False,
         perf_trace: Optional[Dict[str, Any]] = None,
         pending_token_state: Optional[Dict[str, bool]] = None
     ) -> AsyncGenerator:
         """处理视频生成 (异步轮询)"""
 
-        slot_acquired = False
         video_trace: Optional[Dict[str, Any]] = None
         if isinstance(perf_trace, dict):
             video_trace = perf_trace.setdefault("video_generation", {})
             video_trace["input_image_count"] = len(images) if images else 0
 
-        # 获取并发槽位
-        if self.concurrency_manager and not slot_reserved:
-            slot_ok, slot_wait_ms = await self.concurrency_manager.wait_acquire_video(
-                token.id,
-                timeout_seconds=config.flow_video_slot_wait_timeout
-            )
-            if video_trace is not None:
-                video_trace["slot_wait_ms"] = slot_wait_ms
-            if not slot_ok:
-                yield self._create_error_response("视频并发限制已达上限")
-                return
-            slot_acquired = True
+        # 不在本地等待视频硬并发槽位；请求一到就直接向上游提交。
+        if video_trace is not None:
+            video_trace["slot_wait_ms"] = 0
 
         try:
             # 获取模型类型和配置
@@ -1463,9 +1426,7 @@ class GenerationHandler:
                 yield chunk
 
         finally:
-            # 释放并发槽位
-            if self.concurrency_manager and (slot_reserved or slot_acquired):
-                await self.concurrency_manager.release_video(token.id)
+            pass
 
     async def _poll_video_result(
         self,

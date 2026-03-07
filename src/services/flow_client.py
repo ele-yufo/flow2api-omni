@@ -46,14 +46,8 @@ class FlowClient:
             "x-browser-year": "2026",
             "x-client-data": "CJS2yQEIpLbJAQipncoBCNj9ygEIlKHLAQiFoM0BGP6lzwE="
         }
-        # 图片打码前置整形：限制“取验证码”阶段的并发波峰，不影响上游生成并发。
-        self._image_launch_gate_lock = asyncio.Lock()
-        self._image_launch_gate_inflight: Dict[int, int] = {}
-        self._image_next_launch_at: Dict[int, float] = {}
-        # 视频打码前置整形：限制“取验证码”阶段的并发波峰，不影响上游生成并发。
-        self._video_launch_gate_lock = asyncio.Lock()
-        self._video_launch_gate_inflight: Dict[int, int] = {}
-        self._video_next_launch_at: Dict[int, float] = {}
+        # 发车策略改为“请求到就发”：
+        # 不在 flow2api 本地对提交做批次整形或排队，避免把同批请求打成阶梯。
 
     def _generate_user_agent(self, account_id: str = None) -> str:
         """基于账号ID生成固定的 User-Agent
@@ -327,162 +321,29 @@ class FlowClient:
             "operation timed out",
         ])
 
-    def _resolve_image_launch_soft_limit(self, token_image_concurrency: Optional[int]) -> Optional[int]:
-        """解析图片取验证码阶段软并发上限。None 表示不限制。"""
-        configured = config.flow_image_launch_soft_limit
-        if configured <= 0:
-            return None
-
-        if token_image_concurrency and token_image_concurrency > 0:
-            return max(1, min(configured, int(token_image_concurrency)))
-
-        return max(1, configured)
-
     async def _acquire_image_launch_gate(
         self,
         token_id: Optional[int],
         token_image_concurrency: Optional[int],
     ) -> tuple[bool, int, int]:
-        """
-        控制图片取验证码阶段的并发波峰，减少同批请求互相挤压。
-
-        Returns:
-            (ok, queue_wait_ms, stagger_wait_ms)
-        """
-        if token_id is None:
-            return True, 0, 0
-
-        wait_started = time.monotonic()
-        wait_timeout = config.flow_image_launch_wait_timeout
-        deadline = wait_started + wait_timeout
-        launch_limit = self._resolve_image_launch_soft_limit(token_image_concurrency)
-        stagger_seconds = max(0, config.flow_image_launch_stagger_ms) / 1000.0
-        if str(getattr(config, "captcha_method", "")).strip().lower() in {"browser", "remote_browser"}:
-            # For headed browser token acquisition, avoid artificial staggering so the same batch can start closer together.
-            stagger_seconds = 0.0
-
-        while True:
-            now = time.monotonic()
-            stagger_wait = 0.0
-
-            async with self._image_launch_gate_lock:
-                inflight = self._image_launch_gate_inflight.get(token_id, 0)
-                if launch_limit is None or inflight < launch_limit:
-                    self._image_launch_gate_inflight[token_id] = inflight + 1
-
-                    if stagger_seconds > 0:
-                        next_allowed = self._image_next_launch_at.get(token_id, now)
-                        if next_allowed > now:
-                            stagger_wait = next_allowed - now
-                        self._image_next_launch_at[token_id] = max(now, next_allowed) + stagger_seconds
-
-                    queue_wait_ms = int((now - wait_started) * 1000)
-                    if stagger_wait <= 0:
-                        return True, queue_wait_ms, 0
-                    break
-
-            if now >= deadline:
-                queue_wait_ms = int((now - wait_started) * 1000)
-                return False, queue_wait_ms, 0
-
-            await asyncio.sleep(0.05)
-
-        await asyncio.sleep(stagger_wait)
-        stagger_wait_ms = int(stagger_wait * 1000)
-        queue_wait_ms = int((time.monotonic() - wait_started) * 1000) - stagger_wait_ms
-        if queue_wait_ms < 0:
-            queue_wait_ms = 0
-        return True, queue_wait_ms, stagger_wait_ms
+        """图片请求不再做本地发车排队，直接进入取 token 并提交上游。"""
+        return True, 0, 0
 
     async def _release_image_launch_gate(self, token_id: Optional[int]):
-        """释放图片取验证码阶段软并发占位。"""
-        if token_id is None:
-            return
-
-        async with self._image_launch_gate_lock:
-            inflight = self._image_launch_gate_inflight.get(token_id, 0)
-            if inflight <= 0:
-                self._image_launch_gate_inflight[token_id] = 0
-                return
-            self._image_launch_gate_inflight[token_id] = inflight - 1
-
-    def _resolve_video_launch_soft_limit(self, token_video_concurrency: Optional[int]) -> Optional[int]:
-        """解析视频取验证码阶段软并发上限。None 表示不限制。"""
-        configured = config.flow_video_launch_soft_limit
-        if configured <= 0:
-            return None
-
-        if token_video_concurrency and token_video_concurrency > 0:
-            return max(1, min(configured, int(token_video_concurrency)))
-
-        return max(1, configured)
+        """保留接口形状，当前无需释放任何本地发车状态。"""
+        return
 
     async def _acquire_video_launch_gate(
         self,
         token_id: Optional[int],
         token_video_concurrency: Optional[int],
     ) -> tuple[bool, int, int]:
-        """
-        控制视频取验证码阶段的并发波峰，减少同批请求互相挤压。
-
-        Returns:
-            (ok, queue_wait_ms, stagger_wait_ms)
-        """
-        if token_id is None:
-            return True, 0, 0
-
-        wait_started = time.monotonic()
-        wait_timeout = config.flow_video_launch_wait_timeout
-        deadline = wait_started + wait_timeout
-        launch_limit = self._resolve_video_launch_soft_limit(token_video_concurrency)
-        stagger_seconds = max(0, config.flow_video_launch_stagger_ms) / 1000.0
-        if str(getattr(config, "captcha_method", "")).strip().lower() in {"browser", "remote_browser"}:
-            stagger_seconds = 0.0
-
-        while True:
-            now = time.monotonic()
-            stagger_wait = 0.0
-
-            async with self._video_launch_gate_lock:
-                inflight = self._video_launch_gate_inflight.get(token_id, 0)
-                if launch_limit is None or inflight < launch_limit:
-                    self._video_launch_gate_inflight[token_id] = inflight + 1
-
-                    if stagger_seconds > 0:
-                        next_allowed = self._video_next_launch_at.get(token_id, now)
-                        if next_allowed > now:
-                            stagger_wait = next_allowed - now
-                        self._video_next_launch_at[token_id] = max(now, next_allowed) + stagger_seconds
-
-                    queue_wait_ms = int((now - wait_started) * 1000)
-                    if stagger_wait <= 0:
-                        return True, queue_wait_ms, 0
-                    break
-
-            if now >= deadline:
-                queue_wait_ms = int((now - wait_started) * 1000)
-                return False, queue_wait_ms, 0
-
-            await asyncio.sleep(0.05)
-
-        await asyncio.sleep(stagger_wait)
-        stagger_wait_ms = int(stagger_wait * 1000)
-        queue_wait_ms = int((time.monotonic() - wait_started) * 1000) - stagger_wait_ms
-        if queue_wait_ms < 0:
-            queue_wait_ms = 0
-        return True, queue_wait_ms, stagger_wait_ms
+        """视频请求不再做本地发车排队，直接进入取 token 并提交上游。"""
+        return True, 0, 0
 
     async def _release_video_launch_gate(self, token_id: Optional[int]):
-        """释放视频取验证码阶段软并发占位。"""
-        if token_id is None:
-            return
-
-        async with self._video_launch_gate_lock:
-            inflight = self._video_launch_gate_inflight.get(token_id, 0)
-            if inflight <= 0:
-                self._video_launch_gate_inflight[token_id] = 0
-                return
-            self._video_launch_gate_inflight[token_id] = inflight - 1
+        """保留接口形状，当前无需释放任何本地发车状态。"""
+        return
 
     async def _make_image_generation_request(
         self,
