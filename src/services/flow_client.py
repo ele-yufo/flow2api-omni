@@ -1795,16 +1795,17 @@ class FlowClient:
         """统一处理生成链路的重试判定与打码自愈通知。"""
         error_str = str(error)
         retry_reason = self._get_retry_reason(error_str)
+        notify_reason = retry_reason or error_str[:120] or type(error).__name__
+        await self._notify_browser_captcha_error(
+            browser_id=browser_id,
+            project_id=project_id,
+            error_reason=notify_reason,
+            error_message=error_str,
+        )
         if not retry_reason:
             return False
 
         is_terminal_attempt = retry_attempt >= max_retries - 1
-        await self._notify_browser_captcha_error(
-            browser_id=browser_id,
-            project_id=project_id,
-            error_reason=retry_reason,
-            error_message=error_str,
-        )
 
         if is_terminal_attempt:
             debug_logger.log_warning(
@@ -1879,7 +1880,10 @@ class FlowClient:
             try:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
-                await service.report_error(browser_id, error_reason=error_reason)
+                await service.report_error(
+                    browser_id,
+                    error_reason=error_reason or error_message or "upstream_error"
+                )
             except Exception:
                 pass
         elif config.captcha_method == "personal" and project_id:
