@@ -47,7 +47,7 @@ error_ban_threshold = 3
 
 [cache]
 enabled = false
-timeout = 7200  # 缓存超时时间(秒), 默认2小时
+timeout = 7200  # 缓存超时时间(秒), 默认2小时; 设置为0表示不自动删除缓存
 base_url = ""   # 缓存文件访问的基础URL, 留空则使用服务器地址
 
 [captcha]

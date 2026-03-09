@@ -132,7 +132,7 @@ class CacheConfig(BaseModel):
     """Cache configuration"""
     id: int = 1
     cache_enabled: bool = False
-    cache_timeout: int = 7200  # seconds (2 hours)
+    cache_timeout: int = 7200  # seconds (2 hours), 0 means never expire
     cache_base_url: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
