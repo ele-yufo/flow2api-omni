@@ -594,7 +594,6 @@ class TokenBrowser:
 
     async def _create_browser(self, token_proxy_url: Optional[str] = None, manage_slot_pid: bool = True) -> tuple:
         """Create a browser instance; shared-slot browsers track PIDs while temporary browsers do not."""
-        random_ua = self._profile_user_agent
         width = self._profile_viewport["width"]
         height = self._profile_viewport["height"]
         viewport = {"width": width, "height": height}
@@ -606,9 +605,8 @@ class TokenBrowser:
         browser_executable_path = os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip() or None
         proxy_option, raw_proxy_url, _ = await self._resolve_proxy_runtime_config(token_proxy_url=token_proxy_url)
 
-        # Record the initial fingerprint; sec-ch-* values are filled later from the page.
+        # 先只记录代理，真实 UA/UA-CH 交给浏览器自己暴露，避免 user-agent 与 sec-ch-ua 版本错位。
         self._last_fingerprint = {
-            "user_agent": random_ua,
             "proxy_url": raw_proxy_url if raw_proxy_url else None,
         }
 
@@ -653,8 +651,8 @@ class TokenBrowser:
                 args=browser_args,
             )
             context = await browser.new_context(
-                user_agent=random_ua,
                 viewport=viewport,
+                locale="en-US",
             )
             browser_pid = self._extract_browser_pid(browser)
             if manage_slot_pid:
@@ -1658,6 +1656,8 @@ class BrowserCaptchaService:
         self.base_user_data_dir = os.path.join(os.getcwd(), "browser_data_rt")
         self._browsers: Dict[int, TokenBrowser] = {}
         self._browsers_lock = asyncio.Lock()
+        self._slot_allocation_lock = asyncio.Lock()
+        self._slot_reservations: Dict[int, int] = {}
         
         # ???????
         self._browser_count = 1  # ?? 1 ?????????
@@ -1769,13 +1769,27 @@ class BrowserCaptchaService:
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] ???????????: {e}")
 
-        async with self._project_slot_lock:
-            pruned: Dict[str, List[int]] = {}
-            for project_key, slots in self._project_slot_affinity.items():
-                valid_slots = [slot for slot in slots if 0 <= slot < self._browser_count]
-                if valid_slots:
-                    pruned[project_key] = valid_slots
-            self._project_slot_affinity = pruned
+            async with self._project_slot_lock:
+                pruned: Dict[str, List[int]] = {}
+                for project_key, slots in self._project_slot_affinity.items():
+                    valid_slots = [slot for slot in slots if 0 <= slot < self._browser_count]
+                    if valid_slots:
+                        pruned[project_key] = valid_slots
+                self._project_slot_affinity = pruned
+            async with self._slot_allocation_lock:
+                self._slot_reservations = {
+                    slot_id: count
+                    for slot_id, count in self._slot_reservations.items()
+                    if 0 <= slot_id < self._browser_count and count > 0
+                }
+
+        if self._browser_count > old_count:
+            warmup_tasks = [
+                self._warmup_browser_slot(browser_id)
+                for browser_id in range(old_count, self._browser_count)
+            ]
+            if warmup_tasks:
+                await asyncio.gather(*warmup_tasks, return_exceptions=True)
 
     def _log_stats(self):
         total = self._stats["req_total"]
@@ -1802,27 +1816,48 @@ class BrowserCaptchaService:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    def _is_slot_busy_for_allocation(self, slot_id: int) -> bool:
+        if self._slot_reservations.get(slot_id, 0) > 0:
+            return True
+        browser = self._browsers.get(slot_id)
+        return bool(browser and getattr(browser, 'is_busy', lambda: False)())
+
+    def _reserve_slot_locked(self, slot_id: int):
+        self._slot_reservations[slot_id] = self._slot_reservations.get(slot_id, 0) + 1
+
+    async def _release_slot_reservation(self, slot_id: Optional[int]):
+        if slot_id is None:
+            return
+        async with self._slot_allocation_lock:
+            current = self._slot_reservations.get(slot_id, 0)
+            if current <= 1:
+                self._slot_reservations.pop(slot_id, None)
+            else:
+                self._slot_reservations[slot_id] = current - 1
+
     async def _select_browser_id(self, project_id: Optional[str]) -> int:
         project_key = str(project_id or '').strip()
-        affinity_slots: List[int] = []
-        if project_key:
-            async with self._project_slot_lock:
-                affinity_slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
-                self._project_slot_affinity[project_key] = affinity_slots
 
-        async with self._browsers_lock:
-            def is_slot_idle(slot_id: int) -> bool:
-                browser = self._browsers.get(slot_id)
-                return browser is None or not getattr(browser, 'is_busy', lambda: False)()
+        # 选择和预留必须原子化，否则同批并发会因为亲和性反复命中同一 slot。
+        async with self._slot_allocation_lock:
+            affinity_slots: List[int] = []
+            if project_key:
+                async with self._project_slot_lock:
+                    affinity_slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
+                    self._project_slot_affinity[project_key] = affinity_slots
 
-            for slot_id in affinity_slots:
-                if is_slot_idle(slot_id):
-                    return slot_id
+            async with self._browsers_lock:
+                for slot_id in affinity_slots:
+                    if not self._is_slot_busy_for_allocation(slot_id):
+                        self._reserve_slot_locked(slot_id)
+                        return slot_id
 
-            for offset in range(self._browser_count):
-                slot_id = (self._round_robin_index + offset) % self._browser_count
-                if is_slot_idle(slot_id):
+                for offset in range(self._browser_count):
+                    slot_id = (self._round_robin_index + offset) % self._browser_count
+                    if self._is_slot_busy_for_allocation(slot_id):
+                        continue
                     self._round_robin_index = (slot_id + 1) % self._browser_count
+                    self._reserve_slot_locked(slot_id)
                     if project_key:
                         async with self._project_slot_lock:
                             slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
@@ -1831,14 +1866,16 @@ class BrowserCaptchaService:
                             self._project_slot_affinity[project_key] = slots
                     return slot_id
 
-        slot_id = self._get_next_browser_id()
-        if project_key:
-            async with self._project_slot_lock:
-                slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
-                if slot_id not in slots:
-                    slots.append(slot_id)
-                self._project_slot_affinity[project_key] = slots
-        return slot_id
+                slot_id = self._get_next_browser_id()
+                self._reserve_slot_locked(slot_id)
+
+            if project_key:
+                async with self._project_slot_lock:
+                    slots = [slot for slot in self._project_slot_affinity.get(project_key, []) if 0 <= slot < self._browser_count]
+                    if slot_id not in slots:
+                        slots.append(slot_id)
+                    self._project_slot_affinity[project_key] = slots
+            return slot_id
 
     async def _get_or_create_browser(self, browser_id: int) -> TokenBrowser:
         """获取或创建指定 ID 的浏览器实例"""
@@ -1916,14 +1953,16 @@ class BrowserCaptchaService:
             async with self._token_semaphore:
                 # 轮询选择浏览器
                 browser_id = await self._select_browser_id(project_id)
-                browser = await self._get_or_create_browser(browser_id)
-                
-                token, request_ref = await browser.get_token(
-                    project_id,
-                    self.website_key,
-                    action,
-                    token_proxy_url=token_proxy_url
-                )
+                try:
+                    browser = await self._get_or_create_browser(browser_id)
+                    token, request_ref = await browser.get_token(
+                        project_id,
+                        self.website_key,
+                        action,
+                        token_proxy_url=token_proxy_url
+                    )
+                finally:
+                    await self._release_slot_reservation(browser_id)
             
             if token:
                 self._stats["gen_ok"] += 1
@@ -1935,14 +1974,16 @@ class BrowserCaptchaService:
         
         # 无并发限制时直接执行
         browser_id = await self._select_browser_id(project_id)
-        browser = await self._get_or_create_browser(browser_id)
-        
-        token, request_ref = await browser.get_token(
-            project_id,
-            self.website_key,
-            action,
-            token_proxy_url=token_proxy_url
-        )
+        try:
+            browser = await self._get_or_create_browser(browser_id)
+            token, request_ref = await browser.get_token(
+                project_id,
+                self.website_key,
+                action,
+                token_proxy_url=token_proxy_url
+            )
+        finally:
+            await self._release_slot_reservation(browser_id)
         
         if token:
             self._stats["gen_ok"] += 1
