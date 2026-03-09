@@ -502,7 +502,10 @@ class Database:
                     response_body TEXT,
                     status_code INTEGER NOT NULL,
                     duration FLOAT NOT NULL,
+                    status_text TEXT DEFAULT '',
+                    progress INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (token_id) REFERENCES tokens(id)
                 )
             """)
@@ -626,18 +629,12 @@ class Database:
     async def _migrate_request_logs(self, db):
         """Migrate request_logs table from old schema to new schema"""
         try:
-            # Check if old columns exist
             has_model = await self._column_exists(db, "request_logs", "model")
             has_operation = await self._column_exists(db, "request_logs", "operation")
 
             if has_model and not has_operation:
-                # Old schema detected, need migration
-                print("🔄 检测到旧的request_logs表结构,开始迁移...")
-
-                # Rename old table
+                print("?? ?????request_logs???,????...")
                 await db.execute("ALTER TABLE request_logs RENAME TO request_logs_old")
-
-                # Create new table with new schema
                 await db.execute("""
                     CREATE TABLE request_logs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -647,14 +644,15 @@ class Database:
                         response_body TEXT,
                         status_code INTEGER NOT NULL,
                         duration FLOAT NOT NULL,
+                        status_text TEXT DEFAULT '',
+                        progress INTEGER DEFAULT 0,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (token_id) REFERENCES tokens(id)
                     )
                 """)
-
-                # Migrate data from old table (basic migration)
                 await db.execute("""
-                    INSERT INTO request_logs (token_id, operation, request_body, status_code, duration, created_at)
+                    INSERT INTO request_logs (token_id, operation, request_body, status_code, duration, status_text, progress, created_at, updated_at)
                     SELECT
                         token_id,
                         model as operation,
@@ -662,19 +660,35 @@ class Database:
                         CASE
                             WHEN status = 'completed' THEN 200
                             WHEN status = 'failed' THEN 500
-                            ELSE 0
+                            ELSE 102
                         END as status_code,
                         response_time as duration,
+                        CASE
+                            WHEN status = 'completed' THEN 'completed'
+                            WHEN status = 'failed' THEN 'failed'
+                            ELSE 'processing'
+                        END as status_text,
+                        CASE
+                            WHEN status = 'completed' THEN 100
+                            WHEN status = 'failed' THEN 0
+                            ELSE 0
+                        END as progress,
+                        created_at,
                         created_at
                     FROM request_logs_old
                 """)
-
-                # Drop old table
                 await db.execute("DROP TABLE request_logs_old")
+                print("? request_logs?????")
 
-                print("✅ request_logs表迁移完成")
+            if not await self._column_exists(db, "request_logs", "status_text"):
+                await db.execute("ALTER TABLE request_logs ADD COLUMN status_text TEXT DEFAULT ''")
+            if not await self._column_exists(db, "request_logs", "progress"):
+                await db.execute("ALTER TABLE request_logs ADD COLUMN progress INTEGER DEFAULT 0")
+            if not await self._column_exists(db, "request_logs", "updated_at"):
+                await db.execute("ALTER TABLE request_logs ADD COLUMN updated_at TIMESTAMP")
+            await db.execute("UPDATE request_logs SET updated_at = created_at WHERE updated_at IS NULL")
         except Exception as e:
-            print(f"⚠️ request_logs表迁移失败: {e}")
+            print(f"?? request_logs?????: {e}")
             # Continue even if migration fails
 
     # Token operations
@@ -1167,14 +1181,57 @@ class Database:
             await db.commit()
 
     # Request log operations
-    async def add_request_log(self, log: RequestLog):
-        """Add request log"""
+    async def add_request_log(self, log: RequestLog) -> int:
+        """Add request log and return log id"""
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute("""
-                INSERT INTO request_logs (token_id, operation, request_body, response_body, status_code, duration)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (log.token_id, log.operation, log.request_body, log.response_body,
-                  log.status_code, log.duration))
+            cursor = await db.execute("""
+                INSERT INTO request_logs (token_id, operation, request_body, response_body, status_code, duration, status_text, progress)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                log.token_id,
+                log.operation,
+                log.request_body,
+                log.response_body,
+                log.status_code,
+                log.duration,
+                log.status_text or "",
+                log.progress,
+            ))
+            await db.commit()
+            return cursor.lastrowid
+
+    async def update_request_log(self, log_id: int, **kwargs):
+        """Update an existing request log row."""
+        if not kwargs:
+            return
+
+        allowed_fields = {
+            "token_id",
+            "operation",
+            "request_body",
+            "response_body",
+            "status_code",
+            "duration",
+            "status_text",
+            "progress",
+        }
+        update_fields = {key: value for key, value in kwargs.items() if key in allowed_fields}
+        if not update_fields:
+            return
+
+        clauses = []
+        values = []
+        for key, value in update_fields.items():
+            clauses.append(f"{key} = ?")
+            values.append(value)
+        clauses.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(log_id)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                f"UPDATE request_logs SET {', '.join(clauses)} WHERE id = ?",
+                values,
+            )
             await db.commit()
 
     async def get_logs(self, limit: int = 100, token_id: Optional[int] = None, include_payload: bool = False):
@@ -1182,6 +1239,12 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             payload_columns = "rl.request_body, rl.response_body," if include_payload else ""
+            has_status_text = await self._column_exists(db, "request_logs", "status_text")
+            has_progress = await self._column_exists(db, "request_logs", "progress")
+            has_updated_at = await self._column_exists(db, "request_logs", "updated_at")
+            status_text_column = "rl.status_text," if has_status_text else "'' as status_text,"
+            progress_column = "rl.progress," if has_progress else "0 as progress,"
+            updated_at_column = "rl.updated_at," if has_updated_at else "rl.created_at as updated_at,"
 
             if token_id:
                 cursor = await db.execute(f"""
@@ -1192,7 +1255,10 @@ class Database:
                         {payload_columns}
                         rl.status_code,
                         rl.duration,
+                        {status_text_column}
+                        {progress_column}
                         rl.created_at,
+                        {updated_at_column}
                         t.email as token_email,
                         t.name as token_username
                     FROM request_logs rl
@@ -1210,7 +1276,10 @@ class Database:
                         {payload_columns}
                         rl.status_code,
                         rl.duration,
+                        {status_text_column}
+                        {progress_column}
                         rl.created_at,
+                        {updated_at_column}
                         t.email as token_email,
                         t.name as token_username
                     FROM request_logs rl
@@ -1226,7 +1295,13 @@ class Database:
         """Get single request log detail including payload fields"""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            cursor = await db.execute("""
+            has_status_text = await self._column_exists(db, "request_logs", "status_text")
+            has_progress = await self._column_exists(db, "request_logs", "progress")
+            has_updated_at = await self._column_exists(db, "request_logs", "updated_at")
+            status_text_column = "rl.status_text," if has_status_text else "'' as status_text,"
+            progress_column = "rl.progress," if has_progress else "0 as progress,"
+            updated_at_column = "rl.updated_at," if has_updated_at else "rl.created_at as updated_at,"
+            cursor = await db.execute(f"""
                 SELECT
                     rl.id,
                     rl.token_id,
@@ -1235,7 +1310,10 @@ class Database:
                     rl.response_body,
                     rl.status_code,
                     rl.duration,
+                    {status_text_column}
+                    {progress_column}
                     rl.created_at,
+                    {updated_at_column}
                     t.email as token_email,
                     t.name as token_username
                 FROM request_logs rl

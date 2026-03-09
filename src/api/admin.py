@@ -1070,7 +1070,10 @@ async def get_logs(
         "operation": log.get("operation"),
         "status_code": log.get("status_code"),
         "duration": log.get("duration"),
-        "created_at": log.get("created_at")
+        "status_text": log.get("status_text") or "",
+        "progress": log.get("progress") or 0,
+        "created_at": log.get("created_at"),
+        "updated_at": log.get("updated_at")
     } for log in logs]
 
 
@@ -1092,7 +1095,10 @@ async def get_log_detail(
         "operation": log.get("operation"),
         "status_code": log.get("status_code"),
         "duration": log.get("duration"),
+        "status_text": log.get("status_text") or "",
+        "progress": log.get("progress") or 0,
         "created_at": log.get("created_at"),
+        "updated_at": log.get("updated_at"),
         "request_body": log.get("request_body"),
         "response_body": log.get("response_body")
     }

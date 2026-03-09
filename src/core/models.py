@@ -100,7 +100,10 @@ class RequestLog(BaseModel):
     response_body: Optional[str] = None
     status_code: int
     duration: float
+    status_text: Optional[str] = None
+    progress: int = 0
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class AdminConfig(BaseModel):
