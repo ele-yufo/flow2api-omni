@@ -321,6 +321,28 @@ class FlowClient:
             "operation timed out",
         ])
 
+    def _is_retryable_network_error(self, error_str: str) -> bool:
+        """识别可重试的 TLS/连接类网络错误。"""
+        error_lower = (error_str or "").lower()
+        return any(keyword in error_lower for keyword in [
+            "curl: (35)",
+            "curl: (52)",
+            "curl: (56)",
+            "ssl_error_syscall",
+            "tls connect error",
+            "ssl connect error",
+            "connection reset",
+            "connection aborted",
+            "connection was reset",
+            "unexpected eof",
+            "empty reply from server",
+            "recv failure",
+            "send failure",
+            "connection refused",
+            "network is unreachable",
+            "remote host closed connection",
+        ])
+
     async def _acquire_image_launch_gate(
         self,
         token_id: Optional[int],
@@ -653,25 +675,6 @@ class FlowClient:
             "mimeType": mime_type
         }
 
-        try:
-            new_result = await self._make_request(
-                method="POST",
-                url=new_url,
-                json_data=new_json_data,
-                use_at=True,
-                at_token=at,
-                use_media_proxy=True
-            )
-            media_id = (
-                new_result.get("media", {}).get("name")
-                or new_result.get("mediaGenerationId", {}).get("mediaGenerationId")
-            )
-            if media_id:
-                return media_id
-            raise Exception(f"Invalid upload response: missing media id, keys={list(new_result.keys())}")
-        except Exception as new_upload_error:
-            debug_logger.log_warning(f"[UPLOAD] New upload API failed, fallback to legacy endpoint: {new_upload_error}")
-
         # 兼容回退：旧接口 :uploadUserImage
         legacy_url = f"{self.api_base_url}:uploadUserImage"
         legacy_json_data = {
@@ -686,23 +689,63 @@ class FlowClient:
                 "tool": "ASSET_MANAGER"
             }
         }
+        max_retries = max(1, getattr(config, "flow_max_retries", 3))
+        last_error: Optional[Exception] = None
 
-        legacy_result = await self._make_request(
-            method="POST",
-            url=legacy_url,
-            json_data=legacy_json_data,
-            use_at=True,
-            at_token=at,
-            use_media_proxy=True
-        )
+        for retry_attempt in range(max_retries):
+            try:
+                new_result = await self._make_request(
+                    method="POST",
+                    url=new_url,
+                    json_data=new_json_data,
+                    use_at=True,
+                    at_token=at,
+                    use_media_proxy=True
+                )
+                media_id = (
+                    new_result.get("media", {}).get("name")
+                    or new_result.get("mediaGenerationId", {}).get("mediaGenerationId")
+                )
+                if media_id:
+                    return media_id
+                raise Exception(f"Invalid upload response: missing media id, keys={list(new_result.keys())}")
+            except Exception as new_upload_error:
+                last_error = new_upload_error
+                debug_logger.log_warning(
+                    f"[UPLOAD] New upload API failed, fallback to legacy endpoint: {new_upload_error}"
+                )
 
-        media_id = (
-            legacy_result.get("mediaGenerationId", {}).get("mediaGenerationId")
-            or legacy_result.get("media", {}).get("name")
-        )
-        if not media_id:
-            raise Exception(f"Legacy upload response missing media id: keys={list(legacy_result.keys())}")
-        return media_id
+            try:
+                legacy_result = await self._make_request(
+                    method="POST",
+                    url=legacy_url,
+                    json_data=legacy_json_data,
+                    use_at=True,
+                    at_token=at,
+                    use_media_proxy=True
+                )
+
+                media_id = (
+                    legacy_result.get("mediaGenerationId", {}).get("mediaGenerationId")
+                    or legacy_result.get("media", {}).get("name")
+                )
+                if media_id:
+                    return media_id
+                raise Exception(f"Legacy upload response missing media id: keys={list(legacy_result.keys())}")
+            except Exception as legacy_upload_error:
+                last_error = legacy_upload_error
+                retry_reason = self._get_retry_reason(str(legacy_upload_error))
+                if retry_reason and retry_attempt < max_retries - 1:
+                    debug_logger.log_warning(
+                        f"[UPLOAD] 上传遇到{retry_reason}，准备重试 ({retry_attempt + 2}/{max_retries})..."
+                    )
+                    await asyncio.sleep(1)
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("上传图片失败")
 
     # ========== 图片生成 (使用AT) - 同步返回 ==========
 
@@ -1612,16 +1655,32 @@ class FlowClient:
         json_data = {
             "operations": operations
         }
+        max_retries = max(1, getattr(config, "flow_max_retries", 3))
+        last_error: Optional[Exception] = None
 
-        result = await self._make_request(
-            method="POST",
-            url=url,
-            json_data=json_data,
-            use_at=True,
-            at_token=at
-        )
+        for retry_attempt in range(max_retries):
+            try:
+                return await self._make_request(
+                    method="POST",
+                    url=url,
+                    json_data=json_data,
+                    use_at=True,
+                    at_token=at
+                )
+            except Exception as e:
+                last_error = e
+                retry_reason = self._get_retry_reason(str(e))
+                if retry_reason and retry_attempt < max_retries - 1:
+                    debug_logger.log_warning(
+                        f"[VIDEO POLL] 状态查询遇到{retry_reason}，准备重试 ({retry_attempt + 2}/{max_retries})..."
+                    )
+                    await asyncio.sleep(1)
+                    continue
+                raise
 
-        return result
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频状态查询失败")
 
     # ========== 媒体删除 (使用ST) ==========
 
@@ -1710,6 +1769,8 @@ class FlowClient:
             return "403错误"
         if "429" in error_lower or "too many requests" in error_lower:
             return "429限流"
+        if self._is_retryable_network_error(error_str):
+            return "网络/TLS错误"
         if "recaptcha evaluation failed" in error_lower:
             return "reCAPTCHA 验证失败"
         if "recaptcha" in error_lower:

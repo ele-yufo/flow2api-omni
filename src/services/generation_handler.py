@@ -705,6 +705,33 @@ class GenerationHandler:
             generation_result["error_message"] = None
             generation_result["error_emitted"] = False
 
+    def _normalize_error_message(self, error_message: Any, max_length: int = 1000) -> str:
+        """归一化错误文本，避免写入超长内容。"""
+        text = str(error_message or "").strip() or "未知错误"
+        if len(text) <= max_length:
+            return text
+        return f"{text[:max_length - 3]}..."
+
+    async def _fail_video_task(self, operations: Optional[List[Dict[str, Any]]], error_message: str):
+        """将视频任务收口到失败态，避免残留 processing。"""
+        if not operations:
+            return
+
+        operation = operations[0] if operations else {}
+        task_id = (operation.get("operation") or {}).get("name")
+        if not task_id:
+            return
+
+        try:
+            await self.db.update_task(
+                task_id,
+                status="failed",
+                error_message=self._normalize_error_message(error_message),
+                completed_at=time.time()
+            )
+        except Exception as exc:
+            debug_logger.log_error(f"[VIDEO] 更新任务失败状态失败: {exc}")
+
     async def check_token_availability(self, is_image: bool, is_video: bool) -> bool:
         """检查Token可用性
 
@@ -1019,17 +1046,34 @@ class GenerationHandler:
                 progress=100,
             )
 
+        except asyncio.CancelledError:
+            error_msg = "生成已取消: 客户端连接已断开"
+            debug_logger.log_warning(f"[GENERATION] ⚠️ {error_msg}")
+            duration = time.time() - start_time
+            perf_trace["status"] = "failed"
+            perf_trace["total_ms"] = int(duration * 1000)
+            perf_trace["error"] = error_msg
+            prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+            await self._log_request(
+                token.id if token else None,
+                request_operation if generation_type else "generate_unknown",
+                request_payload if 'request_payload' in locals() else {"model": model},
+                {"error": error_msg, "performance": perf_trace},
+                499,
+                duration,
+                log_id=request_log_state.get("id"),
+                status_text="failed",
+                progress=request_log_state.get("progress", 0),
+            )
+            raise
         except Exception as e:
             error_msg = f"生成失败: {str(e)}"
             debug_logger.log_error(f"[GENERATION] ❌ {error_msg}")
-            if stream:
-                yield self._create_stream_chunk(f"❌ {error_msg}\n")
             if token:
                 # 记录错误（所有错误统一处理，不再特殊处理429）
                 await self.token_manager.record_error(token.id)
-            yield self._create_error_response(error_msg)
 
-            # 记录失败日志
+            # 先将最终失败状态落库，再返回错误响应，避免日志停在 102。
             duration = time.time() - start_time
             perf_trace["status"] = "failed"
             perf_trace["total_ms"] = int(duration * 1000)
@@ -1046,6 +1090,9 @@ class GenerationHandler:
                 status_text="failed",
                 progress=request_log_state.get("progress", 0),
             )
+            if stream:
+                yield self._create_stream_chunk(f"❌ {error_msg}\n")
+            yield self._create_error_response(error_msg)
         finally:
             if pending_token_state.get("active") and token and self.load_balancer:
                 await self.load_balancer.release_pending(
@@ -1605,12 +1652,18 @@ class GenerationHandler:
         if upsample_config:
             max_attempts = max_attempts * 3  # 放大需要更长时间
 
+        consecutive_poll_errors = 0
+        last_poll_error: Optional[Exception] = None
+        max_consecutive_poll_errors = 3
+
         for attempt in range(max_attempts):
             await asyncio.sleep(poll_interval)
 
             try:
                 result = await self.flow_client.check_video_status(token.at, operations)
                 checked_operations = result.get("operations", [])
+                consecutive_poll_errors = 0
+                last_poll_error = None
 
                 if not checked_operations:
                     continue
@@ -1635,8 +1688,10 @@ class GenerationHandler:
                     aspect_ratio = video_info.get("aspectRatio", "VIDEO_ASPECT_RATIO_LANDSCAPE")
 
                     if not video_url:
-                        self._mark_generation_failed(generation_result, "\u89c6\u9891URL\u4e3a\u7a7a")
-                        yield self._create_error_response("视频URL为空")
+                        error_msg = "视频生成失败: 视频URL为空"
+                        await self._fail_video_task(checked_operations, error_msg)
+                        self._mark_generation_failed(generation_result, error_msg)
+                        yield self._create_error_response(error_msg)
                         return
 
                     # ========== 视频放大处理 ==========
@@ -1737,12 +1792,9 @@ class GenerationHandler:
                     error_message = error_info.get("message", "未知错误")
                     
                     # 更新数据库任务状态
-                    task_id = operation["operation"]["name"]
-                    await self.db.update_task(
-                        task_id,
-                        status="failed",
-                        error_message=f"{error_message} (code: {error_code})",
-                        completed_at=time.time()
+                    await self._fail_video_task(
+                        checked_operations,
+                        f"{error_message} (code: {error_code})"
                     )
                     
                     # 返回友好的错误消息，提示用户重试
@@ -1755,17 +1807,32 @@ class GenerationHandler:
 
                 elif status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
                     # ??????
-                    error_msg = f"\u89c6\u9891\u751f\u6210\u5931\u8d25: {status}"
+                    error_msg = f"视频生成失败: {status}"
+                    await self._fail_video_task(checked_operations, error_msg)
                     self._mark_generation_failed(generation_result, error_msg)
                     yield self._create_error_response(error_msg)
                     return
 
             except Exception as e:
+                last_poll_error = e
+                consecutive_poll_errors += 1
                 debug_logger.log_error(f"Poll error: {str(e)}")
+                if consecutive_poll_errors >= max_consecutive_poll_errors:
+                    error_msg = f"视频状态查询失败: {self._normalize_error_message(e)}"
+                    await self._fail_video_task(operations, error_msg)
+                    self._mark_generation_failed(generation_result, error_msg)
+                    if stream:
+                        yield self._create_stream_chunk(f"❌ {error_msg}\n")
+                    yield self._create_error_response(error_msg)
+                    return
                 continue
 
         # 超时
-        error_msg = f"?????? (???{max_attempts}?)"
+        if last_poll_error is not None:
+            error_msg = f"视频状态查询持续失败: {self._normalize_error_message(last_poll_error)}"
+        else:
+            error_msg = f"视频生成超时 (已轮询 {max_attempts} 次)"
+        await self._fail_video_task(operations, error_msg)
         self._mark_generation_failed(generation_result, error_msg)
         yield self._create_error_response(error_msg)
 
