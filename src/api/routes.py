@@ -93,8 +93,8 @@ def _guess_mime_type(uri: str, fallback: str) -> str:
 
 async def retrieve_image_data(url: str) -> Optional[bytes]:
     """Read image bytes from local /tmp cache or remote URL."""
+    file_cache = getattr(generation_handler, "file_cache", None)
     try:
-        file_cache = getattr(generation_handler, "file_cache", None)
         if "/tmp/" in url and file_cache:
             path = urlparse(url).path
             filename = path.split("/tmp/")[-1]
@@ -107,15 +107,30 @@ async def retrieve_image_data(url: str) -> Optional[bytes]:
     except Exception as exc:
         debug_logger.log_warning(f"[CONTEXT] 本地缓存读取失败: {str(exc)}")
 
+    proxy_url = None
+    try:
+        if file_cache and hasattr(file_cache, "_resolve_download_proxy"):
+            proxy_url = await file_cache._resolve_download_proxy("image")
+    except Exception as exc:
+        debug_logger.log_warning(f"[CONTEXT] 图片下载代理解析失败: {str(exc)}")
+
     try:
         async with AsyncSession() as session:
             response = await session.get(
                 url,
-                timeout=30,
-                impersonate="chrome110",
+                timeout=60,
+                proxies={"http": proxy_url, "https": proxy_url} if proxy_url else None,
+                headers={
+                    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Connection": "keep-alive",
+                    "Referer": "https://labs.google/",
+                },
+                impersonate="chrome120",
                 verify=False,
             )
-            if response.status_code == 200:
+            if response.status_code == 200 and response.content:
                 return response.content
             debug_logger.log_warning(
                 f"[CONTEXT] 图片下载失败，状态码: {response.status_code}"
@@ -418,7 +433,8 @@ async def _build_image_parts_from_uri(uri: str) -> List[Dict[str, Any]]:
                 "mimeType": _guess_mime_type(uri, "image/png"),
                 "fileUri": uri,
             }
-        }
+        },
+        {"text": uri},
     ]
 
 
