@@ -1119,19 +1119,24 @@ async def get_logs(
 
     result = []
     for log in logs:
+        raw_status_code = log.get("status_code")
+        try:
+            status_code = int(raw_status_code) if raw_status_code is not None else None
+        except (TypeError, ValueError):
+            status_code = None
         result.append({
             "id": log.get("id"),
             "token_id": log.get("token_id"),
             "token_email": log.get("token_email"),
             "token_username": log.get("token_username"),
             "operation": log.get("operation"),
-            "status_code": log.get("status_code"),
+            "status_code": status_code if status_code is not None else raw_status_code,
             "duration": log.get("duration"),
             "status_text": log.get("status_text") or "",
             "progress": log.get("progress") or 0,
             "created_at": log.get("created_at"),
             "updated_at": log.get("updated_at"),
-            "error_summary": _extract_error_summary(log.get("response_body_excerpt")),
+            "error_summary": _extract_error_summary(log.get("response_body_excerpt")) if status_code is not None and status_code >= 400 else "",
         })
     return result
 

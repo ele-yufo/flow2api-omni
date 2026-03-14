@@ -1252,7 +1252,8 @@ class GenerationHandler:
                                 except Exception as e:
                                     debug_logger.log_error(f"Failed to cache {resolution_name} image: {str(e)}")
                                     if stream:
-                                        yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}，返回 base64...\n")
+                                        cache_error = self._normalize_error_message(e, max_length=120)
+                                        yield self._create_stream_chunk(f"⚠️ 缓存失败: {cache_error}，返回 base64...\n")
 
                             # 缓存未启用或缓存失败，返回 base64 格式
                             base64_url = f"data:image/jpeg;base64,{encoded_image}"
@@ -1297,29 +1298,12 @@ class GenerationHandler:
                 if image_trace is not None:
                     image_trace["upsample_ms"] = int((time.time() - upsample_started_at) * 1000)
 
-            # 缓存图片 (如果启用)
+            # 1K 原图统一直接返回官方直链，避免额外下载缓存依赖 curl/wget。
             local_url = image_url
-            cache_started_at = time.time()
-            if config.cache_enabled:
-                await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="caching_image", progress=92)
-                try:
-                    if stream:
-                        yield self._create_stream_chunk("缓存图片中...\n")
-                    cached_filename = await self.file_cache.download_and_cache(image_url, "image")
-                    local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
-                    if stream:
-                        yield self._create_stream_chunk("✅ 图片缓存成功,准备返回缓存地址...\n")
-                except Exception as e:
-                    debug_logger.log_error(f"Failed to cache image: {str(e)}")
-                    # 缓存失败不影响结果返回,使用原始URL
-                    local_url = image_url
-                    if stream:
-                        yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}\n正在返回源链接...\n")
-            else:
-                if stream:
-                    yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
+            if stream:
+                yield self._create_stream_chunk("正在返回官方图片链接...\n")
             if image_trace is not None:
-                image_trace["cache_image_ms"] = int((time.time() - cache_started_at) * 1000)
+                image_trace["cache_image_ms"] = 0
 
             # 返回结果
             # 存储URL用于日志记录
@@ -1728,7 +1712,8 @@ class GenerationHandler:
                             # 缓存失败不影响结果返回,使用原始URL
                             local_url = video_url
                             if stream:
-                                yield self._create_stream_chunk(f"⚠️ 缓存失败: {str(e)}\n正在返回源链接...\n")
+                                cache_error = self._normalize_error_message(e, max_length=120)
+                                yield self._create_stream_chunk(f"⚠️ 缓存失败: {cache_error}\n正在返回源链接...\n")
                     else:
                         if stream:
                             yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
