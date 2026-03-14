@@ -1,4 +1,5 @@
 """API routes - OpenAI compatible endpoints"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import List, Optional
@@ -12,6 +13,7 @@ from ..core.auth import verify_api_key_header
 from ..core.models import ChatCompletionRequest
 from ..services.generation_handler import GenerationHandler, MODEL_CONFIG
 from ..core.logger import debug_logger
+from ..core.model_resolver import resolve_model_name, get_base_model_aliases
 
 router = APIRouter()
 
@@ -48,11 +50,15 @@ async def retrieve_image_data(url: str) -> Optional[bytes]:
     # 回退逻辑：网络下载
     try:
         async with AsyncSession() as session:
-            response = await session.get(url, timeout=30, impersonate="chrome110", verify=False)
+            response = await session.get(
+                url, timeout=30, impersonate="chrome110", verify=False
+            )
             if response.status_code == 200:
                 return response.content
             else:
-                debug_logger.log_warning(f"[CONTEXT] 图片下载失败，状态码: {response.status_code}")
+                debug_logger.log_warning(
+                    f"[CONTEXT] 图片下载失败，状态码: {response.status_code}"
+                )
     except Exception as e:
         debug_logger.log_error(f"[CONTEXT] 图片下载异常: {str(e)}")
 
@@ -66,31 +72,57 @@ async def list_models(api_key: str = Depends(verify_api_key_header)):
 
     for model_id, config in MODEL_CONFIG.items():
         description = f"{config['type'].capitalize()} generation"
-        if config['type'] == 'image':
+        if config["type"] == "image":
             description += f" - {config['model_name']}"
         else:
             description += f" - {config['model_key']}"
 
-        models.append({
-            "id": model_id,
-            "object": "model",
-            "owned_by": "flow2api",
-            "description": description
-        })
+        models.append(
+            {
+                "id": model_id,
+                "object": "model",
+                "owned_by": "flow2api",
+                "description": description,
+            }
+        )
 
-    return {
-        "object": "list",
-        "data": models
-    }
+    return {"object": "list", "data": models}
+
+
+@router.get("/v1/models/aliases")
+async def list_model_aliases(api_key: str = Depends(verify_api_key_header)):
+    """List simplified model name aliases that can be used with generationConfig"""
+    aliases = get_base_model_aliases()
+    alias_models = []
+    for alias_id, description in aliases.items():
+        alias_models.append(
+            {
+                "id": alias_id,
+                "object": "model",
+                "owned_by": "flow2api",
+                "description": description,
+                "is_alias": True,
+            }
+        )
+    return {"object": "list", "data": alias_models}
 
 
 @router.post("/v1/chat/completions")
 async def create_chat_completion(
-    request: ChatCompletionRequest,
-    api_key: str = Depends(verify_api_key_header)
+    request: ChatCompletionRequest, api_key: str = Depends(verify_api_key_header)
 ):
     """Create chat completion (unified endpoint for image and video generation)"""
     try:
+        # ── 模型名解析：基于 generationConfig 参数转换简化模型名 ──
+        original_model = request.model
+        request.model = resolve_model_name(
+            model=request.model, request=request, model_config=MODEL_CONFIG
+        )
+        if request.model != original_model:
+            debug_logger.log_info(
+                f"[ROUTE] 模型名已转换: {original_model} → {request.model}"
+            )
+
         # Extract prompt from messages
         if not request.messages:
             raise HTTPException(status_code=400, detail="Messages cannot be empty")
@@ -120,18 +152,26 @@ async def create_chat_completion(
                             image_base64 = match.group(1)
                             image_bytes = base64.b64decode(image_base64)
                             images.append(image_bytes)
-                    elif image_url.startswith("http://") or image_url.startswith("https://"):
+                    elif image_url.startswith("http://") or image_url.startswith(
+                        "https://"
+                    ):
                         # Download remote image URL
                         debug_logger.log_info(f"[IMAGE_URL] 下载远程图片: {image_url}")
                         try:
                             downloaded_bytes = await retrieve_image_data(image_url)
                             if downloaded_bytes and len(downloaded_bytes) > 0:
                                 images.append(downloaded_bytes)
-                                debug_logger.log_info(f"[IMAGE_URL] ✅ 远程图片下载成功: {len(downloaded_bytes)} 字节")
+                                debug_logger.log_info(
+                                    f"[IMAGE_URL] ✅ 远程图片下载成功: {len(downloaded_bytes)} 字节"
+                                )
                             else:
-                                debug_logger.log_warning(f"[IMAGE_URL] ⚠️ 远程图片下载失败或为空: {image_url}")
+                                debug_logger.log_warning(
+                                    f"[IMAGE_URL] ⚠️ 远程图片下载失败或为空: {image_url}"
+                                )
                         except Exception as e:
-                            debug_logger.log_error(f"[IMAGE_URL] ❌ 远程图片下载异常: {str(e)}")
+                            debug_logger.log_error(
+                                f"[IMAGE_URL] ❌ 远程图片下载异常: {str(e)}"
+                            )
 
         # Fallback to deprecated image parameter
         if request.image and not images:
@@ -145,8 +185,14 @@ async def create_chat_completion(
         # 自动参考图：仅对图片模型生效
         model_config = MODEL_CONFIG.get(request.model)
 
-        if model_config and model_config["type"] == "image" and len(request.messages) > 1:
-            debug_logger.log_info(f"[CONTEXT] 开始查找历史参考图，消息数量: {len(request.messages)}")
+        if (
+            model_config
+            and model_config["type"] == "image"
+            and len(request.messages) > 1
+        ):
+            debug_logger.log_info(
+                f"[CONTEXT] 开始查找历史参考图，消息数量: {len(request.messages)}"
+            )
 
             # 查找上一次 assistant 回复的图片
             for msg in reversed(request.messages[:-1]):
@@ -158,16 +204,24 @@ async def create_chat_completion(
 
                         if last_image_url.startswith("http"):
                             try:
-                                downloaded_bytes = await retrieve_image_data(last_image_url)
+                                downloaded_bytes = await retrieve_image_data(
+                                    last_image_url
+                                )
                                 if downloaded_bytes and len(downloaded_bytes) > 0:
                                     # 将历史图片插入到最前面
                                     images.insert(0, downloaded_bytes)
-                                    debug_logger.log_info(f"[CONTEXT] ✅ 添加历史参考图: {last_image_url}")
+                                    debug_logger.log_info(
+                                        f"[CONTEXT] ✅ 添加历史参考图: {last_image_url}"
+                                    )
                                     break
                                 else:
-                                    debug_logger.log_warning(f"[CONTEXT] 图片下载失败或为空，尝试下一个: {last_image_url}")
+                                    debug_logger.log_warning(
+                                        f"[CONTEXT] 图片下载失败或为空，尝试下一个: {last_image_url}"
+                                    )
                             except Exception as e:
-                                debug_logger.log_error(f"[CONTEXT] 处理参考图时出错: {str(e)}")
+                                debug_logger.log_error(
+                                    f"[CONTEXT] 处理参考图时出错: {str(e)}"
+                                )
                                 # 继续尝试下一个图片
 
         if not prompt:
@@ -181,7 +235,7 @@ async def create_chat_completion(
                     model=request.model,
                     prompt=prompt,
                     images=images if images else None,
-                    stream=True
+                    stream=True,
                 ):
                     yield chunk
 
@@ -194,8 +248,8 @@ async def create_chat_completion(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no"
-                }
+                    "X-Accel-Buffering": "no",
+                },
             )
         else:
             # Non-streaming response
@@ -204,7 +258,7 @@ async def create_chat_completion(
                 model=request.model,
                 prompt=prompt,
                 images=images if images else None,
-                stream=False
+                stream=False,
             ):
                 result = chunk
 
@@ -217,7 +271,10 @@ async def create_chat_completion(
                     # If not JSON, return as-is
                     return JSONResponse(content={"result": result})
             else:
-                raise HTTPException(status_code=500, detail="Generation failed: No response from handler")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Generation failed: No response from handler",
+                )
 
     except HTTPException:
         raise
