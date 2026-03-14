@@ -1,7 +1,7 @@
 """Data models for Flow2API"""
 
-from pydantic import BaseModel
-from typing import Optional, List, Union, Any
+from pydantic import BaseModel, ConfigDict
+from typing import Optional, List, Union, Any, Literal
 from datetime import datetime
 
 
@@ -219,15 +219,55 @@ class GenerationConfigParam(BaseModel):
     responseModalities: Optional[List[str]] = None  # ["IMAGE", "TEXT"]
     imageConfig: Optional[ImageConfig] = None
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
+
+
+class GeminiInlineData(BaseModel):
+    """Gemini inline binary data."""
+
+    mimeType: str
+    data: str
+
+
+class GeminiFileData(BaseModel):
+    """Gemini file reference."""
+
+    fileUri: str
+    mimeType: Optional[str] = None
+
+
+class GeminiPart(BaseModel):
+    """Gemini content part."""
+
+    text: Optional[str] = None
+    inlineData: Optional[GeminiInlineData] = None
+    fileData: Optional[GeminiFileData] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class GeminiContent(BaseModel):
+    """Gemini content block."""
+
+    role: Optional[Literal["user", "model"]] = None
+    parts: List[GeminiPart]
+
+
+class GeminiGenerateContentRequest(BaseModel):
+    """Gemini official generateContent request."""
+
+    contents: List[GeminiContent]
+    generationConfig: Optional[GenerationConfigParam] = None
+    systemInstruction: Optional[GeminiContent] = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ChatCompletionRequest(BaseModel):
     """Chat completion request (OpenAI compatible + Gemini extension)"""
 
     model: str
-    messages: List[ChatMessage]
+    messages: Optional[List[ChatMessage]] = None
     stream: bool = False
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -238,5 +278,4 @@ class ChatCompletionRequest(BaseModel):
     generationConfig: Optional[GenerationConfigParam] = None
     contents: Optional[List[Any]] = None  # Gemini native contents
 
-    class Config:
-        extra = "allow"  # Allow extra fields like extra_body passthrough
+    model_config = ConfigDict(extra="allow")  # Allow extra fields like extra_body passthrough
