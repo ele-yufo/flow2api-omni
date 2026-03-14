@@ -786,7 +786,7 @@ class GenerationHandler:
         if model not in MODEL_CONFIG:
             error_msg = f"不支持的模型: {model}"
             debug_logger.log_error(error_msg)
-            yield self._create_error_response(error_msg)
+            yield self._create_error_response(error_msg, status_code=400)
             return
 
         model_config = MODEL_CONFIG[model]
@@ -799,26 +799,6 @@ class GenerationHandler:
             "has_images": images is not None and len(images) > 0,
         }
         debug_logger.log_info(f"[GENERATION] 开始生成 - 模型: {model}, 类型: {generation_type}, Prompt: {prompt[:50]}...")
-
-        # 非流式模式: 只检查可用性
-        if not stream:
-            is_image = (generation_type == "image")
-            is_video = (generation_type == "video")
-            available = await self.check_token_availability(is_image, is_video)
-
-            if available:
-                if is_image:
-                    message = "所有Token可用于图片生成。请启用流式模式使用生成功能。"
-                else:
-                    message = "所有Token可用于视频生成。请启用流式模式使用生成功能。"
-            else:
-                if is_image:
-                    message = "没有可用的Token进行图片生成"
-                else:
-                    message = "没有可用的Token进行视频生成"
-
-            yield self._create_completion_response(message, is_availability_check=True)
-            return
 
         # 向用户展示开始信息
         if stream:
@@ -875,7 +855,7 @@ class GenerationHandler:
             )
             if stream:
                 yield self._create_stream_chunk(f"❌ {error_msg}\n")
-            yield self._create_error_response(error_msg)
+            yield self._create_error_response(error_msg, status_code=503)
             return
 
         debug_logger.log_info(f"[GENERATION] 已选择Token: {token.id} ({token.email})")
@@ -907,7 +887,7 @@ class GenerationHandler:
                 debug_logger.log_error(f"[GENERATION] {error_msg}")
                 if stream:
                     yield self._create_stream_chunk(f"❌ {error_msg}\n")
-                yield self._create_error_response(error_msg)
+                yield self._create_error_response(error_msg, status_code=503)
                 return
 
             # 4. 确保Project存在
@@ -919,7 +899,7 @@ class GenerationHandler:
                 debug_logger.log_error(f"[GENERATION] {error_msg}")
                 if stream:
                     yield self._create_stream_chunk(f"❌ {error_msg}\n")
-                yield self._create_error_response(error_msg)
+                yield self._create_error_response(error_msg, status_code=403)
                 return
 
             ensure_project_started_at = time.time()
@@ -985,7 +965,7 @@ class GenerationHandler:
                 if not generation_result.get("error_emitted"):
                     if stream:
                         yield self._create_stream_chunk(f"❌ {error_msg}\n")
-                    yield self._create_error_response(error_msg)
+                    yield self._create_error_response(error_msg, status_code=500)
                 return
 
             is_video = (generation_type == "video")
@@ -1092,7 +1072,7 @@ class GenerationHandler:
             )
             if stream:
                 yield self._create_stream_chunk(f"❌ {error_msg}\n")
-            yield self._create_error_response(error_msg)
+            yield self._create_error_response(error_msg, status_code=500)
         finally:
             if pending_token_state.get("active") and token and self.load_balancer:
                 await self.load_balancer.release_pending(
@@ -1194,7 +1174,7 @@ class GenerationHandler:
             media = result.get("media", [])
             if not media:
                 self._mark_generation_failed(generation_result, "\u751f\u6210\u7ed3\u679c\u4e3a\u7a7a")
-                yield self._create_error_response("生成结果为空")
+                yield self._create_error_response("生成结果为空", status_code=502)
                 return
 
             image_url = media[0]["image"]["generatedImage"]["fifeUrl"]
@@ -1461,7 +1441,7 @@ class GenerationHandler:
                     if stream:
                         yield self._create_stream_chunk(f"{error_msg}\n")
                     self._mark_generation_failed(generation_result, error_msg)
-                    yield self._create_error_response(error_msg)
+                    yield self._create_error_response(error_msg, status_code=400)
                     return
 
             # R2V: 多图生成 - 当前上游协议最多 3 张参考图
@@ -1471,7 +1451,7 @@ class GenerationHandler:
                     if stream:
                         yield self._create_stream_chunk(f"{error_msg}\n")
                     self._mark_generation_failed(generation_result, error_msg)
-                    yield self._create_error_response(error_msg)
+                    yield self._create_error_response(error_msg, status_code=400)
                     return
 
             # ========== 上传图片 ==========
@@ -1591,7 +1571,7 @@ class GenerationHandler:
             operations = result.get("operations", [])
             if not operations:
                 self._mark_generation_failed(generation_result, "\u751f\u6210\u4efb\u52a1\u521b\u5efa\u5931\u8d25")
-                yield self._create_error_response("生成任务创建失败")
+                yield self._create_error_response("生成任务创建失败", status_code=502)
                 return
 
             operation = operations[0]
@@ -1691,7 +1671,7 @@ class GenerationHandler:
                         error_msg = "视频生成失败: 视频URL为空"
                         await self._fail_video_task(checked_operations, error_msg)
                         self._mark_generation_failed(generation_result, error_msg)
-                        yield self._create_error_response(error_msg)
+                        yield self._create_error_response(error_msg, status_code=502)
                         return
 
                     # ========== 视频放大处理 ==========
@@ -1802,7 +1782,7 @@ class GenerationHandler:
                     self._mark_generation_failed(generation_result, friendly_error)
                     if stream:
                         yield self._create_stream_chunk(f"❌ {friendly_error}\n")
-                    yield self._create_error_response(friendly_error)
+                    yield self._create_error_response(friendly_error, status_code=502)
                     return
 
                 elif status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
@@ -1810,7 +1790,7 @@ class GenerationHandler:
                     error_msg = f"视频生成失败: {status}"
                     await self._fail_video_task(checked_operations, error_msg)
                     self._mark_generation_failed(generation_result, error_msg)
-                    yield self._create_error_response(error_msg)
+                    yield self._create_error_response(error_msg, status_code=502)
                     return
 
             except Exception as e:
@@ -1823,7 +1803,7 @@ class GenerationHandler:
                     self._mark_generation_failed(generation_result, error_msg)
                     if stream:
                         yield self._create_stream_chunk(f"❌ {error_msg}\n")
-                    yield self._create_error_response(error_msg)
+                    yield self._create_error_response(error_msg, status_code=502)
                     return
                 continue
 
@@ -1834,7 +1814,7 @@ class GenerationHandler:
             error_msg = f"视频生成超时 (已轮询 {max_attempts} 次)"
         await self._fail_video_task(operations, error_msg)
         self._mark_generation_failed(generation_result, error_msg)
-        yield self._create_error_response(error_msg)
+        yield self._create_error_response(error_msg, status_code=504)
 
     # ========== 响应格式化 ==========
 
@@ -1906,15 +1886,16 @@ class GenerationHandler:
 
         return json.dumps(response, ensure_ascii=False)
 
-    def _create_error_response(self, error_message: str) -> str:
+    def _create_error_response(self, error_message: str, status_code: int = 500) -> str:
         """创建错误响应"""
         import json
 
         error = {
             "error": {
                 "message": error_message,
-                "type": "invalid_request_error",
-                "code": "generation_failed"
+                "type": "server_error" if status_code >= 500 else "invalid_request_error",
+                "code": "generation_failed",
+                "status_code": status_code,
             }
         }
 

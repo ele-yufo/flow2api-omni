@@ -84,6 +84,8 @@ MODEL_SUPPORTED_SIZES = {
 
 # imageSize 归一化映射
 IMAGE_SIZE_MAP = {
+    "1k": "1k",
+    "1K": "1k",
     "2k": "2k",
     "2K": "2k",
     "4k": "4k",
@@ -185,6 +187,10 @@ def _extract_generation_params(request) -> Tuple[Optional[str], Optional[str]]:
     if gen_config is None and hasattr(request, "__pydantic_extra__"):
         extra = request.__pydantic_extra__ or {}
         gen_config_raw = extra.get("generationConfig")
+        if not isinstance(gen_config_raw, dict):
+            extra_body = extra.get("extra_body") or extra.get("extraBody")
+            if isinstance(extra_body, dict):
+                gen_config_raw = extra_body.get("generationConfig")
         if isinstance(gen_config_raw, dict):
             image_config_raw = gen_config_raw.get("imageConfig", {})
             if isinstance(image_config_raw, dict):
@@ -229,10 +235,6 @@ def resolve_model_name(
     Returns:
         解析后的内部模型名
     """
-    # 如果已经是有效的 MODEL_CONFIG key，直接返回
-    if model_config and model in model_config:
-        return model
-
     # ────── 图片模型解析 ──────
     if model in IMAGE_BASE_MODELS:
         base = IMAGE_BASE_MODELS[model]
@@ -257,7 +259,7 @@ def resolve_model_name(
         resolved = f"{base}-{aspect_ratio}"
 
         # 检查支持的 imageSize
-        if image_size:
+        if image_size and image_size != "1k":
             supported_sizes = MODEL_SUPPORTED_SIZES.get(base, [])
             if image_size in supported_sizes:
                 resolved = f"{resolved}-{image_size}"
@@ -304,6 +306,10 @@ def resolve_model_name(
             f"[MODEL_RESOLVER] 视频模型 {model} 解析失败 (aspect={aspect_ratio})，"
             f"使用原始模型名"
         )
+        return model
+
+    # 如果已经是有效的 MODEL_CONFIG key，直接返回
+    if model_config and model in model_config:
         return model
 
     # 未知模型名，原样返回（由下游 MODEL_CONFIG 校验报错）
