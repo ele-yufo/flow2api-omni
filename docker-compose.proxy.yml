@@ -8,6 +8,7 @@ services:
       - "38000:8000"
     volumes:
       - ./data:/app/data
+      - ./tmp:/app/tmp
       - ./config/setting_warp.toml:/app/config/setting.toml
     environment:
       - PYTHONUNBUFFERED=1
