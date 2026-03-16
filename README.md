@@ -87,7 +87,7 @@ docker compose -f docker-compose.headed.yml logs -f
 ```bash
 # 克隆项目
 git clone https://github.com/TheSmallHanCat/flow2api.git
-cd sora2api
+cd flow2api
 
 # 创建虚拟环境
 python -m venv venv
