@@ -1102,6 +1102,17 @@ async def logout(token: str = Depends(verify_admin_token)):
     return await admin_logout(token)
 
 
+@router.get("/health")
+async def health_check():
+    """Public health check endpoint - no auth required"""
+    try:
+        stats = await db.get_dashboard_stats()
+        has_active_tokens = stats.get("active_tokens", 0) > 0
+    except Exception:
+        return {"backend_running": True, "has_active_tokens": False}
+    return {"backend_running": True, "has_active_tokens": has_active_tokens}
+
+
 @router.get("/api/stats")
 async def get_stats(token: str = Depends(verify_admin_token)):
     """Get statistics for dashboard"""
