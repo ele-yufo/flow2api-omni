@@ -140,6 +140,15 @@ class GenerationConfig(BaseModel):
     video_timeout: int = 1500  # seconds
 
 
+class CallLogicConfig(BaseModel):
+    """Token selection call logic configuration"""
+
+    id: int = 1
+    call_mode: str = "default"
+    polling_mode_enabled: bool = False
+    updated_at: Optional[datetime] = None
+
+
 class CacheConfig(BaseModel):
     """Cache configuration"""
 

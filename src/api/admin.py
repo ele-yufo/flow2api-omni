@@ -437,6 +437,10 @@ class GenerationConfigRequest(BaseModel):
     video_timeout: int
 
 
+class CallLogicConfigRequest(BaseModel):
+    call_mode: str
+
+
 class ChangePasswordRequest(BaseModel):
     username: Optional[str] = None
     old_password: str
@@ -1068,6 +1072,45 @@ async def update_generation_config(
     await db.reload_config_to_memory()
 
     return {"success": True, "message": "生成配置更新成功"}
+
+
+@router.get("/api/call-logic/config")
+async def get_call_logic_config(token: str = Depends(verify_admin_token)):
+    """Get token call logic configuration."""
+    config_obj = await db.get_call_logic_config()
+    call_mode = getattr(config_obj, "call_mode", None)
+    if call_mode not in ("default", "polling"):
+        call_mode = "polling" if getattr(config_obj, "polling_mode_enabled", False) else "default"
+    return {
+        "success": True,
+        "config": {
+            "call_mode": call_mode,
+            "polling_mode_enabled": call_mode == "polling",
+        }
+    }
+
+
+@router.post("/api/call-logic/config")
+async def update_call_logic_config(
+    request: CallLogicConfigRequest,
+    token: str = Depends(verify_admin_token)
+):
+    """Update token call logic configuration."""
+    call_mode = request.call_mode if request.call_mode in ("default", "polling") else None
+    if call_mode is None:
+        raise HTTPException(status_code=400, detail="Invalid call_mode")
+
+    await db.update_call_logic_config(call_mode)
+    await db.reload_config_to_memory()
+
+    return {
+        "success": True,
+        "message": "Token轮询模式保存成功",
+        "config": {
+            "call_mode": call_mode,
+            "polling_mode_enabled": call_mode == "polling",
+        }
+    }
 
 
 # ========== System Info ==========

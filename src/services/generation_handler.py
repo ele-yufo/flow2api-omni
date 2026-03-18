@@ -859,6 +859,7 @@ class GenerationHandler:
             return
 
         debug_logger.log_info(f"[GENERATION] 已选择Token: {token.id} ({token.email})")
+        pending_token_state["active"] = True
         await self._update_request_log_progress(
             request_log_state,
             token_id=token.id,

@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig
+from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig, CallLogicConfig
 
 
 class Database:
@@ -116,6 +116,27 @@ class Database:
                 INSERT INTO generation_config (id, image_timeout, video_timeout)
                 VALUES (1, ?, ?)
             """, (image_timeout, video_timeout))
+
+        # Ensure call_logic_config has a row
+        cursor = await db.execute("SELECT COUNT(*) FROM call_logic_config")
+        count = await cursor.fetchone()
+        if count[0] == 0:
+            call_mode = "default"
+            polling_mode_enabled = False
+
+            if config_dict:
+                call_logic_config = config_dict.get("call_logic", {})
+                call_mode = call_logic_config.get("call_mode", "default")
+                if call_mode not in ("default", "polling"):
+                    polling_mode_enabled = call_logic_config.get("polling_mode_enabled", False)
+                    call_mode = "polling" if polling_mode_enabled else "default"
+                else:
+                    polling_mode_enabled = call_mode == "polling"
+
+            await db.execute("""
+                INSERT INTO call_logic_config (id, call_mode, polling_mode_enabled)
+                VALUES (1, ?, ?)
+            """, (call_mode, polling_mode_enabled))
 
         # Ensure cache_config has a row
         cursor = await db.execute("SELECT COUNT(*) FROM cache_config")
@@ -248,6 +269,18 @@ class Database:
                         proxy_url TEXT,
                         media_proxy_enabled BOOLEAN DEFAULT 0,
                         media_proxy_url TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+            # Check and create call_logic_config table if missing
+            if not await self._table_exists(db, "call_logic_config"):
+                print("  Creating missing table: call_logic_config")
+                await db.execute("""
+                    CREATE TABLE call_logic_config (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        call_mode TEXT DEFAULT 'default',
+                        polling_mode_enabled BOOLEAN DEFAULT 0,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
@@ -540,6 +573,16 @@ class Database:
                     id INTEGER PRIMARY KEY DEFAULT 1,
                     image_timeout INTEGER DEFAULT 300,
                     video_timeout INTEGER DEFAULT 1500,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Call logic config table
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS call_logic_config (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    call_mode TEXT DEFAULT 'default',
+                    polling_mode_enabled BOOLEAN DEFAULT 0,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -1180,6 +1223,31 @@ class Database:
             """, (image_timeout, video_timeout))
             await db.commit()
 
+    async def get_call_logic_config(self) -> CallLogicConfig:
+        """Get token call logic configuration."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM call_logic_config WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                row_dict = dict(row)
+                mode = row_dict.get("call_mode")
+                if mode not in ("default", "polling"):
+                    row_dict["call_mode"] = "polling" if row_dict.get("polling_mode_enabled") else "default"
+                return CallLogicConfig(**row_dict)
+            return CallLogicConfig(call_mode="default", polling_mode_enabled=False)
+
+    async def update_call_logic_config(self, call_mode: str):
+        """Update token call logic configuration."""
+        normalized = "polling" if call_mode == "polling" else "default"
+        polling_mode_enabled = normalized == "polling"
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                INSERT OR REPLACE INTO call_logic_config (id, call_mode, polling_mode_enabled, updated_at)
+                VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+            """, (normalized, polling_mode_enabled))
+            await db.commit()
+
     # Request log operations
     async def add_request_log(self, log: RequestLog) -> int:
         """Add request log and return log id"""
@@ -1384,6 +1452,11 @@ class Database:
         if generation_config:
             config.set_image_timeout(generation_config.image_timeout)
             config.set_video_timeout(generation_config.video_timeout)
+
+        # Reload call logic config
+        call_logic_config = await self.get_call_logic_config()
+        if call_logic_config:
+            config.set_call_logic_mode(call_logic_config.call_mode)
 
         # Reload debug config
         debug_config = await self.get_debug_config()

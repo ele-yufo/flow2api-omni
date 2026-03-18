@@ -42,6 +42,9 @@ proxy_url = ""
 image_timeout = 300
 video_timeout = 1500
 
+[call_logic]
+call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
+
 [admin]
 error_ban_threshold = 3
 

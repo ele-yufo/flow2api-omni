@@ -3,6 +3,7 @@ import asyncio
 import random
 from typing import Optional, Dict
 from ..core.models import Token
+from ..core.config import config
 from ..core.account_tiers import (
     get_paygate_tier_label,
     get_required_paygate_tier_for_model,
@@ -22,6 +23,8 @@ class LoadBalancer:
         self._image_pending: Dict[int, int] = {}
         self._video_pending: Dict[int, int] = {}
         self._pending_lock = asyncio.Lock()
+        self._round_robin_state: Dict[str, Optional[int]] = {"image": None, "video": None, "default": None}
+        self._rr_lock = asyncio.Lock()
 
     async def _get_pending_count(self, token_id: int, for_image_generation: bool, for_video_generation: bool) -> int:
         async with self._pending_lock:
@@ -95,6 +98,24 @@ class LoadBalancer:
             return await self.concurrency_manager.acquire_video(token_id)
 
         return True
+
+    async def _select_round_robin(self, tokens: list[dict], scenario: str) -> Optional[dict]:
+        """Select candidate in round-robin order for the given scenario."""
+        if not tokens:
+            return None
+
+        tokens_sorted = sorted(tokens, key=lambda item: item["token"].id or 0)
+        async with self._rr_lock:
+            last_id = self._round_robin_state.get(scenario)
+            start_idx = 0
+            if last_id is not None:
+                for idx, item in enumerate(tokens_sorted):
+                    if item["token"].id == last_id:
+                        start_idx = (idx + 1) % len(tokens_sorted)
+                        break
+            selected = tokens_sorted[start_idx]
+            self._round_robin_state[scenario] = selected["token"].id
+        return selected
 
     async def select_token(
         self,
@@ -193,14 +214,32 @@ class LoadBalancer:
             return None
 
         # 最低 in-flight 优先；有并发上限时，剩余槽位更多的 token 优先；最后随机打散
-        available_tokens.sort(
-            key=lambda item: (
-                item["inflight"],
-                0 if item["remaining"] is None else 1,
-                -(item["remaining"] or 0),
-                item["random"]
+        call_mode = config.call_logic_mode
+        if call_mode == "polling":
+            scenario = "default"
+            if for_image_generation:
+                scenario = "image"
+            elif for_video_generation:
+                scenario = "video"
+
+            ordered_candidates = []
+            first_candidate = await self._select_round_robin(available_tokens, scenario)
+            if first_candidate is not None:
+                ordered_candidates.append(first_candidate)
+                ordered_candidates.extend(
+                    item for item in sorted(available_tokens, key=lambda item: item["token"].id or 0)
+                    if item["token"].id != first_candidate["token"].id
+                )
+            available_tokens = ordered_candidates
+        else:
+            available_tokens.sort(
+                key=lambda item: (
+                    item["inflight"],
+                    0 if item["remaining"] is None else 1,
+                    -(item["remaining"] or 0),
+                    item["random"]
+                )
             )
-        )
 
         debug_logger.log_info("[LOAD_BALANCER] 候选Token负载:")
         for item in available_tokens:
@@ -224,6 +263,9 @@ class LoadBalancer:
             if reserve and not await self._reserve_slot(token.id, for_image_generation, for_video_generation):
                 debug_logger.log_info(f"[LOAD_BALANCER] 跳过 Token {token.id}: 预占槽位失败")
                 continue
+
+            if track_pending:
+                await self._add_pending(token.id, for_image_generation, for_video_generation)
 
             debug_logger.log_info(
                 f"[LOAD_BALANCER] ✅ 已选择Token {token.id} ({token.email}) - "
