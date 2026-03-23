@@ -2020,7 +2020,7 @@ class FlowClient:
         return base_url, api_key, timeout
 
     @staticmethod
-    def _sync_json_http_request(
+    async def _sync_json_http_request(
         method: str,
         url: str,
         headers: Dict[str, str],
@@ -2029,34 +2029,34 @@ class FlowClient:
     ) -> tuple[int, Optional[Any], str]:
         req_headers = dict(headers or {})
         req_headers.setdefault("Accept", "application/json")
+        request_method = (method or "GET").upper()
+        request_kwargs: Dict[str, Any] = {
+            "headers": req_headers,
+            "timeout": timeout,
+            "impersonate": "chrome120",
+        }
 
-        data = None
         if payload is not None:
-            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             req_headers["Content-Type"] = "application/json; charset=utf-8"
-
-        request = urllib.request.Request(
-            url=url,
-            data=data,
-            headers=req_headers,
-            method=(method or "GET").upper(),
-        )
+            if request_method != "GET":
+                request_kwargs["json"] = payload
 
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                status_code = int(response.getcode() or 0)
-                raw_body = response.read()
-        except urllib.error.HTTPError as e:
-            status_code = int(getattr(e, "code", 500))
-            raw_body = e.read() if hasattr(e, "read") else b""
+            async with AsyncSession() as session:
+                response = await session.request(
+                    method=request_method,
+                    url=url,
+                    **request_kwargs,
+                )
         except Exception as e:
             raise RuntimeError(f"remote_browser 请求失败: {e}") from e
 
-        text = raw_body.decode("utf-8", errors="replace") if raw_body else ""
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        text = response.text or ""
         parsed: Optional[Any] = None
         if text:
             try:
-                parsed = json.loads(text)
+                parsed = response.json()
             except Exception:
                 parsed = None
 
@@ -2073,13 +2073,12 @@ class FlowClient:
         url = f"{base_url}{path}"
         effective_timeout = max(5, int(timeout_override or timeout))
 
-        status_code, payload, response_text = await asyncio.to_thread(
-            self._sync_json_http_request,
-            method,
-            url,
-            {"Authorization": f"Bearer {api_key}"},
-            json_data,
-            effective_timeout,
+        status_code, payload, response_text = await self._sync_json_http_request(
+            method=method,
+            url=url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            payload=json_data,
+            timeout=effective_timeout,
         )
 
         if status_code >= 400:

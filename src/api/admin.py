@@ -1,8 +1,6 @@
 """Admin API routes"""
 import asyncio
 import json
-import urllib.error
-import urllib.request
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -178,7 +176,7 @@ def _get_remote_browser_client_config() -> tuple[str, str, int]:
     return base_url, api_key, timeout
 
 
-def _sync_json_http_request(
+async def _sync_json_http_request(
     method: str,
     url: str,
     headers: Dict[str, str],
@@ -187,34 +185,34 @@ def _sync_json_http_request(
 ) -> tuple[int, Optional[Any], str]:
     req_headers = dict(headers or {})
     req_headers.setdefault("Accept", "application/json")
+    request_method = (method or "GET").upper()
+    request_kwargs: Dict[str, Any] = {
+        "headers": req_headers,
+        "timeout": timeout,
+        "impersonate": "chrome120",
+    }
 
-    data = None
     if payload is not None:
-        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req_headers["Content-Type"] = "application/json; charset=utf-8"
-
-    request = urllib.request.Request(
-        url=url,
-        data=data,
-        headers=req_headers,
-        method=(method or "GET").upper(),
-    )
+        if request_method != "GET":
+            request_kwargs["json"] = payload
 
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            status_code = int(response.getcode() or 0)
-            raw_body = response.read()
-    except urllib.error.HTTPError as e:
-        status_code = int(getattr(e, "code", 500))
-        raw_body = e.read() if hasattr(e, "read") else b""
+        async with AsyncSession() as session:
+            response = await session.request(
+                method=request_method,
+                url=url,
+                **request_kwargs,
+            )
     except Exception as e:
         raise RuntimeError(f"远程打码服务请求失败: {e}") from e
 
-    text = raw_body.decode("utf-8", errors="replace") if raw_body else ""
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    text = response.text or ""
     parsed: Optional[Any] = None
     if text:
         try:
-            parsed = json.loads(text)
+            parsed = response.json()
         except Exception:
             parsed = None
 
@@ -349,13 +347,12 @@ async def _score_test_with_remote_browser_service(
         "enterprise": enterprise,
     }
 
-    status_code, response_payload, response_text = await asyncio.to_thread(
-        _sync_json_http_request,
-        "POST",
-        endpoint,
-        {"Authorization": f"Bearer {api_key}"},
-        request_payload,
-        timeout,
+    status_code, response_payload, response_text = await _sync_json_http_request(
+        method="POST",
+        url=endpoint,
+        headers={"Authorization": f"Bearer {api_key}"},
+        payload=request_payload,
+        timeout=timeout,
     )
 
     if status_code >= 400:

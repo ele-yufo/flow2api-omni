@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from src.api import admin as admin_module
 from src.api import routes
 from src.core.auth import AuthManager, verify_api_key_flexible
 
@@ -82,3 +83,61 @@ def test_flexible_auth_accepts_x_goog_api_key(monkeypatch):
             key=None,
         )
     ) == "secret"
+
+
+def test_admin_remote_browser_helper_uses_asyncsession(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"success": true, "token": "abc"}'
+
+        def json(self):
+            return {"success": True, "token": "abc"}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            calls.append({
+                "method": method,
+                "url": url,
+                "kwargs": kwargs,
+            })
+            return FakeResponse()
+
+    monkeypatch.setattr(admin_module, "AsyncSession", FakeSession)
+
+    status_code, payload, response_text = asyncio.run(
+        admin_module._sync_json_http_request(
+            method="POST",
+            url="https://example.com/api/v1/custom-score",
+            headers={"Authorization": "Bearer token"},
+            payload={"website_url": "https://example.com"},
+            timeout=15,
+        )
+    )
+
+    assert status_code == 200
+    assert payload == {"success": True, "token": "abc"}
+    assert response_text == '{"success": true, "token": "abc"}'
+    assert calls == [
+        {
+            "method": "POST",
+            "url": "https://example.com/api/v1/custom-score",
+            "kwargs": {
+                "headers": {
+                    "Authorization": "Bearer token",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                "timeout": 15,
+                "impersonate": "chrome120",
+                "json": {"website_url": "https://example.com"},
+            },
+        }
+    ]

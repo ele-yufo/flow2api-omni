@@ -1,5 +1,6 @@
 import asyncio
 
+from src.services import flow_client as flow_client_module
 from src.services.flow_client import FlowClient
 
 
@@ -46,3 +47,61 @@ def test_control_plane_calls_use_short_timeouts(monkeypatch):
     asyncio.run(run())
 
     assert [call["timeout"] for call in calls] == [10, 15, 10, 10]
+
+
+def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"ok": true}'
+
+        def json(self):
+            return {"ok": True}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            calls.append({
+                "method": method,
+                "url": url,
+                "kwargs": kwargs,
+            })
+            return FakeResponse()
+
+    monkeypatch.setattr(flow_client_module, "AsyncSession", FakeSession)
+
+    status_code, payload, response_text = asyncio.run(
+        FlowClient._sync_json_http_request(
+            method="POST",
+            url="https://example.com/api/v1/solve",
+            headers={"Authorization": "Bearer token"},
+            payload={"project_id": "project-123"},
+            timeout=12,
+        )
+    )
+
+    assert status_code == 200
+    assert payload == {"ok": True}
+    assert response_text == '{"ok": true}'
+    assert calls == [
+        {
+            "method": "POST",
+            "url": "https://example.com/api/v1/solve",
+            "kwargs": {
+                "headers": {
+                    "Authorization": "Bearer token",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                "timeout": 12,
+                "impersonate": "chrome120",
+                "json": {"project_id": "project-123"},
+            },
+        }
+    ]
