@@ -1,7 +1,6 @@
 """Admin API routes"""
 import asyncio
 import json
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -9,6 +8,8 @@ from typing import Optional, List, Dict, Any
 import secrets
 import time
 import re
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 from curl_cffi.requests import AsyncSession
 from ..core.auth import AuthManager
@@ -17,6 +18,11 @@ from ..core.config import config
 from ..services.token_manager import TokenManager
 from ..services.proxy_manager import ProxyManager
 from ..services.concurrency_manager import ConcurrencyManager
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 router = APIRouter()
 
@@ -177,6 +183,72 @@ def _get_remote_browser_client_config() -> tuple[str, str, int]:
     return base_url, api_key, timeout
 
 
+def _build_remote_browser_http_timeout(read_timeout: float) -> Any:
+    read_value = max(3.0, float(read_timeout))
+    write_value = min(10.0, max(3.0, read_value))
+    if httpx is None:
+        return read_value
+    return httpx.Timeout(
+        connect=2.5,
+        read=read_value,
+        write=write_value,
+        pool=2.5,
+    )
+
+
+def _parse_json_response_text(text: str) -> Optional[Any]:
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return None
+
+
+async def _stdlib_json_http_request(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    payload: Optional[Dict[str, Any]],
+    timeout: int,
+) -> tuple[int, Optional[Any], str]:
+    req_headers = dict(headers or {})
+    req_headers.setdefault("Accept", "application/json")
+    request_method = (method or "GET").upper()
+    request_data: Optional[bytes] = None
+
+    if payload is not None:
+        req_headers["Content-Type"] = "application/json; charset=utf-8"
+        if request_method != "GET":
+            request_data = json.dumps(payload).encode("utf-8")
+
+    def do_request() -> tuple[int, str]:
+        request = urllib.request.Request(
+            url=url,
+            data=request_data,
+            headers=req_headers,
+            method=request_method,
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(request, timeout=max(1.0, float(timeout))) as response:
+                status_code = int(getattr(response, "status", 0) or response.getcode() or 0)
+                body = response.read()
+                charset = response.headers.get_content_charset() or "utf-8"
+                return status_code, body.decode(charset, errors="replace")
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            charset = exc.headers.get_content_charset() if exc.headers else None
+            return int(getattr(exc, "code", 0) or 0), body.decode(charset or "utf-8", errors="replace")
+
+    try:
+        status_code, text = await asyncio.to_thread(do_request)
+    except Exception as e:
+        raise RuntimeError(f"远程打码服务请求失败: {e}") from e
+
+    return status_code, _parse_json_response_text(text), text
+
+
 async def _sync_json_http_request(
     method: str,
     url: str,
@@ -189,7 +261,7 @@ async def _sync_json_http_request(
     request_method = (method or "GET").upper()
     request_kwargs: Dict[str, Any] = {
         "headers": req_headers,
-        "timeout": timeout,
+        "timeout": _build_remote_browser_http_timeout(timeout),
     }
 
     if payload is not None:
@@ -197,10 +269,19 @@ async def _sync_json_http_request(
         if request_method != "GET":
             request_kwargs["json"] = payload
 
+    if httpx is None:
+        return await _stdlib_json_http_request(
+            method=method,
+            url=url,
+            headers=req_headers,
+            payload=payload,
+            timeout=timeout,
+        )
+
     try:
         # remote_browser 控制面是服务间 JSON API，使用 httpx 避免 curl_cffi 在当前
         # Windows + impersonate 场景下 POST body 丢失导致 FastAPI 直接判定 body 缺失。
-        async with httpx.AsyncClient(follow_redirects=True) as session:
+        async with httpx.AsyncClient(follow_redirects=False, trust_env=False) as session:
             response = await session.request(
                 method=request_method,
                 url=url,
@@ -211,12 +292,7 @@ async def _sync_json_http_request(
 
     status_code = int(getattr(response, "status_code", 0) or 0)
     text = response.text or ""
-    parsed: Optional[Any] = None
-    if text:
-        try:
-            parsed = response.json()
-        except Exception:
-            parsed = None
+    parsed = _parse_json_response_text(text)
 
     return status_code, parsed, text
 
