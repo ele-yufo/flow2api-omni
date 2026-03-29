@@ -49,7 +49,7 @@ def test_control_plane_calls_use_short_timeouts(monkeypatch):
     assert [call["timeout"] for call in calls] == [10, 15, 10, 10]
 
 
-def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
+def test_remote_browser_http_helper_uses_httpx(monkeypatch):
     calls = []
 
     class FakeResponse:
@@ -59,7 +59,10 @@ def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
         def json(self):
             return {"ok": True}
 
-    class FakeSession:
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            calls.append({"client_kwargs": kwargs})
+
         async def __aenter__(self):
             return self
 
@@ -74,7 +77,7 @@ def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
             })
             return FakeResponse()
 
-    monkeypatch.setattr(flow_client_module, "AsyncSession", FakeSession)
+    monkeypatch.setattr(flow_client_module.httpx, "AsyncClient", FakeAsyncClient)
 
     status_code, payload, response_text = asyncio.run(
         FlowClient._sync_json_http_request(
@@ -91,6 +94,11 @@ def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
     assert response_text == '{"ok": true}'
     assert calls == [
         {
+            "client_kwargs": {
+                "follow_redirects": True,
+            },
+        },
+        {
             "method": "POST",
             "url": "https://example.com/api/v1/solve",
             "kwargs": {
@@ -100,7 +108,6 @@ def test_remote_browser_http_helper_uses_asyncsession(monkeypatch):
                     "Content-Type": "application/json; charset=utf-8",
                 },
                 "timeout": 12,
-                "impersonate": "chrome120",
                 "json": {"project_id": "project-123"},
             },
         }

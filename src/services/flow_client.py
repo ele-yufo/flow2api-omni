@@ -2,6 +2,7 @@
 import asyncio
 import json
 import contextvars
+import httpx
 import time
 import uuid
 import random
@@ -2040,7 +2041,6 @@ class FlowClient:
         request_kwargs: Dict[str, Any] = {
             "headers": req_headers,
             "timeout": timeout,
-            "impersonate": "chrome120",
         }
 
         if payload is not None:
@@ -2049,7 +2049,9 @@ class FlowClient:
                 request_kwargs["json"] = payload
 
         try:
-            async with AsyncSession() as session:
+            # remote_browser 控制面只需要稳定传输 JSON，不需要浏览器指纹伪装。
+            # 使用 httpx 可以避免 curl_cffi 在当前环境下 POST body 被吞掉。
+            async with httpx.AsyncClient(follow_redirects=True) as session:
                 response = await session.request(
                     method=request_method,
                     url=url,

@@ -1,6 +1,7 @@
 """Admin API routes"""
 import asyncio
 import json
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -189,7 +190,6 @@ async def _sync_json_http_request(
     request_kwargs: Dict[str, Any] = {
         "headers": req_headers,
         "timeout": timeout,
-        "impersonate": "chrome120",
     }
 
     if payload is not None:
@@ -198,7 +198,9 @@ async def _sync_json_http_request(
             request_kwargs["json"] = payload
 
     try:
-        async with AsyncSession() as session:
+        # remote_browser 控制面是服务间 JSON API，使用 httpx 避免 curl_cffi 在当前
+        # Windows + impersonate 场景下 POST body 丢失导致 FastAPI 直接判定 body 缺失。
+        async with httpx.AsyncClient(follow_redirects=True) as session:
             response = await session.request(
                 method=request_method,
                 url=url,
