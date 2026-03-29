@@ -116,6 +116,13 @@ async def lifespan(app: FastAPI):
 
     await concurrency_manager.initialize(tokens)
 
+    if config.captcha_method == "remote_browser":
+        try:
+            warmed_projects = await flow_client.prefill_remote_browser_for_tokens(tokens, action="IMAGE_GENERATION")
+            print(f"✓ Remote browser pool prefill started for {warmed_projects} project(s)")
+        except Exception as e:
+            print(f"⚠ Remote browser pool prefill failed: {e}")
+
     # Start file cache cleanup task
     await generation_handler.file_cache.start_cleanup_task()
 

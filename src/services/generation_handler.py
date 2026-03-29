@@ -927,6 +927,12 @@ class GenerationHandler:
                 progress=22,
                 response_extra={"project_id": project_id},
             )
+            prefill_action = "IMAGE_GENERATION" if generation_type == "image" else "VIDEO_GENERATION"
+            await self.flow_client.prefill_remote_browser_pool(
+                project_id=project_id,
+                action=prefill_action,
+                token_id=token.id,
+            )
 
             # 5. 根据类型处理
             generation_pipeline_started_at = time.time()
