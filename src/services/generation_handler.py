@@ -695,6 +695,7 @@ class GenerationHandler:
         return {
             "url": None,
             "generated_assets": None,
+            "base_url": None,
         }
 
     def _mark_generation_failed(self, generation_result: Optional[Dict[str, Any]], error_message: str):
@@ -759,7 +760,8 @@ class GenerationHandler:
         model: str,
         prompt: str,
         images: Optional[List[bytes]] = None,
-        stream: bool = False
+        stream: bool = False,
+        base_url_override: Optional[str] = None
     ) -> AsyncGenerator:
         """统一生成入口
 
@@ -781,6 +783,7 @@ class GenerationHandler:
         }
         generation_result = self._create_generation_result()
         response_state = self._create_response_state()
+        response_state["base_url"] = (base_url_override or "").strip().rstrip("/") or None
         request_log_state: Dict[str, Any] = {"id": None, "progress": 0}
 
         # 防止并发链路复用到上一次请求的指纹上下文
@@ -1271,7 +1274,7 @@ class GenerationHandler:
                                 if stream:
                                     yield self._create_stream_chunk(f"缓存 {resolution_name} 图片中...\n")
                                 cached_filename = await self.file_cache.cache_base64_image(encoded_image, resolution_name)
-                                local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                                local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
                                 response_state["url"] = local_url
                                 response_state["generated_assets"]["upscaled_image"]["local_url"] = local_url
                                 response_state["generated_assets"]["upscaled_image"]["url"] = local_url
@@ -1351,7 +1354,7 @@ class GenerationHandler:
                     yield self._create_stream_chunk("正在缓存 1K 图片文件...\n")
                 try:
                     cached_filename = await self.file_cache.download_and_cache(image_url, "image")
-                    local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                    local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
                     if stream:
                         yield self._create_stream_chunk("✅ 1K 图片缓存成功,准备返回缓存地址...\n")
                 except Exception as e:
@@ -1781,7 +1784,7 @@ class GenerationHandler:
                             if stream:
                                 yield self._create_stream_chunk("正在缓存视频文件...\n")
                             cached_filename = await self.file_cache.download_and_cache(video_url, "video")
-                            local_url = f"{self._get_base_url()}/tmp/{cached_filename}"
+                            local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
                             if stream:
                                 yield self._create_stream_chunk("✅ 视频缓存成功,准备返回缓存地址...\n")
                         except Exception as e:
@@ -1963,13 +1966,24 @@ class GenerationHandler:
 
         return json.dumps(error, ensure_ascii=False)
 
-    def _get_base_url(self) -> str:
+    def _get_base_url(self, response_state: Optional[Dict[str, Any]] = None) -> str:
         """获取基础URL用于缓存文件访问"""
-        # 优先使用配置的cache_base_url
+        request_base_url = ""
+        if isinstance(response_state, dict):
+            request_base_url = (response_state.get("base_url") or "").strip().rstrip("/")
+        if request_base_url:
+            return request_base_url
+
+        # 优先使用配置的 cache_base_url
         if config.cache_base_url:
-            return config.cache_base_url
-        # 否则使用服务器地址
-        return f"http://{config.server_host}:{config.server_port}"
+            return config.cache_base_url.rstrip("/")
+
+        # 回退到服务地址，避免把监听地址 0.0.0.0 / :: 直接返回给客户端
+        server_host = (config.server_host or "").strip()
+        if server_host in {"", "0.0.0.0", "::", "[::]"}:
+            server_host = "127.0.0.1"
+
+        return f"http://{server_host}:{config.server_port}"
 
     async def _update_request_log_progress(
         self,
