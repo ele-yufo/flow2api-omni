@@ -200,7 +200,22 @@ class BrowserCaptchaService:
                         cls._instance._idle_tab_reaper_loop()
                     )
         return cls._instance
-    
+
+    async def reload_config(self):
+        """热更新配置（从数据库重新加载）"""
+        from ..core.config import config
+        old_max_tabs = self._max_resident_tabs
+        old_idle_ttl = self._idle_tab_ttl_seconds
+
+        self._max_resident_tabs = config.personal_max_resident_tabs
+        self._idle_tab_ttl_seconds = config.personal_idle_tab_ttl_seconds
+
+        debug_logger.log_info(
+            f"[BrowserCaptcha] Personal 配置已热更新: "
+            f"max_tabs {old_max_tabs}->{self._max_resident_tabs}, "
+            f"idle_ttl {old_idle_ttl}s->{self._idle_tab_ttl_seconds}s"
+        )
+
     def _check_available(self):
         """检查服务是否可用"""
         if DOCKER_HEADED_BLOCKED:
@@ -305,7 +320,7 @@ class BrowserCaptchaService:
                     f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"
                 )
 
-            # 启动 nodriver 浏览器
+            # 启动 nodriver 浏览器（后台启动，不占用前台）
             config = uc.Config(
                 headless=self.headless,
                 user_data_dir=self.user_data_dir,
@@ -316,7 +331,15 @@ class BrowserCaptchaService:
                     '--disable-setuid-sandbox',
                     '--disable-gpu',
                     '--window-size=1280,720',
+                    '--window-position=3000,3000',  # 窗口位置移到屏幕外
                     '--profile-directory=Default',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--disable-default-apps',
+                    '--no-first-run',
+                    '--no-default-browser-check',
                 ]
             )
             self.browser = await uc.start(config)
@@ -1059,7 +1082,7 @@ class BrowserCaptchaService:
         Returns:
             reCAPTCHA token字符串，如果获取失败返回None
         """
-        debug_logger.log_info(f"[BrowserCaptcha] get_token 开始: project_id={project_id}, action={action}")
+        debug_logger.log_info(f"[BrowserCaptcha] get_token 开始: project_id={project_id}, action={action}, 当前标签页数={len(self._resident_tabs)}/{self._max_resident_tabs}")
 
         # 确保浏览器已初始化
         await self.initialize()
@@ -1074,7 +1097,7 @@ class BrowserCaptchaService:
                 # 双重检查，避免并发创建
                 resident_info = self._resident_tabs.get(project_id)
                 if resident_info is None:
-                    debug_logger.log_info(f"[BrowserCaptcha] 开始创建标签页 (project: {project_id})")
+                    debug_logger.log_info(f"[BrowserCaptcha] 开始创建标签页 (project: {project_id}, 当前: {len(self._resident_tabs)}/{self._max_resident_tabs})")
                     # 先检查是否需要淘汰旧标签页
                     await self._evict_lru_tab_if_needed()
 
@@ -1083,9 +1106,11 @@ class BrowserCaptchaService:
                         debug_logger.log_warning(f"[BrowserCaptcha] 创建标签页失败，fallback 到传统模式 (project: {project_id})")
                         return await self._get_token_legacy(project_id, action)
                     self._resident_tabs[project_id] = resident_info
-                    debug_logger.log_info(f"[BrowserCaptcha] ✅ 标签页创建成功 (project: {project_id}, 当前共 {len(self._resident_tabs)} 个)")
+                    debug_logger.log_info(f"[BrowserCaptcha] ✅ 标签页创建成功 (project: {project_id}, 当前共 {len(self._resident_tabs)}/{self._max_resident_tabs} 个)")
+                else:
+                    debug_logger.log_info(f"[BrowserCaptcha] 标签页已存在，复用 (project: {project_id})")
 
-        debug_logger.log_info(f"[BrowserCaptcha] 准备执行打码 (project: {project_id})")
+        debug_logger.log_info(f"[BrowserCaptcha] 准备执行打码 (project: {project_id}, 标签页使用次数: {resident_info.use_count if resident_info else 0})")
 
         # 使用常驻标签页生成 token（在锁外执行，避免阻塞）
         if resident_info and resident_info.recaptcha_ready and resident_info.tab:

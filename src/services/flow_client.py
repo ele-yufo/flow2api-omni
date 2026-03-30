@@ -2269,13 +2269,18 @@ class FlowClient:
             - 其他模式: browser_id 为 None
         """
         captcha_method = config.captcha_method
+        debug_logger.log_info(f"[reCAPTCHA] 开始获取 token: method={captcha_method}, project_id={project_id}, action={action}")
 
         # 内置浏览器打码 (nodriver)
         if captcha_method == "personal":
+            debug_logger.log_info(f"[reCAPTCHA] 使用 personal 模式")
             try:
                 from .browser_captcha_personal import BrowserCaptchaService
+                debug_logger.log_info(f"[reCAPTCHA] 导入 BrowserCaptchaService 成功")
                 service = await BrowserCaptchaService.get_instance(self.db)
+                debug_logger.log_info(f"[reCAPTCHA] 获取服务实例成功，准备调用 get_token")
                 token = await service.get_token(project_id, action)
+                debug_logger.log_info(f"[reCAPTCHA] get_token 返回: {token[:50] if token else None}...")
                 fingerprint = service.get_last_fingerprint() if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
                 return token, None

@@ -1528,6 +1528,8 @@ async def update_captcha_config(
     browser_proxy_enabled = request.get("browser_proxy_enabled", False)
     browser_proxy_url = request.get("browser_proxy_url", "")
     browser_count = request.get("browser_count", 1)
+    personal_max_resident_tabs = request.get("personal_max_resident_tabs")
+    personal_idle_tab_ttl_seconds = request.get("personal_idle_tab_ttl_seconds")
 
     # 验证浏览器代理URL格式
     if browser_proxy_enabled and browser_proxy_url:
@@ -1567,8 +1569,13 @@ async def update_captcha_config(
         remote_browser_timeout=remote_browser_timeout,
         browser_proxy_enabled=browser_proxy_enabled,
         browser_proxy_url=browser_proxy_url if browser_proxy_enabled else None,
-        browser_count=max(1, int(browser_count)) if browser_count else 1
+        browser_count=max(1, int(browser_count)) if browser_count else 1,
+        personal_max_resident_tabs=personal_max_resident_tabs,
+        personal_idle_tab_ttl_seconds=personal_idle_tab_ttl_seconds
     )
+
+    # 🔥 Hot reload: sync database config to memory
+    await db.reload_config_to_memory()
 
     # 如果使用 browser 打码，热重载浏览器数量配置
     if captcha_method == "browser":
@@ -1579,8 +1586,14 @@ async def update_captcha_config(
         except Exception:
             pass
 
-    # 🔥 Hot reload: sync database config to memory
-    await db.reload_config_to_memory()
+    # 如果使用 personal 打码，热重载配置
+    if captcha_method == "personal":
+        try:
+            from ..services.browser_captcha_personal import BrowserCaptchaService
+            service = await BrowserCaptchaService.get_instance(db)
+            await service.reload_config()
+        except Exception as e:
+            print(f"[Admin] Personal 配置热更新失败: {e}")
 
     return {"success": True, "message": "验证码配置更新成功"}
 
@@ -1604,7 +1617,9 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
         "remote_browser_timeout": captcha_config.remote_browser_timeout,
         "browser_proxy_enabled": captcha_config.browser_proxy_enabled,
         "browser_proxy_url": captcha_config.browser_proxy_url or "",
-        "browser_count": captcha_config.browser_count
+        "browser_count": captcha_config.browser_count,
+        "personal_max_resident_tabs": captcha_config.personal_max_resident_tabs,
+        "personal_idle_tab_ttl_seconds": captcha_config.personal_idle_tab_ttl_seconds
     }
 
 

@@ -1104,8 +1104,9 @@ class TokenBrowser:
         try:
             page = await context.new_page()
             await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
-            
-            page_url = f"https://labs.google/fx/tools/flow/project/{project_id}"
+
+            # 使用更简单的 API 地址，避免加载复杂页面
+            page_url = "https://labs.google/fx/api/auth/providers"
             primary_host = "https://www.recaptcha.net" if self._browser_proxy_active else "https://www.google.com"
             secondary_host = "https://www.google.com" if primary_host == "https://www.recaptcha.net" else "https://www.recaptcha.net"
             debug_logger.log_info(
@@ -1175,13 +1176,13 @@ class TokenBrowser:
 
             page.on("response", handle_response)
             try:
-                await page.goto(page_url, wait_until="load", timeout=30000)
+                await page.goto(page_url, wait_until="load", timeout=15000)  # 减少到15秒
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} page.goto 失败: {type(e).__name__}: {str(e)[:200]}")
                 return None
-            
+
             try:
-                await page.wait_for_function("typeof grecaptcha !== 'undefined'", timeout=15000)
+                await page.wait_for_function("typeof grecaptcha !== 'undefined'", timeout=10000)  # 减少到10秒
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] Token-{self.token_id} grecaptcha 未就绪: {type(e).__name__}: {str(e)[:200]}")
                 return None
@@ -1205,7 +1206,7 @@ class TokenBrowser:
 
             # 按要求：等待 enterprise/reload 与 enterprise/clr 均出现并返回 200
             try:
-                await asyncio.wait_for(reload_ok_event.wait(), timeout=12)
+                await asyncio.wait_for(reload_ok_event.wait(), timeout=8)  # 减少到8秒
             except asyncio.TimeoutError:
                 debug_logger.log_warning(
                     f"[BrowserCaptcha] Token-{self.token_id} 等待 recaptcha enterprise/reload 200 超时"
@@ -1213,7 +1214,7 @@ class TokenBrowser:
                 return None
 
             try:
-                await asyncio.wait_for(clr_ok_event.wait(), timeout=12)
+                await asyncio.wait_for(clr_ok_event.wait(), timeout=8)  # 减少到8秒
             except asyncio.TimeoutError:
                 debug_logger.log_warning(
                     f"[BrowserCaptcha] Token-{self.token_id} 等待 recaptcha enterprise/clr 200 超时"

@@ -193,6 +193,8 @@ class CaptchaConfig(BaseModel):
     browser_proxy_enabled: bool = False  # 浏览器打码是否启用代理
     browser_proxy_url: Optional[str] = None  # 浏览器打码代理URL
     browser_count: int = 1  # 浏览器打码实例数量
+    personal_max_resident_tabs: int = 5  # 内置浏览器最大常驻标签页数量
+    personal_idle_tab_ttl_seconds: int = 600  # 内置浏览器标签页空闲超时(秒)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

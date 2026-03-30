@@ -390,6 +390,36 @@ class Config:
             return 600
 
     @property
+    def personal_max_resident_tabs(self) -> int:
+        """内置浏览器打码最大常驻标签页数量"""
+        value = self._config.get("captcha", {}).get("personal_max_resident_tabs", 5)
+        try:
+            return max(1, min(50, int(value)))  # 限制在1-50之间
+        except Exception:
+            return 5
+
+    @property
+    def personal_idle_tab_ttl_seconds(self) -> int:
+        """内置浏览器打码标签页空闲超时(秒)"""
+        value = self._config.get("captcha", {}).get("personal_idle_tab_ttl_seconds", 600)
+        try:
+            return max(60, int(value))
+        except Exception:
+            return 600
+
+    def set_personal_max_resident_tabs(self, value: int):
+        """设置内置浏览器打码最大常驻标签页数量"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["personal_max_resident_tabs"] = max(1, min(50, int(value)))
+
+    def set_personal_idle_tab_ttl_seconds(self, value: int):
+        """设置内置浏览器打码标签页空闲超时(秒)"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["personal_idle_tab_ttl_seconds"] = max(60, int(value))
+
+    @property
     def yescaptcha_api_key(self) -> str:
         """Get YesCaptcha API key"""
         return self._config.get("captcha", {}).get("yescaptcha_api_key", "")
