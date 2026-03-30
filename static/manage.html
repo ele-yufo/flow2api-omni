@@ -459,22 +459,24 @@
                                 </p>
                             </div>
 
-                            <div>
-                                <label class="text-sm font-medium mb-2 block">单 Token 项目池大小</label>
-                                <input id="cfgPersonalProjectPoolSize" type="number" min="1" max="50" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="4" value="4">
-                                <p class="text-xs text-muted-foreground mt-1">
-                                    只影响该 Token 可轮换的 project_id 数量，不决定打码标签页数。<br>
-                                    打码标签页由全局共享池统一复用。
-                                </p>
-                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-sm font-medium mb-2 block">单 Token 项目池大小</label>
+                                    <input id="cfgPersonalProjectPoolSize" type="number" min="1" max="50" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="4" value="4">
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        只影响该 Token 可轮换的 project_id 数量，不决定打码标签页数。<br>
+                                        打码标签页由全局共享池统一复用。
+                                    </p>
+                                </div>
 
-                            <div>
-                                <label class="text-sm font-medium mb-2 block">最大标签页数量</label>
-                                <input id="cfgPersonalMaxTabs" type="number" min="1" max="50" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="5" value="5">
-                                <p class="text-xs text-muted-foreground mt-1">
-                                    决定 personal 模式最多保留多少个共享打码标签页。<br>
-                                    并发打码能力主要看这里，不够就优先调大这个值。
-                                </p>
+                                <div>
+                                    <label class="text-sm font-medium mb-2 block">最大标签页数量</label>
+                                    <input id="cfgPersonalMaxTabs" type="number" min="1" max="50" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" placeholder="5" value="5">
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        决定 personal 模式最多保留多少个共享打码标签页。<br>
+                                        并发打码能力主要看这里，不够就优先调大这个值。
+                                    </p>
+                                </div>
                             </div>
 
                             <div>
