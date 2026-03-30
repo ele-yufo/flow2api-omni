@@ -1528,6 +1528,7 @@ async def update_captcha_config(
     browser_proxy_enabled = request.get("browser_proxy_enabled", False)
     browser_proxy_url = request.get("browser_proxy_url", "")
     browser_count = request.get("browser_count", 1)
+    personal_project_pool_size = request.get("personal_project_pool_size")
     personal_max_resident_tabs = request.get("personal_max_resident_tabs")
     personal_idle_tab_ttl_seconds = request.get("personal_idle_tab_ttl_seconds")
 
@@ -1570,6 +1571,7 @@ async def update_captcha_config(
         browser_proxy_enabled=browser_proxy_enabled,
         browser_proxy_url=browser_proxy_url if browser_proxy_enabled else None,
         browser_count=max(1, int(browser_count)) if browser_count else 1,
+        personal_project_pool_size=personal_project_pool_size,
         personal_max_resident_tabs=personal_max_resident_tabs,
         personal_idle_tab_ttl_seconds=personal_idle_tab_ttl_seconds
     )
@@ -1618,6 +1620,7 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
         "browser_proxy_enabled": captcha_config.browser_proxy_enabled,
         "browser_proxy_url": captcha_config.browser_proxy_url or "",
         "browser_count": captcha_config.browser_count,
+        "personal_project_pool_size": captcha_config.personal_project_pool_size,
         "personal_max_resident_tabs": captcha_config.personal_max_resident_tabs,
         "personal_idle_tab_ttl_seconds": captcha_config.personal_idle_tab_ttl_seconds
     }

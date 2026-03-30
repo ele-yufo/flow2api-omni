@@ -391,12 +391,21 @@ class Config:
 
     @property
     def personal_max_resident_tabs(self) -> int:
-        """内置浏览器打码最大常驻标签页数量"""
+        """内置浏览器打码的共享标签页上限"""
         value = self._config.get("captcha", {}).get("personal_max_resident_tabs", 5)
         try:
             return max(1, min(50, int(value)))  # 限制在1-50之间
         except Exception:
             return 5
+
+    @property
+    def personal_project_pool_size(self) -> int:
+        """单个 Token 默认维护的项目池数量，仅影响项目轮换。"""
+        value = self._config.get("captcha", {}).get("personal_project_pool_size", 4)
+        try:
+            return max(1, min(50, int(value)))
+        except Exception:
+            return 4
 
     @property
     def personal_idle_tab_ttl_seconds(self) -> int:
@@ -408,10 +417,16 @@ class Config:
             return 600
 
     def set_personal_max_resident_tabs(self, value: int):
-        """设置内置浏览器打码最大常驻标签页数量"""
+        """设置内置浏览器打码的共享标签页上限"""
         if "captcha" not in self._config:
             self._config["captcha"] = {}
         self._config["captcha"]["personal_max_resident_tabs"] = max(1, min(50, int(value)))
+
+    def set_personal_project_pool_size(self, value: int):
+        """设置单个 Token 默认维护的项目池数量，仅影响项目轮换"""
+        if "captcha" not in self._config:
+            self._config["captcha"] = {}
+        self._config["captcha"]["personal_project_pool_size"] = max(1, min(50, int(value)))
 
     def set_personal_idle_tab_ttl_seconds(self, value: int):
         """设置内置浏览器打码标签页空闲超时(秒)"""

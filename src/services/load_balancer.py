@@ -201,6 +201,7 @@ class LoadBalancer:
                 "token": token,
                 "inflight": inflight,
                 "remaining": remaining,
+                "needs_refresh": self.token_manager.needs_at_refresh(token),
                 "random": random.random()
             })
 
@@ -234,6 +235,7 @@ class LoadBalancer:
         else:
             available_tokens.sort(
                 key=lambda item: (
+                    1 if item["needs_refresh"] else 0,
                     item["inflight"],
                     0 if item["remaining"] is None else 1,
                     -(item["remaining"] or 0),
@@ -241,13 +243,19 @@ class LoadBalancer:
                 )
             )
 
+        ready_candidates = [item for item in available_tokens if not item["needs_refresh"]]
+        refresh_candidates = [item for item in available_tokens if item["needs_refresh"]]
+        if ready_candidates and refresh_candidates:
+            available_tokens = ready_candidates + refresh_candidates
+
         debug_logger.log_info("[LOAD_BALANCER] 候选Token负载:")
         for item in available_tokens:
             token = item["token"]
             remaining = "unlimited" if item["remaining"] is None else item["remaining"]
             debug_logger.log_info(
                 f"[LOAD_BALANCER]   - Token {token.id} ({token.email}) "
-                f"inflight={item['inflight']}, remaining={remaining}, credits={token.credits}"
+                f"inflight={item['inflight']}, remaining={remaining}, "
+                f"needs_refresh={item['needs_refresh']}, credits={token.credits}"
             )
 
         # 只为候选列表中真正尝试到的 token 做 AT 校验，避免每次请求把所有 token 全扫一遍

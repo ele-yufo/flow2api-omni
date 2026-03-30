@@ -44,43 +44,12 @@ async def lifespan(app: FastAPI):
         await db.check_and_migrate_db(config_dict)
         print("✓ Database migration check completed.")
 
-    # Load admin config from database
-    admin_config = await db.get_admin_config()
-    if admin_config:
-        config.set_admin_username_from_db(admin_config.username)
-        config.set_admin_password_from_db(admin_config.password)
-        config.api_key = admin_config.api_key
-
-    # Load cache configuration from database
-    cache_config = await db.get_cache_config()
-    config.set_cache_enabled(cache_config.cache_enabled)
-    config.set_cache_timeout(cache_config.cache_timeout)
-    config.set_cache_base_url(cache_config.cache_base_url or "")
-
-    # Load generation configuration from database
-    generation_config = await db.get_generation_config()
-    config.set_image_timeout(generation_config.image_timeout)
-    config.set_video_timeout(generation_config.video_timeout)
-
-    # Load debug configuration from database
-    debug_config = await db.get_debug_config()
-    config.set_debug_enabled(debug_config.enabled)
-
-    # Load captcha configuration from database
+    # 启动时统一把数据库配置同步到内存，避免 personal/brower 相关运行时配置遗漏。
+    await db.reload_config_to_memory()
     captcha_config = await db.get_captcha_config()
-    
-    config.set_captcha_method(captcha_config.captcha_method)
-    config.set_yescaptcha_api_key(captcha_config.yescaptcha_api_key)
-    config.set_yescaptcha_base_url(captcha_config.yescaptcha_base_url)
-    config.set_capmonster_api_key(captcha_config.capmonster_api_key)
-    config.set_capmonster_base_url(captcha_config.capmonster_base_url)
-    config.set_ezcaptcha_api_key(captcha_config.ezcaptcha_api_key)
-    config.set_ezcaptcha_base_url(captcha_config.ezcaptcha_base_url)
-    config.set_capsolver_api_key(captcha_config.capsolver_api_key)
-    config.set_capsolver_base_url(captcha_config.capsolver_base_url)
-    config.set_remote_browser_base_url(captcha_config.remote_browser_base_url)
-    config.set_remote_browser_api_key(captcha_config.remote_browser_api_key)
-    config.set_remote_browser_timeout(captcha_config.remote_browser_timeout)
+
+    # 尽量在浏览器服务启动前就拿到 token 快照，后续并发管理和预热共用。
+    tokens = await token_manager.get_all_tokens()
 
     # Initialize browser captcha service if needed
     browser_service = None
@@ -88,23 +57,28 @@ async def lifespan(app: FastAPI):
         from .services.browser_captcha_personal import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
         print("✓ Browser captcha service initialized (nodriver mode)")
-        
-        # 启动常驻模式：从第一个可用token获取project_id
-        tokens = await token_manager.get_all_tokens()
-        resident_project_id = None
-        for t in tokens:
-            if t.current_project_id and t.is_active:
-                resident_project_id = t.current_project_id
-                break
-        
-        if resident_project_id:
-            # 直接启动常驻模式（会自动导航到项目页面，cookie已持久化）
-            await browser_service.start_resident_mode(resident_project_id)
-            print(f"✓ Browser captcha resident mode started (project: {resident_project_id[:8]}...)")
+
+        warmup_limit = max(1, int(config.personal_max_resident_tabs or 1))
+        warmup_project_ids = await token_manager.get_personal_warmup_project_ids(
+            tokens=tokens,
+            limit=warmup_limit,
+        )
+
+        warmed_slots = await browser_service.warmup_resident_tabs(
+            warmup_project_ids,
+            limit=warmup_limit,
+        )
+        if warmed_slots:
+            print(
+                f"✓ Browser captcha shared resident tabs warmed "
+                f"({len(warmed_slots)} slot(s), limit={warmup_limit})"
+            )
+        elif tokens:
+            print("⚠ Browser captcha resident warmup skipped: no tab warmed successfully")
         else:
-            # 没有可用的project_id时，打开登录窗口供用户手动操作
+            # 没有任何可用 token 时，打开登录窗口供用户手动操作
             await browser_service.open_login_window()
-            print("⚠ No active token with project_id found, opened login window for manual setup")
+            print("⚠ No active token found, opened login window for manual setup")
     elif captcha_config.captcha_method == "browser":
         from .services.browser_captcha import BrowserCaptchaService
         browser_service = await BrowserCaptchaService.get_instance(db)
@@ -112,8 +86,6 @@ async def lifespan(app: FastAPI):
         print("? Browser captcha service initialized (headed mode)")
 
     # Initialize concurrency manager
-    tokens = await token_manager.get_all_tokens()
-
     await concurrency_manager.initialize(tokens)
 
     if config.captcha_method == "remote_browser":
