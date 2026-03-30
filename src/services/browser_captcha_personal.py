@@ -8,6 +8,10 @@ import inspect
 import time
 import os
 import sys
+import re
+import json
+import shutil
+import tempfile
 import subprocess
 from typing import Optional, Dict, Any, Iterable
 
@@ -139,6 +143,74 @@ else:
             print(f"[BrowserCaptcha] ❌ nodriver 导入失败: {e}")
 
 
+def _parse_proxy_url(proxy_url: str):
+    """Parse a proxy URL into (protocol, host, port, username, password)."""
+    if not proxy_url:
+        return None, None, None, None, None
+    url = proxy_url.strip()
+    if not re.match(r'^(http|https|socks5h?|socks5)://', url):
+        url = f"http://{url}"
+    m = re.match(r'^(socks5h?|socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', url)
+    if not m:
+        return None, None, None, None, None
+    protocol, username, password, host, port = m.groups()
+    if protocol == "socks5h":
+        protocol = "socks5"
+    return protocol, host, port, username, password
+
+
+def _create_proxy_auth_extension(protocol: str, host: str, port: str, username: str, password: str) -> str:
+    """Create a temporary Chrome extension directory for proxy authentication.
+    Returns the path to the extension directory."""
+    ext_dir = tempfile.mkdtemp(prefix="nodriver_proxy_auth_")
+
+    scheme_map = {"http": "http", "https": "https", "socks5": "socks5"}
+    scheme = scheme_map.get(protocol, "http")
+
+    manifest = {
+        "version": "1.0.0",
+        "manifest_version": 2,
+        "name": "Proxy Auth Helper",
+        "permissions": [
+            "proxy", "tabs", "unlimitedStorage", "storage",
+            "<all_urls>", "webRequest", "webRequestBlocking"
+        ],
+        "background": {"scripts": ["background.js"]},
+        "minimum_chrome_version": "76.0.0"
+    }
+    background_js = (
+        "var config = {\n"
+        '    mode: "fixed_servers",\n'
+        "    rules: {\n"
+        "        singleProxy: {\n"
+        f'            scheme: "{scheme}",\n'
+        f'            host: "{host}",\n'
+        f"            port: parseInt({port})\n"
+        "        },\n"
+        '        bypassList: ["localhost"]\n'
+        "    }\n"
+        "};\n"
+        'chrome.proxy.settings.set({value: config, scope: "regular"}, function(){});\n'
+        "chrome.webRequest.onAuthRequired.addListener(\n"
+        "    function(details) {\n"
+        "        return {\n"
+        "            authCredentials: {\n"
+        f'                username: "{username}",\n'
+        f'                password: "{password}"\n'
+        "            }\n"
+        "        };\n"
+        "    },\n"
+        '    {urls: ["<all_urls>"]},\n'
+        "    ['blocking']\n"
+        ");\n"
+    )
+    with open(os.path.join(ext_dir, "manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    with open(os.path.join(ext_dir, "background.js"), "w", encoding="utf-8") as f:
+        f.write(background_js)
+    return ext_dir
+
+
 class ResidentTabInfo:
     """常驻标签页信息结构"""
     def __init__(self, tab, slot_id: str, project_id: Optional[str] = None):
@@ -197,6 +269,8 @@ class BrowserCaptchaService:
         self._recaptcha_ready = False                    # 向后兼容
         self._last_fingerprint: Optional[Dict[str, Any]] = None
         self._resident_error_streaks: dict[str, int] = {}
+        self._proxy_url: Optional[str] = None
+        self._proxy_ext_dir: Optional[str] = None
         # 自定义站点打码常驻页（用于 score-test）
         self._custom_tabs: dict[str, Dict[str, Any]] = {}
         self._custom_lock = asyncio.Lock()
@@ -615,6 +689,8 @@ class BrowserCaptchaService:
         self.browser = None
         self._initialized = False
         self._last_fingerprint = None
+        self._cleanup_proxy_extension()
+        self._proxy_url = None
 
         async with self._resident_lock:
             resident_items = list(self._resident_tabs.values())
@@ -651,6 +727,40 @@ class BrowserCaptchaService:
                 debug_logger.log_warning(
                     f"[BrowserCaptcha] 停止浏览器实例失败 ({reason}): {e}"
                 )
+
+    async def _resolve_personal_proxy(self):
+        """Read proxy config for personal captcha browser.
+        Priority: captcha browser_proxy > request proxy."""
+        if not self.db:
+            return None, None, None, None, None
+        try:
+            captcha_cfg = await self.db.get_captcha_config()
+            if captcha_cfg.browser_proxy_enabled and captcha_cfg.browser_proxy_url:
+                url = captcha_cfg.browser_proxy_url.strip()
+                if url:
+                    debug_logger.log_info(f"[BrowserCaptcha] Personal 使用验证码代理: {url}")
+                    return _parse_proxy_url(url)
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 读取验证码代理配置失败: {e}")
+        try:
+            proxy_cfg = await self.db.get_proxy_config()
+            if proxy_cfg and proxy_cfg.enabled and proxy_cfg.proxy_url:
+                url = proxy_cfg.proxy_url.strip()
+                if url:
+                    debug_logger.log_info(f"[BrowserCaptcha] Personal 回退使用请求代理: {url}")
+                    return _parse_proxy_url(url)
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 读取请求代理配置失败: {e}")
+        return None, None, None, None, None
+
+    def _cleanup_proxy_extension(self):
+        """Remove temporary proxy auth extension directory."""
+        if self._proxy_ext_dir and os.path.isdir(self._proxy_ext_dir):
+            try:
+                shutil.rmtree(self._proxy_ext_dir, ignore_errors=True)
+            except Exception:
+                pass
+            self._proxy_ext_dir = None
 
     async def initialize(self):
         """初始化 nodriver 浏览器"""
@@ -690,27 +800,49 @@ class BrowserCaptchaService:
                         f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"
                     )
 
+                # 解析代理配置
+                self._cleanup_proxy_extension()
+                self._proxy_url = None
+                protocol, host, port, username, password = await self._resolve_personal_proxy()
+                proxy_server_arg = None
+                if protocol and host and port:
+                    if username and password:
+                        self._proxy_ext_dir = _create_proxy_auth_extension(protocol, host, port, username, password)
+                        debug_logger.log_info(
+                            f"[BrowserCaptcha] Personal 代理需要认证，已创建扩展: {self._proxy_ext_dir}"
+                        )
+                    proxy_server_arg = f"--proxy-server={protocol}://{host}:{port}"
+                    self._proxy_url = f"{protocol}://{host}:{port}"
+                    debug_logger.log_info(f"[BrowserCaptcha] Personal 浏览器代理: {self._proxy_url}")
+
+                browser_args = [
+                    '--disable-dev-shm-usage',
+                    '--disable-setuid-sandbox',
+                    '--disable-gpu',
+                    '--window-size=1280,720',
+                    '--window-position=3000,3000',
+                    '--profile-directory=Default',
+                    '--disable-background-networking',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--disable-default-apps',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                ]
+                if proxy_server_arg:
+                    browser_args.append(proxy_server_arg)
+                if self._proxy_ext_dir:
+                    browser_args.append(f'--load-extension={self._proxy_ext_dir}')
+                else:
+                    browser_args.append('--disable-extensions')
+
                 # 启动 nodriver 浏览器（后台启动，不占用前台）
                 config = uc.Config(
                     headless=self.headless,
                     user_data_dir=self.user_data_dir,
                     browser_executable_path=browser_executable_path,
                     sandbox=False,
-                    browser_args=[
-                        '--disable-dev-shm-usage',
-                        '--disable-setuid-sandbox',
-                        '--disable-gpu',
-                        '--window-size=1280,720',
-                        '--window-position=3000,3000',  # 窗口位置移到屏幕外
-                        '--profile-directory=Default',
-                        '--disable-extensions',
-                        '--disable-background-networking',
-                        '--disable-sync',
-                        '--disable-translate',
-                        '--disable-default-apps',
-                        '--no-first-run',
-                        '--no-default-browser-check',
-                    ]
+                    browser_args=browser_args,
                 )
                 self.browser = await self._run_with_timeout(
                     uc.start(config),
@@ -1491,8 +1623,7 @@ class BrowserCaptchaService:
             if not isinstance(fingerprint, dict):
                 return None
 
-            # personal 模式当前未单独配置浏览器代理，显式使用直连，避免与全局代理混淆。
-            result: Dict[str, Any] = {"proxy_url": None}
+            result: Dict[str, Any] = {"proxy_url": self._proxy_url}
             for key in ("user_agent", "accept_language", "sec_ch_ua", "sec_ch_ua_mobile", "sec_ch_ua_platform"):
                 value = fingerprint.get(key)
                 if isinstance(value, str) and value:
@@ -2212,7 +2343,7 @@ class BrowserCaptchaService:
                                 extracted_fingerprint = {
                                     "user_agent": fallback_ua or "",
                                     "accept_language": fallback_lang or "",
-                                    "proxy_url": None,
+                                    "proxy_url": self._proxy_url,
                                 }
                             except Exception:
                                 extracted_fingerprint = None

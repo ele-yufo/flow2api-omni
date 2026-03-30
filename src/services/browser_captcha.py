@@ -213,13 +213,14 @@ LABS_URL = "https://labs.google/fx/tools/flow"
 # 代理解析工具函数
 # ==========================================
 def parse_proxy_url(proxy_url: str) -> Optional[Dict[str, str]]:
-    """解析代理URL"""
+    """解析代理URL（支持 socks5h://，Playwright 中按 socks5 处理）"""
     if not proxy_url: return None
-    if not re.match(r'^(http|https|socks5)://', proxy_url): proxy_url = f"http://{proxy_url}"
-    match = re.match(r'^(socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', proxy_url)
+    if not re.match(r'^(http|https|socks5h?|socks5)://', proxy_url): proxy_url = f"http://{proxy_url}"
+    match = re.match(r'^(socks5h?|socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', proxy_url)
     if match:
         protocol, username, password, host, port = match.groups()
-        proxy_config = {'server': f'{protocol}://{host}:{port}'}
+        browser_protocol = "socks5" if protocol.startswith("socks5") else protocol
+        proxy_config = {'server': f'{browser_protocol}://{host}:{port}'}
         if username and password:
             proxy_config['username'] = username
             proxy_config['password'] = password
@@ -229,8 +230,8 @@ def parse_proxy_url(proxy_url: str) -> Optional[Dict[str, str]]:
 def normalize_browser_proxy_url(proxy_url: str) -> tuple[Optional[str], Optional[str]]:
     """将浏览器代理标准化为 Playwright/Chromium 可接受的格式。
 
-    Chromium 不支持带账号密码的 socks5 代理认证。
-    对于 `socks5://user:pass@host:port`，自动降级为 `http://user:pass@host:port`，
+    Chromium 不支持带账号密码的 socks5/socks5h 代理认证。
+    对于 `socks5(h)://user:pass@host:port`，自动降级为 `http://user:pass@host:port`，
     方便兼容同时提供 HTTP/SOCKS5 双入口的代理服务商。
 
     Returns:
@@ -240,27 +241,30 @@ def normalize_browser_proxy_url(proxy_url: str) -> tuple[Optional[str], Optional
         return None, None
 
     proxy_url = proxy_url.strip()
-    match = re.match(r'^(socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', proxy_url)
+    match = re.match(r'^(socks5h?|socks5|http|https)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$', proxy_url)
     if not match:
-        if not re.match(r'^(http|https|socks5)://', proxy_url):
+        if not re.match(r'^(http|https|socks5h?|socks5)://', proxy_url):
             proxy_url = f"http://{proxy_url}"
         return proxy_url, None
 
     protocol, username, password, host, port = match.groups()
-    if protocol == "socks5" and username and password:
+    if protocol.startswith("socks5") and username and password:
         normalized = f"http://{username}:{password}@{host}:{port}"
         warning = (
-            "检测到带认证的 SOCKS5 代理。"
+            f"检测到带认证的 {protocol.upper()} 代理。"
             "Chromium 不支持 socks5 用户名密码认证，"
             f"已自动改用 HTTP 代理启动浏览器: http://{host}:{port}"
         )
         return normalized, warning
 
+    if protocol == "socks5h":
+        proxy_url = f"socks5://{host}:{port}"
+
     return proxy_url, None
 
 def validate_browser_proxy_url(proxy_url: str) -> tuple[bool, str]:
     if not proxy_url: return True, None
-    normalized_proxy_url, _ = normalize_browser_proxy_url(proxy_url)
+    normalized_proxy_url, _ = normalize_browser_proxy_url(proxy_url.strip())
     parsed = parse_proxy_url(normalized_proxy_url)
     if not parsed: return False, "代理格式错误"
     return True, None
