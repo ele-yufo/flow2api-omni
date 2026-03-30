@@ -27,6 +27,6 @@ COPY . .
 COPY docker/entrypoint.headed.sh /usr/local/bin/entrypoint.headed.sh
 RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.headed.sh && chmod +x /usr/local/bin/entrypoint.headed.sh
 
-EXPOSE 8088
+EXPOSE 8000
 
 CMD ["/usr/local/bin/entrypoint.headed.sh"]
