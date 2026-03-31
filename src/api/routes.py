@@ -829,7 +829,7 @@ async def generate_content(
             return _build_gemini_error_response_from_handler(payload)
 
         return JSONResponse(
-            content=await _build_gemini_success_payload(payload, model)
+            content=await _build_gemini_success_payload(payload, normalized.model)
         )
 
     except HTTPException as exc:
@@ -862,7 +862,7 @@ async def stream_generate_content(
         request_base_url = _get_request_base_url(raw_request)
 
         return StreamingResponse(
-            _iterate_gemini_stream(normalized, model, request_base_url),
+            _iterate_gemini_stream(normalized, normalized.model, request_base_url),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",

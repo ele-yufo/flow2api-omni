@@ -224,6 +224,9 @@ class ImageConfig(BaseModel):
     aspectRatio: Optional[str] = None  # "16:9", "9:16", "1:1", "4:3", "3:4"
     imageSize: Optional[str] = None  # "2k", "4k"
 
+    # 兼容 OpenAI/NewAPI 等上游可能透传的 size/quality 或 snake_case 字段
+    model_config = ConfigDict(extra="allow")
+
 
 class GenerationConfigParam(BaseModel):
     """Gemini generationConfig parameters (for model name resolution)"""
