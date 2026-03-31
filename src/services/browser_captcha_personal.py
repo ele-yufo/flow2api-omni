@@ -768,6 +768,9 @@ class BrowserCaptchaService:
 
         async with self._browser_lock:
             browser_needs_restart = False
+            browser_executable_path = None
+            display_value = os.environ.get("DISPLAY", "").strip()
+            browser_args = []
 
             if self._initialized and self.browser:
                 try:
@@ -795,10 +798,35 @@ class BrowserCaptchaService:
                     debug_logger.log_info(f"[BrowserCaptcha] 正在启动 nodriver 浏览器 (使用临时目录)...")
 
                 browser_executable_path = os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip() or None
+                if browser_executable_path and not os.path.exists(browser_executable_path):
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] 指定浏览器不存在，改为自动发现: {browser_executable_path}"
+                    )
+                    browser_executable_path = None
                 if browser_executable_path:
                     debug_logger.log_info(
                         f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"
                     )
+                    try:
+                        version_result = subprocess.run(
+                            [browser_executable_path, "--version"],
+                            capture_output=True,
+                            text=True,
+                            timeout=10,
+                        )
+                        version_output = (
+                            (version_result.stdout or "").strip()
+                            or (version_result.stderr or "").strip()
+                            or "<empty>"
+                        )
+                        debug_logger.log_info(
+                            "[BrowserCaptcha] 浏览器版本探测: "
+                            f"rc={version_result.returncode}, output={version_output[:200]}"
+                        )
+                    except Exception as version_error:
+                        debug_logger.log_warning(
+                            f"[BrowserCaptcha] 浏览器版本探测失败: {version_error}"
+                        )
 
                 # 解析代理配置
                 self._cleanup_proxy_extension()
@@ -816,9 +844,13 @@ class BrowserCaptchaService:
                     debug_logger.log_info(f"[BrowserCaptcha] Personal 浏览器代理: {self._proxy_url}")
 
                 browser_args = [
+                    '--disable-quic',
+                    '--disable-features=UseDnsHttpsSvcb',
                     '--disable-dev-shm-usage',
                     '--disable-setuid-sandbox',
                     '--disable-gpu',
+                    '--disable-infobars',
+                    '--hide-scrollbars',
                     '--window-size=1280,720',
                     '--window-position=3000,3000',
                     '--profile-directory=Default',
@@ -828,6 +860,7 @@ class BrowserCaptchaService:
                     '--disable-default-apps',
                     '--no-first-run',
                     '--no-default-browser-check',
+                    '--no-zygote',
                 ]
                 if proxy_server_arg:
                     browser_args.append(proxy_server_arg)
@@ -835,6 +868,20 @@ class BrowserCaptchaService:
                     browser_args.append(f'--load-extension={self._proxy_ext_dir}')
                 else:
                     browser_args.append('--disable-extensions')
+
+                effective_uid = "n/a"
+                if hasattr(os, "geteuid"):
+                    try:
+                        effective_uid = str(os.geteuid())
+                    except Exception:
+                        effective_uid = "unknown"
+                debug_logger.log_info(
+                    "[BrowserCaptcha] nodriver 启动上下文: "
+                    f"docker={IS_DOCKER}, display={display_value or '<empty>'}, "
+                    f"uid={effective_uid}, headless={self.headless}, sandbox=False, "
+                    f"executable={browser_executable_path or '<auto>'}, "
+                    f"args={' '.join(browser_args)}"
+                )
 
                 # 启动 nodriver 浏览器（后台启动，不占用前台）
                 config = uc.Config(
@@ -858,7 +905,13 @@ class BrowserCaptchaService:
             except Exception as e:
                 self.browser = None
                 self._initialized = False
-                debug_logger.log_error(f"[BrowserCaptcha] ❌ 浏览器启动失败: {str(e)}")
+                debug_logger.log_error(
+                    "[BrowserCaptcha] ❌ 浏览器启动失败: "
+                    f"{type(e).__name__}: {str(e)} | "
+                    f"display={display_value or '<empty>'} | "
+                    f"executable={browser_executable_path or '<auto>'} | "
+                    f"args={' '.join(browser_args) if browser_args else '<none>'}"
+                )
                 raise
 
     async def warmup_resident_tabs(self, project_ids: Iterable[str], limit: Optional[int] = None) -> list[str]:

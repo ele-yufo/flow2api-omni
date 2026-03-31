@@ -64,15 +64,26 @@ async def lifespan(app: FastAPI):
             limit=warmup_limit,
         )
 
-        warmed_slots = await browser_service.warmup_resident_tabs(
-            warmup_project_ids,
-            limit=warmup_limit,
-        )
+        warmed_slots = []
+        warmup_error = None
+        try:
+            warmed_slots = await browser_service.warmup_resident_tabs(
+                warmup_project_ids,
+                limit=warmup_limit,
+            )
+        except Exception as e:
+            warmup_error = e
+            print(
+                "⚠ Browser captcha resident warmup failed: "
+                f"{type(e).__name__}: {e}"
+            )
         if warmed_slots:
             print(
                 f"✓ Browser captcha shared resident tabs warmed "
                 f"({len(warmed_slots)} slot(s), limit={warmup_limit})"
             )
+        elif warmup_error is not None:
+            print("⚠ Browser captcha resident warmup skipped for this startup")
         elif tokens:
             print("⚠ Browser captcha resident warmup skipped: no tab warmed successfully")
         else:
