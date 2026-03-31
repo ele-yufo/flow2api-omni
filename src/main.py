@@ -214,3 +214,12 @@ async def manage_page():
     if manage_file.exists():
         return FileResponse(str(manage_file))
     return HTMLResponse(content="<h1>Management Page Not Found</h1>", status_code=404)
+
+
+@app.get("/test", response_class=HTMLResponse)
+async def test_page():
+    """Model testing page"""
+    test_file = static_path / "test.html"
+    if test_file.exists():
+        return FileResponse(str(test_file))
+    return HTMLResponse(content="<h1>Test Page Not Found</h1>", status_code=404)
