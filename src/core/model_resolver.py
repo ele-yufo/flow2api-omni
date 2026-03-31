@@ -11,6 +11,7 @@ Example:
     → resolved to "gemini-3.0-pro-image-landscape-2k"
 """
 
+import re
 from typing import Optional, Dict, Any, Tuple
 from ..core.logger import debug_logger
 
@@ -96,6 +97,29 @@ IMAGE_SIZE_MAP = {
 # 默认 aspectRatio
 DEFAULT_ASPECT = "landscape"
 
+OPENAI_IMAGE_SIZE_RE = re.compile(r"^(?P<w>\d{2,5})\s*[xX]\s*(?P<h>\d{2,5})$")
+
+# OpenAI 常见 quality → imageSize 映射
+# - 这里的 imageSize 是 flow2api 的“放大档位”，并不等价于 OpenAI 的像素尺寸；
+#   但可用作“画质/清晰度”的近似映射。
+OPENAI_QUALITY_MAP = {
+    "low": None,
+    "standard": None,
+    "medium": "2k",
+    "high": "4k",
+    "hd": "4k",
+    "ultra": "4k",
+}
+
+# 用于把 OpenAI size（如 1024x1792）映射到最接近的 flow2api aspect 选项
+ASPECT_RATIO_FLOAT_MAP = {
+    "landscape": 16 / 9,
+    "portrait": 9 / 16,
+    "square": 1.0,
+    "four-three": 4 / 3,
+    "three-four": 3 / 4,
+}
+
 
 # ──────────────────────────────────────────────
 # 视频模型简化名映射
@@ -173,47 +197,214 @@ def _extract_generation_params(request) -> Tuple[Optional[str], Optional[str]]:
     优先级：
     1. request.generationConfig.imageConfig (顶层 Gemini 参数)
     2. extra fields 中的 generationConfig (extra_body 透传)
+    3. OpenAI 风格字段（size/quality）兼容：可在 generationConfig/imageConfig 或顶层 extra 中出现
 
     Returns:
         (aspect_ratio, image_size) 归一化后的值
     """
-    aspect_ratio = None
-    image_size = None
+    def _normalize_str(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        return text if text else None
 
-    # 尝试从 generationConfig 提取
+    def _read_value(obj: Any, *keys: str) -> Any:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            for key in keys:
+                if key in obj:
+                    return obj.get(key)
+            return None
+
+        for key in keys:
+            if hasattr(obj, key):
+                value = getattr(obj, key, None)
+                if value is not None:
+                    return value
+
+        extra = getattr(obj, "__pydantic_extra__", None) or {}
+        for key in keys:
+            if key in extra:
+                return extra.get(key)
+        return None
+
+    def _normalize_aspect_ratio(value: Any) -> Optional[str]:
+        raw = _normalize_str(value)
+        if not raw:
+            return None
+
+        token = (
+            raw.replace("：", ":")
+            .replace("/", ":")
+            .replace("x", ":")
+            .replace("X", ":")
+            .replace(" ", "")
+            .strip()
+        )
+
+        mapped = ASPECT_RATIO_MAP.get(token)
+        if mapped:
+            return mapped
+        mapped = ASPECT_RATIO_MAP.get(token.lower())
+        if mapped:
+            return mapped
+        mapped = ASPECT_RATIO_MAP.get(token.upper())
+        if mapped:
+            return mapped
+        return token
+
+    def _normalize_image_size(value: Any) -> Optional[str]:
+        raw = _normalize_str(value)
+        if not raw:
+            return None
+
+        token = raw.replace(" ", "").strip()
+        mapped = IMAGE_SIZE_MAP.get(token)
+        if mapped is not None:
+            return mapped or None
+        mapped = IMAGE_SIZE_MAP.get(token.lower())
+        if mapped is not None:
+            return mapped or None
+        mapped = IMAGE_SIZE_MAP.get(token.upper())
+        if mapped is not None:
+            return mapped or None
+        return token.lower()
+
+    def _aspect_from_openai_size(value: Any) -> Optional[str]:
+        raw = _normalize_str(value)
+        if not raw:
+            return None
+
+        match = OPENAI_IMAGE_SIZE_RE.match(raw)
+        if not match:
+            return None
+
+        try:
+            width = int(match.group("w"))
+            height = int(match.group("h"))
+        except Exception:
+            return None
+
+        if width <= 0 or height <= 0:
+            return None
+
+        ratio = width / height
+        best = min(
+            ASPECT_RATIO_FLOAT_MAP.items(),
+            key=lambda item: abs(ratio - item[1]),
+        )[0]
+        return best
+
+    def _image_size_from_openai_quality(value: Any) -> Optional[str]:
+        raw = _normalize_str(value)
+        if not raw:
+            return None
+
+        token = raw.strip().lower()
+        if token in IMAGE_SIZE_MAP:
+            return _normalize_image_size(token)
+
+        mapped = OPENAI_QUALITY_MAP.get(token)
+        if mapped:
+            return mapped
+        return None
+
+    def _apply_image_config(image_config: Any, aspect_ratio: Optional[str], image_size: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        # 显式 aspectRatio/imageSize
+        if not aspect_ratio:
+            aspect_ratio = _normalize_aspect_ratio(
+                _read_value(image_config, "aspectRatio", "aspect_ratio", "aspect")
+            )
+        if not image_size:
+            image_size = _normalize_image_size(
+                _read_value(image_config, "imageSize", "image_size", "resolution")
+            )
+
+        # OpenAI size/quality
+        if not aspect_ratio:
+            aspect_ratio = _aspect_from_openai_size(_read_value(image_config, "size"))
+        if not image_size:
+            image_size = _image_size_from_openai_quality(
+                _read_value(image_config, "quality", "imageQuality", "image_quality")
+            )
+
+        return aspect_ratio, image_size
+
+    aspect_ratio: Optional[str] = None
+    image_size: Optional[str] = None
+
+    # 1) 优先从 request.generationConfig 解析
     gen_config = getattr(request, "generationConfig", None)
+    if gen_config is not None:
+        image_config = _read_value(gen_config, "imageConfig", "image_config")
+        if image_config is not None:
+            aspect_ratio, image_size = _apply_image_config(
+                image_config, aspect_ratio, image_size
+            )
 
-    # 如果顶层没有，尝试从 extra fields (Pydantic extra="allow")
-    if gen_config is None and hasattr(request, "__pydantic_extra__"):
+        # 有些上游会把字段放在 generationConfig 顶层
+        if not aspect_ratio:
+            aspect_ratio = _normalize_aspect_ratio(
+                _read_value(gen_config, "aspectRatio", "aspect_ratio")
+            )
+        if not image_size:
+            image_size = _normalize_image_size(
+                _read_value(gen_config, "imageSize", "image_size")
+            )
+
+        if not aspect_ratio:
+            aspect_ratio = _aspect_from_openai_size(_read_value(gen_config, "size"))
+        if not image_size:
+            image_size = _image_size_from_openai_quality(_read_value(gen_config, "quality"))
+
+    # 2) 顶层没有时，再尝试从 extra fields (Pydantic extra="allow") 中透传的 generationConfig
+    if (aspect_ratio is None or image_size is None) and hasattr(request, "__pydantic_extra__"):
         extra = request.__pydantic_extra__ or {}
         gen_config_raw = extra.get("generationConfig")
         if not isinstance(gen_config_raw, dict):
             extra_body = extra.get("extra_body") or extra.get("extraBody")
             if isinstance(extra_body, dict):
                 gen_config_raw = extra_body.get("generationConfig")
+
         if isinstance(gen_config_raw, dict):
-            image_config_raw = gen_config_raw.get("imageConfig", {})
-            if isinstance(image_config_raw, dict):
-                aspect_ratio = image_config_raw.get("aspectRatio")
-                image_size = image_config_raw.get("imageSize")
-            return (
-                ASPECT_RATIO_MAP.get(aspect_ratio, aspect_ratio)
-                if aspect_ratio
-                else None,
-                IMAGE_SIZE_MAP.get(image_size, image_size) if image_size else None,
+            image_config_raw = (
+                gen_config_raw.get("imageConfig")
+                or gen_config_raw.get("image_config")
+                or {}
             )
+            if image_config_raw:
+                aspect_ratio, image_size = _apply_image_config(
+                    image_config_raw, aspect_ratio, image_size
+                )
 
-    if gen_config is not None:
-        image_config = getattr(gen_config, "imageConfig", None)
-        if image_config is not None:
-            aspect_ratio = getattr(image_config, "aspectRatio", None)
-            image_size = getattr(image_config, "imageSize", None)
+            if aspect_ratio is None:
+                aspect_ratio = _normalize_aspect_ratio(
+                    gen_config_raw.get("aspectRatio") or gen_config_raw.get("aspect_ratio")
+                )
+            if image_size is None:
+                image_size = _normalize_image_size(
+                    gen_config_raw.get("imageSize") or gen_config_raw.get("image_size")
+                )
 
-    # 归一化
-    if aspect_ratio:
-        aspect_ratio = ASPECT_RATIO_MAP.get(aspect_ratio, aspect_ratio)
-    if image_size:
-        image_size = IMAGE_SIZE_MAP.get(image_size, image_size)
+            if aspect_ratio is None:
+                aspect_ratio = _aspect_from_openai_size(gen_config_raw.get("size"))
+            if image_size is None:
+                image_size = _image_size_from_openai_quality(gen_config_raw.get("quality"))
+
+    # 3) OpenAI 风格 size/quality（顶层 extra）兼容
+    if (aspect_ratio is None or image_size is None) and hasattr(request, "__pydantic_extra__"):
+        extra = request.__pydantic_extra__ or {}
+        if aspect_ratio is None:
+            aspect_ratio = _aspect_from_openai_size(extra.get("size"))
+        if image_size is None:
+            image_size = _image_size_from_openai_quality(extra.get("quality"))
+
+        # 一些上游可能直接传 aspect_ratio/image_size
+        if aspect_ratio is None:
+            aspect_ratio = _normalize_aspect_ratio(extra.get("aspect_ratio") or extra.get("aspectRatio"))
+        if image_size is None:
+            image_size = _normalize_image_size(extra.get("image_size") or extra.get("imageSize"))
 
     return aspect_ratio, image_size
 
