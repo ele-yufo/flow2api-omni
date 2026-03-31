@@ -1968,15 +1968,15 @@ class GenerationHandler:
 
     def _get_base_url(self, response_state: Optional[Dict[str, Any]] = None) -> str:
         """获取基础URL用于缓存文件访问"""
+        # 已配置缓存访问域名时，始终优先使用它，避免被请求 Host/IP 覆盖。
+        if config.cache_base_url:
+            return config.cache_base_url.rstrip("/")
+
         request_base_url = ""
         if isinstance(response_state, dict):
             request_base_url = (response_state.get("base_url") or "").strip().rstrip("/")
         if request_base_url:
             return request_base_url
-
-        # 优先使用配置的 cache_base_url
-        if config.cache_base_url:
-            return config.cache_base_url.rstrip("/")
 
         # 回退到服务地址，避免把监听地址 0.0.0.0 / :: 直接返回给客户端
         server_host = (config.server_host or "").strip()
