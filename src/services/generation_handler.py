@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import time
+from pathlib import Path
 from typing import Optional, AsyncGenerator, List, Dict, Any
 from ..core.logger import debug_logger
 from ..core.config import config
@@ -674,13 +675,14 @@ class GenerationHandler:
     """统一生成处理器"""
 
     def __init__(self, flow_client, token_manager, load_balancer, db, concurrency_manager, proxy_manager):
+        cache_dir = Path(__file__).resolve().parents[2] / "tmp"
         self.flow_client = flow_client
         self.token_manager = token_manager
         self.load_balancer = load_balancer
         self.db = db
         self.concurrency_manager = concurrency_manager
         self.file_cache = FileCache(
-            cache_dir="tmp",
+            cache_dir=str(cache_dir),
             default_timeout=config.cache_timeout,
             proxy_manager=proxy_manager,
             flow_client=flow_client,

@@ -1420,10 +1420,12 @@ async def update_token_refresh_enabled(
     }
 
 
-def _sync_runtime_cache_config():
+async def _sync_runtime_cache_config():
     from . import routes
     if routes.generation_handler and routes.generation_handler.file_cache:
-        routes.generation_handler.file_cache.set_timeout(config.cache_timeout)
+        file_cache = routes.generation_handler.file_cache
+        file_cache.set_timeout(config.cache_timeout)
+        await file_cache.refresh_cleanup_task()
 
 # ========== Cache Configuration Endpoints ==========
 
@@ -1457,7 +1459,7 @@ async def update_cache_enabled(
 
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
-    _sync_runtime_cache_config()
+    await _sync_runtime_cache_config()
 
     return {"success": True, "message": f"缓存已{'启用' if enabled else '禁用'}"}
 
@@ -1484,7 +1486,7 @@ async def update_cache_config_full(
 
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
-    _sync_runtime_cache_config()
+    await _sync_runtime_cache_config()
 
     return {"success": True, "message": "缓存配置更新成功"}
 
@@ -1500,7 +1502,7 @@ async def update_cache_base_url(
 
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
-    _sync_runtime_cache_config()
+    await _sync_runtime_cache_config()
 
     return {"success": True, "message": "缓存Base URL更新成功"}
 

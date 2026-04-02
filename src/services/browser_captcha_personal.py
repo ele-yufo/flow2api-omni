@@ -329,6 +329,26 @@ class BrowserCaptchaService:
         except asyncio.TimeoutError as e:
             raise TimeoutError(f"{label} 超时 ({effective_timeout:.1f}s)") from e
 
+    async def _wait_for_display_ready(self, display_value: str, timeout_seconds: float = 5.0):
+        """Docker 有头模式下等待 Xvfb socket 就绪，避免容器重启后立刻拉起浏览器失败。"""
+        if not (IS_DOCKER and display_value and display_value.startswith(":") and os.name == "posix"):
+            return
+
+        display_suffix = display_value.split(".", 1)[0].lstrip(":")
+        if not display_suffix.isdigit():
+            return
+
+        socket_path = f"/tmp/.X11-unix/X{display_suffix}"
+        deadline = time.monotonic() + max(0.5, float(timeout_seconds or 0))
+        while time.monotonic() < deadline:
+            if os.path.exists(socket_path):
+                return
+            await asyncio.sleep(0.1)
+
+        raise RuntimeError(
+            f"DISPLAY={display_value} 对应的 Xvfb socket 未就绪: {socket_path}"
+        )
+
     async def _tab_evaluate(self, tab, script: str, label: str, timeout_seconds: Optional[float] = None):
         return await self._run_with_timeout(
             tab.evaluate(script),
@@ -869,33 +889,64 @@ class BrowserCaptchaService:
                 else:
                     browser_args.append('--disable-extensions')
 
+                effective_launch_args = list(browser_args)
+                await self._wait_for_display_ready(display_value)
+
                 effective_uid = "n/a"
                 if hasattr(os, "geteuid"):
                     try:
                         effective_uid = str(os.geteuid())
                     except Exception:
                         effective_uid = "unknown"
+
+                launch_kwargs = {
+                    "headless": self.headless,
+                    "user_data_dir": self.user_data_dir,
+                    "browser_executable_path": browser_executable_path,
+                    "browser_args": browser_args,
+                    "sandbox": False,
+                }
+                launch_config = uc.Config(**launch_kwargs)
+                effective_launch_args = launch_config()
                 debug_logger.log_info(
                     "[BrowserCaptcha] nodriver 启动上下文: "
                     f"docker={IS_DOCKER}, display={display_value or '<empty>'}, "
                     f"uid={effective_uid}, headless={self.headless}, sandbox=False, "
                     f"executable={browser_executable_path or '<auto>'}, "
-                    f"args={' '.join(browser_args)}"
+                    f"args={' '.join(effective_launch_args)}"
                 )
 
                 # 启动 nodriver 浏览器（后台启动，不占用前台）
-                config = uc.Config(
-                    headless=self.headless,
-                    user_data_dir=self.user_data_dir,
-                    browser_executable_path=browser_executable_path,
-                    sandbox=False,
-                    browser_args=browser_args,
-                )
-                self.browser = await self._run_with_timeout(
-                    uc.start(config),
-                    timeout_seconds=30.0,
-                    label="nodriver.start",
-                )
+                try:
+                    self.browser = await self._run_with_timeout(
+                        uc.start(**launch_kwargs),
+                        timeout_seconds=30.0,
+                        label="nodriver.start",
+                    )
+                except Exception as start_error:
+                    error_text = str(start_error or "").lower()
+                    needs_explicit_no_sandbox = "no_sandbox" in error_text or "root" in error_text
+                    if not needs_explicit_no_sandbox:
+                        raise
+
+                    fallback_browser_args = list(browser_args)
+                    if '--no-sandbox' not in fallback_browser_args:
+                        fallback_browser_args.append('--no-sandbox')
+
+                    fallback_kwargs = dict(launch_kwargs)
+                    fallback_kwargs["browser_args"] = fallback_browser_args
+                    fallback_kwargs["sandbox"] = True
+                    fallback_config = uc.Config(**fallback_kwargs)
+                    effective_launch_args = fallback_config()
+                    debug_logger.log_warning(
+                        "[BrowserCaptcha] nodriver 首次启动失败，使用显式 --no-sandbox 重试: "
+                        f"{type(start_error).__name__}: {start_error}"
+                    )
+                    self.browser = await self._run_with_timeout(
+                        uc.start(**fallback_kwargs),
+                        timeout_seconds=30.0,
+                        label="nodriver.start.retry_no_sandbox",
+                    )
 
                 self._initialized = True
                 if self._idle_reaper_task is None or self._idle_reaper_task.done():
@@ -910,7 +961,7 @@ class BrowserCaptchaService:
                     f"{type(e).__name__}: {str(e)} | "
                     f"display={display_value or '<empty>'} | "
                     f"executable={browser_executable_path or '<auto>'} | "
-                    f"args={' '.join(browser_args) if browser_args else '<none>'}"
+                    f"args={' '.join(effective_launch_args) if effective_launch_args else '<none>'}"
                 )
                 raise
 

@@ -179,8 +179,13 @@ class FileCache:
 
     async def start_cleanup_task(self):
         """Start background cleanup task"""
-        if self._cleanup_task is None:
+        if self._is_cleanup_disabled():
+            debug_logger.log_info("Cache cleanup disabled (timeout <= 0), skip starting cleanup task")
+            return False
+        if self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+            return True
+        return True
 
     async def stop_cleanup_task(self):
         """Stop background cleanup task"""
@@ -191,6 +196,13 @@ class FileCache:
             except asyncio.CancelledError:
                 pass
             self._cleanup_task = None
+
+    async def refresh_cleanup_task(self) -> bool:
+        """Apply the latest timeout setting to the cleanup background task."""
+        if self._is_cleanup_disabled():
+            await self.stop_cleanup_task()
+            return False
+        return await self.start_cleanup_task()
 
     async def _cleanup_loop(self):
         """Background task to clean up expired files"""
@@ -210,16 +222,21 @@ class FileCache:
     async def _cleanup_expired_files(self):
         """Remove expired cache files"""
         try:
-            if self._is_cleanup_disabled():
+            timeout = self.get_timeout()
+            if timeout <= 0:
                 return
             current_time = time.time()
             removed_count = 0
 
             for file_path in self.cache_dir.iterdir():
+                timeout = self.get_timeout()
+                if timeout <= 0:
+                    debug_logger.log_info("Cache cleanup disabled during cleanup pass, stop deleting files")
+                    break
                 if file_path.is_file():
                     # Check file age
                     file_age = current_time - file_path.stat().st_mtime
-                    if file_age > self.default_timeout:
+                    if file_age > timeout:
                         try:
                             file_path.unlink()
                             removed_count += 1
