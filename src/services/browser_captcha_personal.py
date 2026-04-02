@@ -169,6 +169,15 @@ _RUNTIME_ERROR_KEYWORDS = (
     "errno 111",
 )
 
+_NORMAL_CLOSE_KEYWORDS = (
+    "connectionclosedok",
+    "normal closure",
+    "normal_closure",
+    "sent 1000 (ok)",
+    "received 1000 (ok)",
+    "close(code=1000",
+)
+
 
 def _flatten_exception_text(error: Any) -> str:
     """拼接异常链文本，便于统一识别 nodriver 运行态断连。"""
@@ -210,7 +219,17 @@ def _is_runtime_disconnect_error(error: Any) -> bool:
     error_text = _flatten_exception_text(error)
     if not error_text:
         return False
-    return any(keyword in error_text for keyword in _RUNTIME_ERROR_KEYWORDS)
+    return any(keyword in error_text for keyword in _RUNTIME_ERROR_KEYWORDS) or any(
+        keyword in error_text for keyword in _NORMAL_CLOSE_KEYWORDS
+    )
+
+
+def _is_runtime_normal_close_error(error: Any) -> bool:
+    """识别 websocket 正常关闭（1000）这类预期退场。"""
+    error_text = _flatten_exception_text(error)
+    if not error_text:
+        return False
+    return any(keyword in error_text for keyword in _NORMAL_CLOSE_KEYWORDS)
 
 
 def _finalize_nodriver_send_task(connection, transaction, tx_id: int, task: asyncio.Task):
@@ -229,7 +248,11 @@ def _finalize_nodriver_send_task(connection, transaction, tx_id: int, task: asyn
             except Exception:
                 pass
 
-        if _is_runtime_disconnect_error(e):
+        if _is_runtime_normal_close_error(e):
+            debug_logger.log_info(
+                f"[BrowserCaptcha] nodriver websocket 在正常关闭后退出: {type(e).__name__}: {e}"
+            )
+        elif _is_runtime_disconnect_error(e):
             debug_logger.log_warning(
                 f"[BrowserCaptcha] nodriver websocket 发送在断连后退出: {type(e).__name__}: {e}"
             )
@@ -292,12 +315,17 @@ def _patch_nodriver_browser_instance(browser_instance):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            if _is_runtime_disconnect_error(e):
-                debug_logger.log_warning(
-                    f"[BrowserCaptcha] nodriver.update_targets 在浏览器断连后退出: {type(e).__name__}: {e}"
-                )
-                return []
-            raise
+                if _is_runtime_disconnect_error(e):
+                    log_message = (
+                        f"[BrowserCaptcha] nodriver.update_targets 在浏览器断连后退出: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    if _is_runtime_normal_close_error(e):
+                        debug_logger.log_info(log_message)
+                    else:
+                        debug_logger.log_warning(log_message)
+                    return []
+                raise
 
         _patch_nodriver_connection_instance(getattr(self, "connection", None))
         for target in list(getattr(self, "targets", []) or []):
