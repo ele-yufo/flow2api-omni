@@ -429,6 +429,7 @@ class ResidentTabInfo:
         self.created_at = time.time()
         self.last_used_at = time.time()  # 最后使用时间
         self.use_count = 0  # 使用次数
+        self.fingerprint: Optional[Dict[str, Any]] = None
         self.solve_lock = asyncio.Lock()  # 串行化同一标签页上的执行，降低并发冲突
 
 
@@ -469,6 +470,17 @@ class BrowserCaptchaService:
         self._navigation_timeout_seconds = 20.0
         self._solve_timeout_seconds = 45.0
         self._session_refresh_timeout_seconds = 45.0
+        self._health_probe_ttl_seconds = max(
+            0.0,
+            float(getattr(config, "browser_personal_health_probe_ttl_seconds", 10.0) or 10.0),
+        )
+        self._last_health_probe_at = 0.0
+        self._last_health_probe_ok = False
+        self._fingerprint_cache_ttl_seconds = max(
+            0.0,
+            float(getattr(config, "browser_personal_fingerprint_ttl_seconds", 300.0) or 300.0),
+        )
+        self._last_fingerprint_at = 0.0
 
         # 兼容旧 API（保留 single resident 属性作为别名）
         self.resident_project_id: Optional[str] = None  # 向后兼容
@@ -482,6 +494,7 @@ class BrowserCaptchaService:
         # 自定义站点打码常驻页（用于 score-test）
         self._custom_tabs: dict[str, Dict[str, Any]] = {}
         self._custom_lock = asyncio.Lock()
+        self._refresh_runtime_tunables()
 
     @classmethod
     async def get_instance(cls, db=None) -> 'BrowserCaptchaService':
@@ -501,15 +514,38 @@ class BrowserCaptchaService:
         from ..core.config import config
         old_max_tabs = self._max_resident_tabs
         old_idle_ttl = self._idle_tab_ttl_seconds
+        old_probe_ttl = self._health_probe_ttl_seconds
+        old_fingerprint_ttl = self._fingerprint_cache_ttl_seconds
 
         self._max_resident_tabs = config.personal_max_resident_tabs
         self._idle_tab_ttl_seconds = config.personal_idle_tab_ttl_seconds
+        self._refresh_runtime_tunables()
 
         debug_logger.log_info(
             f"[BrowserCaptcha] Personal 配置已热更新: "
             f"max_tabs {old_max_tabs}->{self._max_resident_tabs}, "
-            f"idle_ttl {old_idle_ttl}s->{self._idle_tab_ttl_seconds}s"
+            f"idle_ttl {old_idle_ttl}s->{self._idle_tab_ttl_seconds}s, "
+            f"probe_ttl {old_probe_ttl}s->{self._health_probe_ttl_seconds}s, "
+            f"fingerprint_ttl {old_fingerprint_ttl}s->{self._fingerprint_cache_ttl_seconds}s"
         )
+
+    def _refresh_runtime_tunables(self):
+        """刷新运行时调优参数，缺省时使用保守的低开销默认值。"""
+        try:
+            self._health_probe_ttl_seconds = max(
+                0.2,
+                float(getattr(config, "browser_personal_health_probe_ttl_seconds", 3.0) or 3.0),
+            )
+        except Exception:
+            self._health_probe_ttl_seconds = 3.0
+
+        try:
+            self._fingerprint_cache_ttl_seconds = max(
+                0.0,
+                float(getattr(config, "browser_personal_fingerprint_cache_ttl_seconds", 300.0) or 300.0),
+            )
+        except Exception:
+            self._fingerprint_cache_ttl_seconds = 300.0
 
     def _check_available(self):
         """检查服务是否可用"""
@@ -557,6 +593,35 @@ class BrowserCaptchaService:
             f"DISPLAY={display_value} 对应的 Xvfb socket 未就绪: {socket_path}"
         )
 
+    def _mark_browser_health(self, healthy: bool):
+        self._last_health_probe_at = time.monotonic()
+        self._last_health_probe_ok = bool(healthy)
+
+    def _is_browser_health_fresh(self) -> bool:
+        if not (self._initialized and self.browser and self._last_health_probe_ok):
+            return False
+        try:
+            if self.browser.stopped:
+                return False
+        except Exception:
+            return False
+        ttl_seconds = max(0.0, float(self._health_probe_ttl_seconds or 0.0))
+        if ttl_seconds <= 0:
+            return False
+        return (time.monotonic() - self._last_health_probe_at) < ttl_seconds
+
+    def _is_fingerprint_cache_fresh(self) -> bool:
+        if not self._last_fingerprint:
+            return False
+        ttl_seconds = max(0.0, float(self._fingerprint_cache_ttl_seconds or 0.0))
+        if ttl_seconds <= 0:
+            return False
+        return (time.monotonic() - self._last_fingerprint_at) < ttl_seconds
+
+    def _invalidate_browser_health(self):
+        self._last_health_probe_at = 0.0
+        self._last_health_probe_ok = False
+
     def _is_browser_runtime_error(self, error: Any) -> bool:
         """识别浏览器运行态已损坏/已关闭的典型异常。"""
         return _is_runtime_disconnect_error(error)
@@ -564,7 +629,10 @@ class BrowserCaptchaService:
     async def _probe_browser_runtime(self) -> bool:
         """轻量探测当前 nodriver 连接是否仍可用。"""
         if not self.browser:
+            self._invalidate_browser_health()
             return False
+        if self._is_browser_health_fresh():
+            return True
 
         try:
             _ = self.browser.tabs
@@ -573,14 +641,17 @@ class BrowserCaptchaService:
                 timeout_seconds=3.0,
                 label="browser.health_probe",
             )
+            self._mark_browser_health(True)
             return True
         except Exception as e:
+            self._mark_browser_health(False)
             debug_logger.log_warning(f"[BrowserCaptcha] 浏览器健康检查失败: {e}")
             return False
 
     async def _recover_browser_runtime(self, project_id: Optional[str] = None, reason: str = "runtime_error") -> bool:
         """浏览器运行态损坏时，优先整颗浏览器重启并恢复 resident 池。"""
         normalized_project_id = str(project_id or "").strip()
+        self._invalidate_browser_health()
 
         if normalized_project_id:
             try:
@@ -598,9 +669,22 @@ class BrowserCaptchaService:
         except Exception as e:
             debug_logger.log_error(f"[BrowserCaptcha] 浏览器运行态恢复失败 ({reason}): {e}")
             return False
-    async def _tab_evaluate(self, tab, script: str, label: str, timeout_seconds: Optional[float] = None):
+    async def _tab_evaluate(
+        self,
+        tab,
+        script: str,
+        label: str,
+        timeout_seconds: Optional[float] = None,
+        *,
+        await_promise: bool = False,
+        return_by_value: bool = False,
+    ):
         return await self._run_with_timeout(
-            tab.evaluate(script),
+            tab.evaluate(
+                script,
+                await_promise=await_promise,
+                return_by_value=return_by_value,
+            ),
             timeout_seconds or self._command_timeout_seconds,
             label,
         )
@@ -990,6 +1074,8 @@ class BrowserCaptchaService:
         self.browser = None
         self._initialized = False
         self._last_fingerprint = None
+        self._last_fingerprint_at = 0.0
+        self._mark_browser_health(False)
         self._cleanup_proxy_extension()
         self._proxy_url = None
 
@@ -1067,6 +1153,16 @@ class BrowserCaptchaService:
         """初始化 nodriver 浏览器"""
         self._check_available()
 
+        if (
+            self._initialized
+            and self.browser
+            and not self.browser.stopped
+            and self._is_browser_health_fresh()
+            and self._idle_reaper_task is not None
+            and not self._idle_reaper_task.done()
+        ):
+            return
+
         async with self._browser_lock:
             browser_needs_restart = False
             browser_executable_path = None
@@ -1077,7 +1173,12 @@ class BrowserCaptchaService:
                 try:
                     if self.browser.stopped:
                         debug_logger.log_warning("[BrowserCaptcha] 浏览器已停止，准备重新初始化...")
+                        self._mark_browser_health(False)
                         browser_needs_restart = True
+                    elif self._is_browser_health_fresh():
+                        if self._idle_reaper_task is None or self._idle_reaper_task.done():
+                            self._idle_reaper_task = asyncio.create_task(self._idle_tab_reaper_loop())
+                        return
                     elif not await self._probe_browser_runtime():
                         debug_logger.log_warning("[BrowserCaptcha] 浏览器连接已失活，准备重新初始化...")
                         browser_needs_restart = True
@@ -1235,6 +1336,7 @@ class BrowserCaptchaService:
 
                 _patch_nodriver_runtime(self.browser)
                 self._initialized = True
+                self._mark_browser_health(True)
                 if self._idle_reaper_task is None or self._idle_reaper_task.done():
                     self._idle_reaper_task = asyncio.create_task(self._idle_tab_reaper_loop())
                 debug_logger.log_info(f"[BrowserCaptcha] ✅ nodriver 浏览器已启动 (Profile: {self.user_data_dir})")
@@ -1242,6 +1344,7 @@ class BrowserCaptchaService:
             except Exception as e:
                 self.browser = None
                 self._initialized = False
+                self._mark_browser_health(False)
                 debug_logger.log_error(
                     "[BrowserCaptcha] ❌ 浏览器启动失败: "
                     f"{type(e).__name__}: {str(e)} | "
@@ -1697,72 +1800,63 @@ class BrowserCaptchaService:
         Returns:
             reCAPTCHA token 或 None
         """
-        # 生成唯一变量名避免冲突
-        ts = int(time.time() * 1000)
-        token_var = f"_recaptcha_token_{ts}"
-        error_var = f"_recaptcha_error_{ts}"
-
-        execute_script = f"""
-            (() => {{
-                window.{token_var} = null;
-                window.{error_var} = null;
-
-                try {{
-                    grecaptcha.enterprise.ready(function() {{
-                        grecaptcha.enterprise.execute('{self.website_key}', {{action: '{action}'}})
-                            .then(function(token) {{
-                                window.{token_var} = token;
-                            }})
-                            .catch(function(err) {{
-                                window.{error_var} = err.message || 'execute failed';
-                            }});
-                    }});
-                }} catch (e) {{
-                    window.{error_var} = e.message || 'exception';
-                }}
-            }})()
-        """
-
-        # 注入执行脚本
-        await self._tab_evaluate(
+        execute_timeout_ms = int(max(1000, self._solve_timeout_seconds * 1000))
+        execute_result = await self._tab_evaluate(
             tab,
-            execute_script,
+            f"""
+                (async () => {{
+                    const finishError = (error) => {{
+                        const message = error && error.message ? error.message : String(error || 'execute failed');
+                        return {{ ok: false, error: message }};
+                    }};
+
+                    try {{
+                        const token = await new Promise((resolve, reject) => {{
+                            let settled = false;
+                            const done = (handler, value) => {{
+                                if (settled) return;
+                                settled = true;
+                                handler(value);
+                            }};
+                            const timer = setTimeout(() => {{
+                                done(reject, new Error('execute timeout'));
+                            }}, {execute_timeout_ms});
+
+                            try {{
+                                grecaptcha.enterprise.ready(() => {{
+                                    grecaptcha.enterprise.execute({json.dumps(self.website_key)}, {{action: {json.dumps(action)}}})
+                                        .then((token) => {{
+                                            clearTimeout(timer);
+                                            done(resolve, token);
+                                        }})
+                                        .catch((error) => {{
+                                            clearTimeout(timer);
+                                            done(reject, error);
+                                        }});
+                                }});
+                            }} catch (error) {{
+                                clearTimeout(timer);
+                                done(reject, error);
+                            }}
+                        }});
+
+                        return {{ ok: true, token }};
+                    }} catch (error) {{
+                        return finishError(error);
+                    }}
+                }})()
+            """,
             label=f"execute_recaptcha:{action}",
-            timeout_seconds=5.0,
+            timeout_seconds=self._solve_timeout_seconds + 2.0,
+            await_promise=True,
+            return_by_value=True,
         )
 
-        # 轮询等待结果（最多 30 秒）
-        token = None
-        for i in range(60):
-            await tab.sleep(0.5)
-            token = await self._tab_evaluate(
-                tab,
-                f"window.{token_var}",
-                label=f"poll_recaptcha_token:{action}",
-                timeout_seconds=2.0,
-            )
-            if token:
-                break
-            error = await self._tab_evaluate(
-                tab,
-                f"window.{error_var}",
-                label=f"poll_recaptcha_error:{action}",
-                timeout_seconds=2.0,
-            )
+        token = execute_result.get("token") if isinstance(execute_result, dict) else None
+        if not token:
+            error = execute_result.get("error") if isinstance(execute_result, dict) else execute_result
             if error:
                 debug_logger.log_error(f"[BrowserCaptcha] reCAPTCHA 错误: {error}")
-                break
-
-        # 清理临时变量
-        try:
-            await self._tab_evaluate(
-                tab,
-                f"delete window.{token_var}; delete window.{error_var};",
-                label="cleanup_recaptcha_temp_vars",
-                timeout_seconds=5.0,
-            )
-        except:
-            pass
 
         if token:
             debug_logger.log_info(f"[BrowserCaptcha] ✅ Token 获取成功 (长度: {len(token)})")
@@ -2023,6 +2117,16 @@ class BrowserCaptchaService:
             debug_logger.log_warning(f"[BrowserCaptcha] 提取 nodriver 指纹失败: {e}")
             return None
 
+    async def _refresh_last_fingerprint(self, tab) -> Optional[Dict[str, Any]]:
+        """缓存最近一次浏览器指纹，避免每次打码成功后都追加一轮 JS 执行。"""
+        if self._is_fingerprint_cache_fresh():
+            return self._last_fingerprint
+
+        fingerprint = await self._extract_tab_fingerprint(tab)
+        self._last_fingerprint = fingerprint
+        self._last_fingerprint_at = time.monotonic() if fingerprint else 0.0
+        return fingerprint
+
     async def _solve_with_resident_tab(
         self,
         slot_id: str,
@@ -2052,7 +2156,7 @@ class BrowserCaptchaService:
         resident_info.use_count += 1
         self._remember_project_affinity(project_id, slot_id, resident_info)
         self._resident_error_streaks.pop(slot_id, None)
-        self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
+        await self._refresh_last_fingerprint(resident_info.tab)
         debug_logger.log_info(
             f"[BrowserCaptcha] ✅ Token生成成功（slot={slot_id}, 耗时 {duration_ms:.0f}ms, 使用次数: {resident_info.use_count}）"
         )
@@ -2079,7 +2183,6 @@ class BrowserCaptchaService:
 
         # 确保浏览器已初始化
         await self.initialize()
-        self._last_fingerprint = None
 
         debug_logger.log_info(
             f"[BrowserCaptcha] 开始从共享打码池获取标签页 (project: {project_id}, 当前: {len(self._resident_tabs)}/{self._max_resident_tabs})"
@@ -2428,7 +2531,7 @@ class BrowserCaptchaService:
                     duration_ms = (time.time() - start_time) * 1000
 
                     if token:
-                        self._last_fingerprint = await self._extract_tab_fingerprint(tab)
+                        await self._refresh_last_fingerprint(tab)
                         debug_logger.log_info(f"[BrowserCaptcha] [Legacy] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
                         return token
 
