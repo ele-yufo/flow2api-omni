@@ -534,18 +534,18 @@ class BrowserCaptchaService:
         try:
             self._health_probe_ttl_seconds = max(
                 0.2,
-                float(getattr(config, "browser_personal_health_probe_ttl_seconds", 3.0) or 3.0),
+                float(getattr(config, "browser_personal_health_probe_ttl_seconds", 10.0) or 10.0),
             )
         except Exception:
-            self._health_probe_ttl_seconds = 3.0
+            self._health_probe_ttl_seconds = 10.0
 
         try:
             self._fingerprint_cache_ttl_seconds = max(
                 0.0,
-                float(getattr(config, "browser_personal_fingerprint_cache_ttl_seconds", 300.0) or 300.0),
+                float(getattr(config, "browser_personal_fingerprint_cache_ttl_seconds", 3600.0) or 3600.0),
             )
         except Exception:
-            self._fingerprint_cache_ttl_seconds = 300.0
+            self._fingerprint_cache_ttl_seconds = 3600.0
 
     def _check_available(self):
         """检查服务是否可用"""
@@ -1158,9 +1158,9 @@ class BrowserCaptchaService:
             and self.browser
             and not self.browser.stopped
             and self._is_browser_health_fresh()
-            and self._idle_reaper_task is not None
-            and not self._idle_reaper_task.done()
         ):
+            if self._idle_reaper_task is None or self._idle_reaper_task.done():
+                self._idle_reaper_task = asyncio.create_task(self._idle_tab_reaper_loop())
             return
 
         async with self._browser_lock:
@@ -2127,6 +2127,14 @@ class BrowserCaptchaService:
         self._last_fingerprint_at = time.monotonic() if fingerprint else 0.0
         return fingerprint
 
+    def _remember_fingerprint(self, fingerprint: Optional[Dict[str, Any]]):
+        if isinstance(fingerprint, dict) and fingerprint:
+            self._last_fingerprint = dict(fingerprint)
+            self._last_fingerprint_at = time.monotonic()
+        else:
+            self._last_fingerprint = None
+            self._last_fingerprint_at = 0.0
+
     async def _solve_with_resident_tab(
         self,
         slot_id: str,
@@ -2156,7 +2164,11 @@ class BrowserCaptchaService:
         resident_info.use_count += 1
         self._remember_project_affinity(project_id, slot_id, resident_info)
         self._resident_error_streaks.pop(slot_id, None)
-        await self._refresh_last_fingerprint(resident_info.tab)
+        self._mark_browser_health(True)
+        if resident_info.fingerprint:
+            self._remember_fingerprint(resident_info.fingerprint)
+        else:
+            resident_info.fingerprint = await self._refresh_last_fingerprint(resident_info.tab)
         debug_logger.log_info(
             f"[BrowserCaptcha] ✅ Token生成成功（slot={slot_id}, 耗时 {duration_ms:.0f}ms, 使用次数: {resident_info.use_count}）"
         )
@@ -2423,6 +2435,8 @@ class BrowserCaptchaService:
             # 创建常驻信息对象
             resident_info = ResidentTabInfo(tab, slot_id, project_id=project_id)
             resident_info.recaptcha_ready = True
+            resident_info.fingerprint = await self._refresh_last_fingerprint(tab)
+            self._mark_browser_health(True)
 
             debug_logger.log_info(f"[BrowserCaptcha] ✅ 共享常驻标签页创建成功 (slot={slot_id}, project={project_id})")
             return resident_info
@@ -2531,6 +2545,7 @@ class BrowserCaptchaService:
                     duration_ms = (time.time() - start_time) * 1000
 
                     if token:
+                        self._mark_browser_health(True)
                         await self._refresh_last_fingerprint(tab)
                         debug_logger.log_info(f"[BrowserCaptcha] [Legacy] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
                         return token
@@ -2745,6 +2760,7 @@ class BrowserCaptchaService:
                     resident_info.last_used_at = time.time()
                     self._remember_project_affinity(project_id, slot_id, resident_info)
                     self._resident_error_streaks.pop(slot_id, None)
+                    self._mark_browser_health(True)
                     debug_logger.log_info(f"[BrowserCaptcha] ✅ Session Token 获取成功（耗时 {duration_ms:.0f}ms）")
                     return session_token
 
@@ -2770,6 +2786,7 @@ class BrowserCaptchaService:
                                 resident_info.last_used_at = time.time()
                                 self._remember_project_affinity(project_id, slot_id, resident_info)
                                 self._resident_error_streaks.pop(slot_id, None)
+                                self._mark_browser_health(True)
                                 debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Session Token 获取成功")
                                 return cookie.value
                     except Exception as rebuild_error:
