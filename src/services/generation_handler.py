@@ -323,6 +323,25 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False
     },
+    # veo_3_1_t2v_lite (横竖屏，来自 labs.google.har)
+    "veo_3_1_t2v_lite_portrait": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
+    },
+    "veo_3_1_t2v_lite_landscape": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
+    },
 
     # ========== 首尾帧模型 (I2V - Image to Video) ==========
     # 支持1-2张图片：1张作为首帧，2张作为首尾帧
@@ -445,6 +464,52 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 1,
         "max_images": 2
+    },
+    # veo_3_1_i2v_lite (横竖屏，仅首帧，来自 labs.google.har)
+    "veo_3_1_i2v_lite_portrait": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 1,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
+    },
+    "veo_3_1_i2v_lite_landscape": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 1,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
+    },
+    # veo_3_1_interpolation_lite (横竖屏，首尾帧，来自 labs.google.har)
+    "veo_3_1_interpolation_lite_portrait": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_interpolation_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 2,
+        "max_images": 2,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
+    },
+    "veo_3_1_interpolation_lite_landscape": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_interpolation_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 2,
+        "max_images": 2,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
 
     # ========== 多图生成 (R2V - Reference Images to Video) ==========
@@ -720,6 +785,26 @@ class GenerationHandler:
         if len(text) <= max_length:
             return text
         return f"{text[:max_length - 3]}..."
+
+    def _resolve_video_model_key_for_tier(self, model_config: Dict[str, Any], user_tier: str) -> tuple[str, Optional[str]]:
+        """根据账号层级调整视频模型 key。"""
+        model_key = model_config["model_key"]
+        allow_tier_upgrade = bool(model_config.get("allow_tier_upgrade", True))
+
+        if user_tier == "PAYGATE_TIER_TWO":
+            if allow_tier_upgrade and "ultra" not in model_key:
+                if "_fl" in model_key:
+                    model_key = model_key.replace("_fl", "_ultra_fl")
+                else:
+                    model_key = model_key + "_ultra"
+                return model_key, f"TIER_TWO 账号自动切换到 ultra 模型: {model_key}"
+            return model_key, None
+
+        if user_tier == "PAYGATE_TIER_ONE" and "ultra" in model_key:
+            model_key = model_key.replace("_ultra_fl", "_fl").replace("_ultra", "")
+            return model_key, f"TIER_ONE 账号自动切换到标准模型: {model_key}"
+
+        return model_key, None
 
     async def _fail_video_task(self, operations: Optional[List[Dict[str, Any]]], error_message: str):
         """将视频任务收口到失败态，避免残留 processing。"""
@@ -1432,42 +1517,15 @@ class GenerationHandler:
             supports_images = model_config.get("supports_images", False)
             min_images = model_config.get("min_images", 0)
             max_images = model_config.get("max_images", 0)
+            use_v2_model_config = bool(model_config.get("use_v2_model_config", False))
 
             # 根据账号tier自动调整模型 key
-            model_key = model_config["model_key"]
             user_tier = normalized_tier
-
-            # TIER_TWO 账号需要使用 ultra 版本的模型
-            if user_tier == "PAYGATE_TIER_TWO":
-                # 如果模型 key 不包含 ultra，自动添加
-                if "ultra" not in model_key:
-                    # veo_3_1_i2v_s_fast_fl -> veo_3_1_i2v_s_fast_ultra_fl
-                    # veo_3_1_i2v_s_fast_portrait_fl -> veo_3_1_i2v_s_fast_portrait_ultra_fl
-                    # veo_3_1_t2v_fast -> veo_3_1_t2v_fast_ultra
-                    # veo_3_1_t2v_fast_portrait -> veo_3_1_t2v_fast_portrait_ultra
-                    # veo_3_1_r2v_fast_landscape -> veo_3_1_r2v_fast_landscape_ultra
-                    if "_fl" in model_key:
-                        model_key = model_key.replace("_fl", "_ultra_fl")
-                    else:
-                        # 直接在末尾添加 _ultra
-                        model_key = model_key + "_ultra"
-                    
-                    if stream:
-                        yield self._create_stream_chunk(f"TIER_TWO 账号自动切换到 ultra 模型: {model_key}\n")
-                    debug_logger.log_info(f"[VIDEO] TIER_TWO 账号，模型自动调整: {model_config['model_key']} -> {model_key}")
-
-            # TIER_ONE 账号需要使用非 ultra 版本
-            elif user_tier == "PAYGATE_TIER_ONE":
-                # 如果模型 key 包含 ultra，需要移除（避免用户误用）
-                if "ultra" in model_key:
-                    # veo_3_1_i2v_s_fast_ultra_fl -> veo_3_1_i2v_s_fast_fl
-                    # veo_3_1_t2v_fast_ultra -> veo_3_1_t2v_fast
-                    # veo_3_1_r2v_fast_landscape_ultra -> veo_3_1_r2v_fast_landscape
-                    model_key = model_key.replace("_ultra_fl", "_fl").replace("_ultra", "")
-                    
-                    if stream:
-                        yield self._create_stream_chunk(f"TIER_ONE 账号自动切换到标准模型: {model_key}\n")
-                    debug_logger.log_info(f"[VIDEO] TIER_ONE 账号，模型自动调整: {model_config['model_key']} -> {model_key}")
+            model_key, tier_message = self._resolve_video_model_key_for_tier(model_config, user_tier)
+            if tier_message and stream:
+                yield self._create_stream_chunk(f"{tier_message}\n")
+            if model_key != model_config["model_key"]:
+                debug_logger.log_info(f"[VIDEO] 账号层级自动调整模型: {model_config['model_key']} -> {model_key}")
 
             # 更新 model_config 中的 model_key
             model_config = dict(model_config)  # 创建副本避免修改原配置
@@ -1567,6 +1625,7 @@ class GenerationHandler:
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
                         end_media_id=end_media_id,
+                        use_v2_model_config=use_v2_model_config,
                         user_paygate_tier=normalized_tier,
                         token_id=token.id,
                         token_video_concurrency=token.video_concurrency,
@@ -1586,6 +1645,7 @@ class GenerationHandler:
                         model_key=actual_model_key,
                         aspect_ratio=model_config["aspect_ratio"],
                         start_media_id=start_media_id,
+                        use_v2_model_config=use_v2_model_config,
                         user_paygate_tier=normalized_tier,
                         token_id=token.id,
                         token_video_concurrency=token.video_concurrency,
@@ -1613,6 +1673,7 @@ class GenerationHandler:
                     prompt=prompt,
                     model_key=model_config["model_key"],
                     aspect_ratio=model_config["aspect_ratio"],
+                    use_v2_model_config=use_v2_model_config,
                     user_paygate_tier=normalized_tier,
                     token_id=token.id,
                     token_video_concurrency=token.video_concurrency,

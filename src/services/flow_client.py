@@ -1161,6 +1161,19 @@ class FlowClient:
 
     # ========== 视频生成 (使用AT) - 异步返回 ==========
 
+    def _build_video_text_input(self, prompt: str, use_v2_model_config: bool = False) -> Dict[str, Any]:
+        if use_v2_model_config:
+            return {
+                "structuredPrompt": {
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }
+            }
+        return {
+            "prompt": prompt
+        }
+
     async def generate_video_text(
         self,
         at: str,
@@ -1168,6 +1181,7 @@ class FlowClient:
         prompt: str,
         model_key: str,
         aspect_ratio: str,
+        use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
         token_video_concurrency: Optional[int] = None,
@@ -1233,30 +1247,34 @@ class FlowClient:
                 raise last_error
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
-
-            json_data = {
-                "clientContext": {
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": session_id,
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier
+            client_context = {
+                "recaptchaContext": {
+                    "token": recaptcha_token,
+                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
                 },
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "seed": random.randint(1, 99999),
-                    "textInput": {
-                        "prompt": prompt
-                    },
-                    "videoModelKey": model_key,
-                    "metadata": {
-                        "sceneId": scene_id
-                    }
-                }]
+                "sessionId": session_id,
+                "projectId": project_id,
+                "tool": "PINHOLE",
+                "userPaygateTier": user_paygate_tier
             }
+            request_data = {
+                "aspectRatio": aspect_ratio,
+                "seed": random.randint(1, 99999),
+                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                "videoModelKey": model_key,
+                "metadata": {
+                    "sceneId": scene_id
+                }
+            }
+            json_data = {
+                "clientContext": client_context,
+                "requests": [request_data]
+            }
+            if use_v2_model_config:
+                json_data["mediaGenerationContext"] = {
+                    "batchId": str(uuid.uuid4())
+                }
+                json_data["useV2ModelConfig"] = True
 
             try:
                 result = await self._make_request(
@@ -1425,6 +1443,7 @@ class FlowClient:
         aspect_ratio: str,
         start_media_id: str,
         end_media_id: str,
+        use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
         token_video_concurrency: Optional[int] = None,
@@ -1485,36 +1504,40 @@ class FlowClient:
                 raise last_error
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
-
-            json_data = {
-                "clientContext": {
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": session_id,
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier
+            client_context = {
+                "recaptchaContext": {
+                    "token": recaptcha_token,
+                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
                 },
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "seed": random.randint(1, 99999),
-                    "textInput": {
-                        "prompt": prompt
-                    },
-                    "videoModelKey": model_key,
-                    "startImage": {
-                        "mediaId": start_media_id
-                    },
-                    "endImage": {
-                        "mediaId": end_media_id
-                    },
-                    "metadata": {
-                        "sceneId": scene_id
-                    }
-                }]
+                "sessionId": session_id,
+                "projectId": project_id,
+                "tool": "PINHOLE",
+                "userPaygateTier": user_paygate_tier
             }
+            request_data = {
+                "aspectRatio": aspect_ratio,
+                "seed": random.randint(1, 99999),
+                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                "videoModelKey": model_key,
+                "startImage": {
+                    "mediaId": start_media_id
+                },
+                "endImage": {
+                    "mediaId": end_media_id
+                },
+                "metadata": {
+                    "sceneId": scene_id
+                }
+            }
+            json_data = {
+                "clientContext": client_context,
+                "requests": [request_data]
+            }
+            if use_v2_model_config:
+                json_data["mediaGenerationContext"] = {
+                    "batchId": str(uuid.uuid4())
+                }
+                json_data["useV2ModelConfig"] = True
 
             try:
                 result = await self._make_request(
@@ -1552,6 +1575,7 @@ class FlowClient:
         model_key: str,
         aspect_ratio: str,
         start_media_id: str,
+        use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
         token_video_concurrency: Optional[int] = None,
@@ -1611,34 +1635,38 @@ class FlowClient:
                 raise last_error
             session_id = self._generate_session_id()
             scene_id = str(uuid.uuid4())
-
-            json_data = {
-                "clientContext": {
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": session_id,
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier
+            client_context = {
+                "recaptchaContext": {
+                    "token": recaptcha_token,
+                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
                 },
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "seed": random.randint(1, 99999),
-                    "textInput": {
-                        "prompt": prompt
-                    },
-                    "videoModelKey": model_key,
-                    "startImage": {
-                        "mediaId": start_media_id
-                    },
-                    # 注意: 没有endImage字段,只用首帧
-                    "metadata": {
-                        "sceneId": scene_id
-                    }
-                }]
+                "sessionId": session_id,
+                "projectId": project_id,
+                "tool": "PINHOLE",
+                "userPaygateTier": user_paygate_tier
             }
+            request_data = {
+                "aspectRatio": aspect_ratio,
+                "seed": random.randint(1, 99999),
+                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                "videoModelKey": model_key,
+                "startImage": {
+                    "mediaId": start_media_id
+                },
+                # 注意: 没有endImage字段,只用首帧
+                "metadata": {
+                    "sceneId": scene_id
+                }
+            }
+            json_data = {
+                "clientContext": client_context,
+                "requests": [request_data]
+            }
+            if use_v2_model_config:
+                json_data["mediaGenerationContext"] = {
+                    "batchId": str(uuid.uuid4())
+                }
+                json_data["useV2ModelConfig"] = True
 
             try:
                 result = await self._make_request(

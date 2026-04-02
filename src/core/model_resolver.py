@@ -150,6 +150,10 @@ VIDEO_BASE_MODELS = {
         "landscape": "veo_3_1_t2v_landscape",
         "portrait": "veo_3_1_t2v_portrait",
     },
+    "veo_3_1_t2v_lite": {
+        "landscape": "veo_3_1_t2v_lite_landscape",
+        "portrait": "veo_3_1_t2v_lite_portrait",
+    },
     # I2V models
     "veo_3_1_i2v_s_fast_fl": {
         "landscape": "veo_3_1_i2v_s_fast_fl",
@@ -174,6 +178,14 @@ VIDEO_BASE_MODELS = {
     "veo_3_1_i2v_s": {
         "landscape": "veo_3_1_i2v_s_landscape",
         "portrait": "veo_3_1_i2v_s_portrait",
+    },
+    "veo_3_1_i2v_lite": {
+        "landscape": "veo_3_1_i2v_lite_landscape",
+        "portrait": "veo_3_1_i2v_lite_portrait",
+    },
+    "veo_3_1_interpolation_lite": {
+        "landscape": "veo_3_1_interpolation_lite_landscape",
+        "portrait": "veo_3_1_interpolation_lite_portrait",
     },
     # R2V models
     "veo_3_1_r2v_fast": {
