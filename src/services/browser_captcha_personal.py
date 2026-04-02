@@ -349,6 +349,64 @@ class BrowserCaptchaService:
             f"DISPLAY={display_value} 对应的 Xvfb socket 未就绪: {socket_path}"
         )
 
+    def _is_browser_runtime_error(self, error: Any) -> bool:
+        """识别浏览器运行态已损坏/已关闭的典型异常。"""
+        error_text = str(error or "").strip().lower()
+        if not error_text:
+            return False
+
+        runtime_keywords = [
+            "has been closed",
+            "browser has been closed",
+            "target closed",
+            "connection closed",
+            "connection lost",
+            "session closed",
+            "not attached to an active page",
+            "no session with given id",
+            "cannot find context with specified id",
+            "websocket is not open",
+            "disconnected",
+        ]
+        return any(keyword in error_text for keyword in runtime_keywords)
+
+    async def _probe_browser_runtime(self) -> bool:
+        """轻量探测当前 nodriver 连接是否仍可用。"""
+        if not self.browser:
+            return False
+
+        try:
+            _ = self.browser.tabs
+            await self._run_with_timeout(
+                self.browser.connection.send("Browser.getVersion"),
+                timeout_seconds=3.0,
+                label="browser.health_probe",
+            )
+            return True
+        except Exception as e:
+            debug_logger.log_warning(f"[BrowserCaptcha] 浏览器健康检查失败: {e}")
+            return False
+
+    async def _recover_browser_runtime(self, project_id: Optional[str] = None, reason: str = "runtime_error") -> bool:
+        """浏览器运行态损坏时，优先整颗浏览器重启并恢复 resident 池。"""
+        normalized_project_id = str(project_id or "").strip()
+
+        if normalized_project_id:
+            try:
+                if await self._restart_browser_for_project(normalized_project_id):
+                    return True
+            except Exception as e:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] 浏览器重启恢复失败 (project_id={normalized_project_id}, reason={reason}): {e}"
+                )
+
+        try:
+            await self._shutdown_browser_runtime(cancel_idle_reaper=False, reason=f"recover:{reason}")
+            await self.initialize()
+            return True
+        except Exception as e:
+            debug_logger.log_error(f"[BrowserCaptcha] 浏览器运行态恢复失败 ({reason}): {e}")
+            return False
     async def _tab_evaluate(self, tab, script: str, label: str, timeout_seconds: Optional[float] = None):
         return await self._run_with_timeout(
             tab.evaluate(script),
@@ -796,6 +854,9 @@ class BrowserCaptchaService:
                 try:
                     if self.browser.stopped:
                         debug_logger.log_warning("[BrowserCaptcha] 浏览器已停止，准备重新初始化...")
+                        browser_needs_restart = True
+                    elif not await self._probe_browser_runtime():
+                        debug_logger.log_warning("[BrowserCaptcha] 浏览器连接已失活，准备重新初始化...")
                         browser_needs_restart = True
                     else:
                         if self._idle_reaper_task is None or self._idle_reaper_task.done():
@@ -1737,6 +1798,41 @@ class BrowserCaptchaService:
             debug_logger.log_warning(f"[BrowserCaptcha] 提取 nodriver 指纹失败: {e}")
             return None
 
+    async def _solve_with_resident_tab(
+        self,
+        slot_id: str,
+        project_id: str,
+        resident_info: Optional[ResidentTabInfo],
+        action: str,
+        *,
+        success_label: str,
+    ) -> Optional[str]:
+        """在共享常驻标签页上执行一次打码，并统一更新成功态。"""
+        if not resident_info or not resident_info.tab or not resident_info.recaptcha_ready:
+            return None
+
+        start_time = time.time()
+        async with resident_info.solve_lock:
+            token = await self._run_with_timeout(
+                self._execute_recaptcha_on_tab(resident_info.tab, action),
+                timeout_seconds=self._solve_timeout_seconds,
+                label=f"{success_label}:{slot_id}:{project_id}:{action}",
+            )
+
+        if not token:
+            return None
+
+        duration_ms = (time.time() - start_time) * 1000
+        resident_info.last_used_at = time.time()
+        resident_info.use_count += 1
+        self._remember_project_affinity(project_id, slot_id, resident_info)
+        self._resident_error_streaks.pop(slot_id, None)
+        self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
+        debug_logger.log_info(
+            f"[BrowserCaptcha] ✅ Token生成成功（slot={slot_id}, 耗时 {duration_ms:.0f}ms, 使用次数: {resident_info.use_count}）"
+        )
+        return token
+
     # ========== 主要 API ==========
 
     async def get_token(self, project_id: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
@@ -1765,6 +1861,14 @@ class BrowserCaptchaService:
         )
         slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
         if resident_info is None or not slot_id:
+            if not await self._probe_browser_runtime():
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] 共享标签页池为空且浏览器疑似失活，尝试重启恢复 (project: {project_id})"
+                )
+                if await self._recover_browser_runtime(project_id, reason="ensure_resident_tab"):
+                    slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+
+        if resident_info is None or not slot_id:
             debug_logger.log_warning(
                 f"[BrowserCaptcha] 共享标签页池不可用，fallback 到传统模式 (project: {project_id})"
             )
@@ -1783,67 +1887,126 @@ class BrowserCaptchaService:
                 slot_id=slot_id,
                 return_slot_key=True,
             )
+            if resident_info is None:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] cold slot 重建失败，升级为浏览器级恢复 (slot={slot_id}, project={project_id})"
+                )
+                if await self._recover_browser_runtime(project_id, reason=f"cold_resident_tab:{slot_id or 'unknown'}"):
+                    slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
 
         # 使用常驻标签页生成 token（在锁外执行，避免阻塞）
         if resident_info and resident_info.recaptcha_ready and resident_info.tab:
-            start_time = time.time()
             debug_logger.log_info(
                 f"[BrowserCaptcha] 从共享常驻标签页即时生成 token (slot={slot_id}, project={project_id}, action={action})..."
             )
+            runtime_recovered = False
             try:
-                async with resident_info.solve_lock:
-                    token = await self._run_with_timeout(
-                        self._execute_recaptcha_on_tab(resident_info.tab, action),
-                        timeout_seconds=self._solve_timeout_seconds,
-                        label=f"resident_solve:{slot_id}:{project_id}:{action}",
-                    )
-                duration_ms = (time.time() - start_time) * 1000
+                token = await self._solve_with_resident_tab(
+                    slot_id,
+                    project_id,
+                    resident_info,
+                    action,
+                    success_label="resident_solve",
+                )
                 if token:
-                    # 更新使用时间和计数
-                    resident_info.last_used_at = time.time()
-                    resident_info.use_count += 1
-                    self._remember_project_affinity(project_id, slot_id, resident_info)
-                    self._resident_error_streaks.pop(slot_id, None)
-                    self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
-                    debug_logger.log_info(
-                        f"[BrowserCaptcha] ✅ Token生成成功（slot={slot_id}, 耗时 {duration_ms:.0f}ms, 使用次数: {resident_info.use_count}）"
-                    )
                     return token
-                else:
-                    debug_logger.log_warning(
-                        f"[BrowserCaptcha] 共享标签页生成失败 (slot={slot_id}, project={project_id})，尝试重建..."
-                    )
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] 共享标签页生成失败 (slot={slot_id}, project={project_id})，尝试重建..."
+                )
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] 共享标签页异常 (slot={slot_id}): {e}，尝试重建...")
+                if self._is_browser_runtime_error(e):
+                    runtime_recovered = await self._recover_browser_runtime(
+                        project_id,
+                        reason=f"resident_solve:{slot_id}",
+                    )
+                    if runtime_recovered:
+                        slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+                        if resident_info and slot_id:
+                            try:
+                                token = await self._solve_with_resident_tab(
+                                    slot_id,
+                                    project_id,
+                                    resident_info,
+                                    action,
+                                    success_label="resident_solve_after_runtime_recover",
+                                )
+                                if token:
+                                    return token
+                            except Exception as retry_error:
+                                debug_logger.log_warning(
+                                    f"[BrowserCaptcha] 浏览器重启恢复后共享标签页仍失败 (slot={slot_id}): {retry_error}"
+                                )
 
-            # 常驻标签页失效，尝试重建
-            debug_logger.log_info(f"[BrowserCaptcha] 开始重建共享标签页 (slot={slot_id}, project={project_id})")
-            slot_id, resident_info = await self._rebuild_resident_tab(
-                project_id,
-                slot_id=slot_id,
-                return_slot_key=True,
-            )
-            debug_logger.log_info(f"[BrowserCaptcha] 共享标签页重建结束 (slot={slot_id}, project={project_id})")
+            if not runtime_recovered:
+                # 常驻标签页失效，尝试重建
+                debug_logger.log_info(f"[BrowserCaptcha] 开始重建共享标签页 (slot={slot_id}, project={project_id})")
+                slot_id, resident_info = await self._rebuild_resident_tab(
+                    project_id,
+                    slot_id=slot_id,
+                    return_slot_key=True,
+                )
+                debug_logger.log_info(f"[BrowserCaptcha] 共享标签页重建结束 (slot={slot_id}, project={project_id})")
+                if resident_info is None:
+                    debug_logger.log_warning(
+                        f"[BrowserCaptcha] 共享标签页重建返回空，升级为浏览器级恢复 (slot={slot_id}, project={project_id})"
+                    )
+                    if await self._recover_browser_runtime(project_id, reason=f"resident_rebuild_empty:{slot_id or 'unknown'}"):
+                        slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
 
-            # 重建后立即尝试生成（在锁外执行）
-            if resident_info:
-                try:
-                    async with resident_info.solve_lock:
-                        token = await self._run_with_timeout(
-                            self._execute_recaptcha_on_tab(resident_info.tab, action),
-                            timeout_seconds=self._solve_timeout_seconds,
-                            label=f"resident_resolve_after_rebuild:{slot_id}:{project_id}:{action}",
+                # 重建后立即尝试生成（在锁外执行）
+                if resident_info:
+                    try:
+                        token = await self._solve_with_resident_tab(
+                            slot_id,
+                            project_id,
+                            resident_info,
+                            action,
+                            success_label="resident_resolve_after_rebuild",
                         )
-                    if token:
-                        resident_info.last_used_at = time.time()
-                        resident_info.use_count += 1
-                        self._remember_project_affinity(project_id, slot_id, resident_info)
-                        self._resident_error_streaks.pop(slot_id, None)
-                        self._last_fingerprint = await self._extract_tab_fingerprint(resident_info.tab)
-                        debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Token生成成功 (slot={slot_id})")
-                        return token
-                except Exception:
-                    pass
+                        if token:
+                            debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Token生成成功 (slot={slot_id})")
+                            return token
+                    except Exception as rebuild_error:
+                        debug_logger.log_warning(
+                            f"[BrowserCaptcha] 重建标签页后仍无法打码 (slot={slot_id}): {rebuild_error}"
+                        )
+                        if self._is_browser_runtime_error(rebuild_error):
+                            if await self._recover_browser_runtime(project_id, reason=f"resident_rebuild:{slot_id}"):
+                                slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+                                if resident_info and slot_id:
+                                    try:
+                                        token = await self._solve_with_resident_tab(
+                                            slot_id,
+                                            project_id,
+                                            resident_info,
+                                            action,
+                                            success_label="resident_resolve_after_browser_restart",
+                                        )
+                                        if token:
+                                            return token
+                                    except Exception as restart_error:
+                                        debug_logger.log_warning(
+                                            f"[BrowserCaptcha] 浏览器重启后 resident 仍失败 (slot={slot_id}): {restart_error}"
+                                        )
+                elif not await self._probe_browser_runtime():
+                    if await self._recover_browser_runtime(project_id, reason=f"resident_rebuild_empty:{slot_id}"):
+                        slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+                        if resident_info and slot_id:
+                            try:
+                                token = await self._solve_with_resident_tab(
+                                    slot_id,
+                                    project_id,
+                                    resident_info,
+                                    action,
+                                    success_label="resident_resolve_after_empty_recover",
+                                )
+                                if token:
+                                    return token
+                            except Exception as empty_recover_error:
+                                debug_logger.log_warning(
+                                    f"[BrowserCaptcha] 浏览器空恢复后 resident 仍失败 (slot={slot_id}): {empty_recover_error}"
+                                )
 
         # 最终 Fallback: 使用传统模式
         debug_logger.log_warning(f"[BrowserCaptcha] 所有常驻方式失败，fallback 到传统模式 (project: {project_id})")
@@ -1986,73 +2149,83 @@ class BrowserCaptchaService:
         Returns:
             reCAPTCHA token字符串，如果获取失败返回None
         """
-        # 确保浏览器已启动
-        if not self._initialized or not self.browser:
-            await self.initialize()
-
-        start_time = time.time()
-        tab = None
-
+        max_attempts = 2
         async with self._legacy_lock:
-            try:
-                website_url = "https://labs.google/fx/api/auth/providers"
-                debug_logger.log_info(
-                    f"[BrowserCaptcha] [Legacy] 创建独立临时标签页执行验证，避免污染 resident/custom 页面: {website_url}"
-                )
-                tab = await self._browser_get(
-                    website_url,
-                    label=f"legacy_browser_get:{project_id}",
-                    new_tab=True,
-                )
+            for attempt in range(max_attempts):
+                if not self._initialized or not self.browser:
+                    await self.initialize()
 
-                # 等待页面完全加载（增加等待时间）
-                debug_logger.log_info("[BrowserCaptcha] [Legacy] 等待页面加载...")
-                await tab.sleep(3)
+                start_time = time.time()
+                tab = None
 
-                # 等待页面 DOM 完成
-                for _ in range(10):
-                    ready_state = await self._tab_evaluate(
-                        tab,
-                        "document.readyState",
-                        label=f"legacy_document_ready:{project_id}",
-                        timeout_seconds=2.0,
+                try:
+                    website_url = "https://labs.google/fx/api/auth/providers"
+                    debug_logger.log_info(
+                        f"[BrowserCaptcha] [Legacy] 创建独立临时标签页执行验证，避免污染 resident/custom 页面: {website_url}"
                     )
-                    if ready_state == "complete":
-                        break
-                    await tab.sleep(0.5)
+                    tab = await self._browser_get(
+                        website_url,
+                        label=f"legacy_browser_get:{project_id}",
+                        new_tab=True,
+                    )
 
-                # 等待 reCAPTCHA 加载
-                recaptcha_ready = await self._wait_for_recaptcha(tab)
+                    # 等待页面完全加载（增加等待时间）
+                    debug_logger.log_info("[BrowserCaptcha] [Legacy] 等待页面加载...")
+                    await tab.sleep(3)
 
-                if not recaptcha_ready:
-                    debug_logger.log_error("[BrowserCaptcha] [Legacy] reCAPTCHA 无法加载")
+                    # 等待页面 DOM 完成
+                    for _ in range(10):
+                        ready_state = await self._tab_evaluate(
+                            tab,
+                            "document.readyState",
+                            label=f"legacy_document_ready:{project_id}",
+                            timeout_seconds=2.0,
+                        )
+                        if ready_state == "complete":
+                            break
+                        await tab.sleep(0.5)
+
+                    # 等待 reCAPTCHA 加载
+                    recaptcha_ready = await self._wait_for_recaptcha(tab)
+
+                    if not recaptcha_ready:
+                        debug_logger.log_error("[BrowserCaptcha] [Legacy] reCAPTCHA 无法加载")
+                        return None
+
+                    # 执行 reCAPTCHA
+                    debug_logger.log_info(f"[BrowserCaptcha] [Legacy] 执行 reCAPTCHA 验证 (action: {action})...")
+                    token = await self._run_with_timeout(
+                        self._execute_recaptcha_on_tab(tab, action),
+                        timeout_seconds=self._solve_timeout_seconds,
+                        label=f"legacy_solve:{project_id}:{action}",
+                    )
+
+                    duration_ms = (time.time() - start_time) * 1000
+
+                    if token:
+                        self._last_fingerprint = await self._extract_tab_fingerprint(tab)
+                        debug_logger.log_info(f"[BrowserCaptcha] [Legacy] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
+                        return token
+
+                    debug_logger.log_error("[BrowserCaptcha] [Legacy] Token获取失败（返回null）")
                     return None
 
-                # 执行 reCAPTCHA
-                debug_logger.log_info(f"[BrowserCaptcha] [Legacy] 执行 reCAPTCHA 验证 (action: {action})...")
-                token = await self._run_with_timeout(
-                    self._execute_recaptcha_on_tab(tab, action),
-                    timeout_seconds=self._solve_timeout_seconds,
-                    label=f"legacy_solve:{project_id}:{action}",
-                )
+                except Exception as e:
+                    if attempt < (max_attempts - 1) and self._is_browser_runtime_error(e):
+                        debug_logger.log_warning(
+                            f"[BrowserCaptcha] [Legacy] 浏览器运行态异常，尝试重启恢复后重试: {e}"
+                        )
+                        await self._recover_browser_runtime(project_id, reason=f"legacy_attempt_{attempt + 1}")
+                        continue
 
-                duration_ms = (time.time() - start_time) * 1000
+                    debug_logger.log_error(f"[BrowserCaptcha] [Legacy] 获取token异常: {str(e)}")
+                    return None
+                finally:
+                    # 关闭 legacy 临时标签页（但保留浏览器）
+                    if tab:
+                        await self._close_tab_quietly(tab)
 
-                if token:
-                    self._last_fingerprint = await self._extract_tab_fingerprint(tab)
-                    debug_logger.log_info(f"[BrowserCaptcha] [Legacy] ✅ Token获取成功（耗时 {duration_ms:.0f}ms）")
-                    return token
-
-                debug_logger.log_error("[BrowserCaptcha] [Legacy] Token获取失败（返回null）")
-                return None
-
-            except Exception as e:
-                debug_logger.log_error(f"[BrowserCaptcha] [Legacy] 获取token异常: {str(e)}")
-                return None
-            finally:
-                # 关闭 legacy 临时标签页（但保留浏览器）
-                if tab:
-                    await self._close_tab_quietly(tab)
+        return None
 
     def get_last_fingerprint(self) -> Optional[Dict[str, Any]]:
         """返回最近一次打码时的浏览器指纹快照。"""
@@ -2142,136 +2315,143 @@ class BrowserCaptchaService:
         Returns:
             新的 Session Token，如果获取失败返回 None
         """
-        # 确保浏览器已初始化
-        await self.initialize()
-        
-        start_time = time.time()
-        debug_logger.log_info(f"[BrowserCaptcha] 开始刷新 Session Token (project: {project_id})...")
+        for attempt in range(2):
+            # 确保浏览器已初始化
+            await self.initialize()
 
-        async with self._resident_lock:
-            slot_id = self._resolve_affinity_slot_locked(project_id)
-            resident_info = self._resident_tabs.get(slot_id) if slot_id else None
+            start_time = time.time()
+            debug_logger.log_info(f"[BrowserCaptcha] 开始刷新 Session Token (project: {project_id}, attempt={attempt + 1})...")
 
-        if resident_info is None or not slot_id:
-            slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+            async with self._resident_lock:
+                slot_id = self._resolve_affinity_slot_locked(project_id)
+                resident_info = self._resident_tabs.get(slot_id) if slot_id else None
 
-        if resident_info is None or not slot_id:
-            debug_logger.log_warning(f"[BrowserCaptcha] 无法为 project_id={project_id} 获取共享常驻标签页")
-            return None
-        
-        if not resident_info or not resident_info.tab:
-            debug_logger.log_error(f"[BrowserCaptcha] 无法获取常驻标签页")
-            return None
-        
-        tab = resident_info.tab
-        
-        try:
-            async with resident_info.solve_lock:
-                # 刷新页面以获取最新的 cookies
-                debug_logger.log_info(f"[BrowserCaptcha] 刷新常驻标签页以获取最新 cookies...")
-                resident_info.recaptcha_ready = False
-                await self._run_with_timeout(
-                    self._tab_reload(
-                        tab,
-                        label=f"refresh_session_reload:{slot_id}",
-                    ),
-                    timeout_seconds=self._session_refresh_timeout_seconds,
-                    label=f"refresh_session_reload_total:{slot_id}",
-                )
-                
-                # 等待页面加载完成
-                for i in range(30):
-                    await asyncio.sleep(1)
-                    try:
-                        ready_state = await self._tab_evaluate(
+            if resident_info is None or not slot_id:
+                slot_id, resident_info = await self._ensure_resident_tab(project_id, return_slot_key=True)
+
+            if resident_info is None or not slot_id:
+                if attempt == 0 and not await self._probe_browser_runtime():
+                    await self._recover_browser_runtime(project_id, reason="refresh_session_prepare")
+                    continue
+                debug_logger.log_warning(f"[BrowserCaptcha] 无法为 project_id={project_id} 获取共享常驻标签页")
+                return None
+
+            if not resident_info or not resident_info.tab:
+                debug_logger.log_error(f"[BrowserCaptcha] 无法获取常驻标签页")
+                return None
+
+            tab = resident_info.tab
+
+            try:
+                async with resident_info.solve_lock:
+                    # 刷新页面以获取最新的 cookies
+                    debug_logger.log_info(f"[BrowserCaptcha] 刷新常驻标签页以获取最新 cookies...")
+                    resident_info.recaptcha_ready = False
+                    await self._run_with_timeout(
+                        self._tab_reload(
                             tab,
-                            "document.readyState",
-                            label=f"refresh_session_ready_state:{slot_id}",
-                            timeout_seconds=2.0,
-                        )
-                        if ready_state == "complete":
-                            break
-                    except Exception:
-                        pass
+                            label=f"refresh_session_reload:{slot_id}",
+                        ),
+                        timeout_seconds=self._session_refresh_timeout_seconds,
+                        label=f"refresh_session_reload_total:{slot_id}",
+                    )
 
-                resident_info.recaptcha_ready = await self._wait_for_recaptcha(tab)
-                if not resident_info.recaptcha_ready:
-                    debug_logger.log_warning(
-                        f"[BrowserCaptcha] 刷新 Session Token 后 reCAPTCHA 未恢复就绪 (slot={slot_id})"
-                    )
-                
-                # 额外等待确保 cookies 已设置
-                await asyncio.sleep(2)
-                
-                # 从 cookies 中提取 __Secure-next-auth.session-token
-                # nodriver 可以通过 browser 获取 cookies
-                session_token = None
-                
-                try:
-                    # 使用 nodriver 的 cookies API 获取所有 cookies
-                    cookies = await self._get_browser_cookies(
-                        label=f"refresh_session_get_cookies:{slot_id}",
-                    )
-                    
-                    for cookie in cookies:
-                        if cookie.name == "__Secure-next-auth.session-token":
-                            session_token = cookie.value
-                            break
-                            
-                except Exception as e:
-                    debug_logger.log_warning(f"[BrowserCaptcha] 通过 cookies API 获取失败: {e}，尝试从 document.cookie 获取...")
-                    
-                    # 备选方案：通过 JavaScript 获取 (注意：HttpOnly cookies 可能无法通过此方式获取)
-                    try:
-                        all_cookies = await self._tab_evaluate(
-                            tab,
-                            "document.cookie",
-                            label=f"refresh_session_document_cookie:{slot_id}",
+                    # 等待页面加载完成
+                    for _ in range(30):
+                        await asyncio.sleep(1)
+                        try:
+                            ready_state = await self._tab_evaluate(
+                                tab,
+                                "document.readyState",
+                                label=f"refresh_session_ready_state:{slot_id}",
+                                timeout_seconds=2.0,
+                            )
+                            if ready_state == "complete":
+                                break
+                        except Exception:
+                            pass
+
+                    resident_info.recaptcha_ready = await self._wait_for_recaptcha(tab)
+                    if not resident_info.recaptcha_ready:
+                        debug_logger.log_warning(
+                            f"[BrowserCaptcha] 刷新 Session Token 后 reCAPTCHA 未恢复就绪 (slot={slot_id})"
                         )
-                        if all_cookies:
-                            for part in all_cookies.split(";"):
-                                part = part.strip()
-                                if part.startswith("__Secure-next-auth.session-token="):
-                                    session_token = part.split("=", 1)[1]
-                                    break
-                    except Exception as e2:
-                        debug_logger.log_error(f"[BrowserCaptcha] document.cookie 获取失败: {e2}")
-            
-            duration_ms = (time.time() - start_time) * 1000
-            
-            if session_token:
-                resident_info.last_used_at = time.time()
-                self._remember_project_affinity(project_id, slot_id, resident_info)
-                self._resident_error_streaks.pop(slot_id, None)
-                debug_logger.log_info(f"[BrowserCaptcha] ✅ Session Token 获取成功（耗时 {duration_ms:.0f}ms）")
-                return session_token
-            else:
+
+                    # 额外等待确保 cookies 已设置
+                    await asyncio.sleep(2)
+
+                    # 从 cookies 中提取 __Secure-next-auth.session-token
+                    session_token = None
+
+                    try:
+                        cookies = await self._get_browser_cookies(
+                            label=f"refresh_session_get_cookies:{slot_id}",
+                        )
+
+                        for cookie in cookies:
+                            if cookie.name == "__Secure-next-auth.session-token":
+                                session_token = cookie.value
+                                break
+
+                    except Exception as e:
+                        debug_logger.log_warning(f"[BrowserCaptcha] 通过 cookies API 获取失败: {e}，尝试从 document.cookie 获取...")
+
+                        try:
+                            all_cookies = await self._tab_evaluate(
+                                tab,
+                                "document.cookie",
+                                label=f"refresh_session_document_cookie:{slot_id}",
+                            )
+                            if all_cookies:
+                                for part in all_cookies.split(";"):
+                                    part = part.strip()
+                                    if part.startswith("__Secure-next-auth.session-token="):
+                                        session_token = part.split("=", 1)[1]
+                                        break
+                        except Exception as e2:
+                            debug_logger.log_error(f"[BrowserCaptcha] document.cookie 获取失败: {e2}")
+
+                duration_ms = (time.time() - start_time) * 1000
+
+                if session_token:
+                    resident_info.last_used_at = time.time()
+                    self._remember_project_affinity(project_id, slot_id, resident_info)
+                    self._resident_error_streaks.pop(slot_id, None)
+                    debug_logger.log_info(f"[BrowserCaptcha] ✅ Session Token 获取成功（耗时 {duration_ms:.0f}ms）")
+                    return session_token
+
                 debug_logger.log_error(f"[BrowserCaptcha] ❌ 未找到 __Secure-next-auth.session-token cookie")
                 return None
-                
-        except Exception as e:
-            debug_logger.log_error(f"[BrowserCaptcha] 刷新 Session Token 异常: {str(e)}")
-            
-            # 共享标签页可能已失效，尝试重建
-            slot_id, resident_info = await self._rebuild_resident_tab(project_id, slot_id=slot_id, return_slot_key=True)
-            if resident_info and slot_id:
-                # 重建后再次尝试获取
-                try:
-                    async with resident_info.solve_lock:
-                        cookies = await self._get_browser_cookies(
-                            label=f"refresh_session_get_cookies_after_rebuild:{slot_id}",
-                        )
-                    for cookie in cookies:
-                        if cookie.name == "__Secure-next-auth.session-token":
-                            resident_info.last_used_at = time.time()
-                            self._remember_project_affinity(project_id, slot_id, resident_info)
-                            self._resident_error_streaks.pop(slot_id, None)
-                            debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Session Token 获取成功")
-                            return cookie.value
-                except Exception:
-                    pass
-            
-            return None
+
+            except Exception as e:
+                debug_logger.log_error(f"[BrowserCaptcha] 刷新 Session Token 异常: {str(e)}")
+
+                if attempt == 0 and self._is_browser_runtime_error(e):
+                    if await self._recover_browser_runtime(project_id, reason=f"refresh_session:{slot_id}"):
+                        continue
+
+                slot_id, resident_info = await self._rebuild_resident_tab(project_id, slot_id=slot_id, return_slot_key=True)
+                if resident_info and slot_id:
+                    try:
+                        async with resident_info.solve_lock:
+                            cookies = await self._get_browser_cookies(
+                                label=f"refresh_session_get_cookies_after_rebuild:{slot_id}",
+                            )
+                        for cookie in cookies:
+                            if cookie.name == "__Secure-next-auth.session-token":
+                                resident_info.last_used_at = time.time()
+                                self._remember_project_affinity(project_id, slot_id, resident_info)
+                                self._resident_error_streaks.pop(slot_id, None)
+                                debug_logger.log_info(f"[BrowserCaptcha] ✅ 重建后 Session Token 获取成功")
+                                return cookie.value
+                    except Exception as rebuild_error:
+                        if attempt == 0 and self._is_browser_runtime_error(rebuild_error):
+                            if await self._recover_browser_runtime(project_id, reason=f"refresh_session_rebuild:{slot_id}"):
+                                continue
+
+                return None
+
+        return None
 
     # ========== 状态查询 ==========
 

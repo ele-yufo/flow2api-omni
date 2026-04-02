@@ -291,3 +291,12 @@ class ConcurrencyManager:
             self._video_inflight.setdefault(token_id, 0)
 
             debug_logger.log_info(f"Token {token_id} concurrency reset (image: {image_concurrency}, video: {video_concurrency})")
+
+    async def remove_token(self, token_id: int):
+        """Remove all concurrency state for a deleted token."""
+        async with self._lock:
+            self._image_limits.pop(token_id, None)
+            self._video_limits.pop(token_id, None)
+            self._image_inflight.pop(token_id, None)
+            self._video_inflight.pop(token_id, None)
+            debug_logger.log_info(f"Token {token_id} concurrency state removed")

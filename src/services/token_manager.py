@@ -150,7 +150,40 @@ class TokenManager:
 
     async def delete_token(self, token_id: int):
         """Delete token"""
+        token = await self.db.get_token(token_id)
+        project_ids: List[str] = []
+        if token:
+            current_project_id = str(token.current_project_id or "").strip()
+            if current_project_id:
+                project_ids.append(current_project_id)
+
+        for project in await self.db.get_projects_by_token(token_id):
+            project_id = str(project.project_id or "").strip()
+            if project_id and project_id not in project_ids:
+                project_ids.append(project_id)
+
         await self.db.delete_token(token_id)
+
+        refresh_task = self._refresh_futures.pop(token_id, None)
+        if refresh_task and not refresh_task.done():
+            refresh_task.cancel()
+            try:
+                await refresh_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+        self._refresh_locks.pop(token_id, None)
+        self._project_locks.pop(token_id, None)
+
+        if config.captcha_method == "personal" and project_ids:
+            try:
+                from .browser_captcha_personal import BrowserCaptchaService
+                service = await BrowserCaptchaService.get_instance(self.db)
+                for project_id in project_ids:
+                    await service.stop_resident_mode(project_id)
+            except Exception as e:
+                debug_logger.log_warning(f"[DELETE_TOKEN] 清理 personal 浏览器状态失败: {e}")
 
     async def enable_token(self, token_id: int):
         """Enable a token and reset error count"""

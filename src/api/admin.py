@@ -772,6 +772,8 @@ async def delete_token(
     """Delete token"""
     try:
         await token_manager.delete_token(token_id)
+        if concurrency_manager:
+            await concurrency_manager.remove_token(token_id)
         return {"success": True, "message": "Token删除成功"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
