@@ -446,7 +446,7 @@ class BrowserCaptchaService:
 
     def __init__(self, db=None):
         """初始化服务"""
-        self.headless = False  # nodriver 有头模式
+        self.headless = True  # 无头模式
         self.browser = None
         self._initialized = False
         self.website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
