@@ -1,8 +1,10 @@
 """Generation handler for Flow2API"""
 import asyncio
 import base64
+import hashlib
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Optional, AsyncGenerator, List, Dict, Any
 from ..core.logger import debug_logger
@@ -314,14 +316,16 @@ MODEL_CONFIG = {
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v_portrait",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False
+        "supports_images": False,
+        "allow_tier_upgrade": False
     },
     "veo_3_1_t2v_landscape": {
         "type": "video",
         "video_type": "t2v",
         "model_key": "veo_3_1_t2v",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False
+        "supports_images": False,
+        "allow_tier_upgrade": False
     },
     # veo_3_1_t2v_lite (横竖屏，来自 labs.google.har)
     "veo_3_1_t2v_lite_portrait": {
@@ -732,6 +736,288 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # ========== 视频延长 (Video Extend 16s) ==========
+
+    # T2V 延长版
+    "veo_3_1_t2v_fast_portrait_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_landscape_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_portrait_ultra_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_ultra_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_portrait_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_portrait_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_landscape_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_lite_portrait_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_lite_landscape_16s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+
+    # I2V 延长版
+    "veo_3_1_i2v_s_fast_portrait_fl_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_fast_fl_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_fast_ultra_fl_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_s_fast_portrait_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_fast_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_s_portrait_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_landscape_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_lite_portrait_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 1,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_lite_landscape_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 1,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_interpolation_lite_portrait_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_interpolation_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 2,
+        "max_images": 2,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_interpolation_lite_landscape_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_interpolation_lite",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 2,
+        "max_images": 2,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+
+    # R2V 延长版
+    "veo_3_1_r2v_fast_portrait_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_r2v_fast_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_r2v_fast_portrait_ultra_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_r2v_fast_ultra_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_r2v_fast_portrait_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_r2v_fast_ultra_relaxed_16s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra_relaxed",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
     }
 }
 
@@ -1692,6 +1978,10 @@ class GenerationHandler:
             task_id = operation["operation"]["name"]
             scene_id = operation.get("sceneId")
 
+            # Extract workflow_id from generation response for extend flow
+            workflows = result.get("workflows", [])
+            generation_workflow_id = workflows[0]["name"] if workflows else None
+
             # 保存Task到数据库
             task = Task(
                 task_id=task_id,
@@ -1714,8 +2004,9 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk(f"视频生成中...\n")
 
-            # 检查是否需要放大
+            # 检查是否需要放大或延长
             upsample_config = model_config.get("upsample")
+            extend_config = model_config.get("extend")
 
             async for chunk in self._poll_video_result(
                 token,
@@ -1723,9 +2014,11 @@ class GenerationHandler:
                 operations,
                 stream,
                 upsample_config,
+                extend_config,
                 generation_result,
                 response_state,
                 request_log_state,
+                generation_workflow_id=generation_workflow_id,
             ):
                 yield chunk
 
@@ -1739,14 +2032,17 @@ class GenerationHandler:
         operations: List[Dict],
         stream: bool,
         upsample_config: Optional[Dict] = None,
+        extend_config: Optional[Dict] = None,
         generation_result: Optional[Dict[str, Any]] = None,
         response_state: Optional[Dict[str, Any]] = None,
-        request_log_state: Optional[Dict[str, Any]] = None
+        request_log_state: Optional[Dict[str, Any]] = None,
+        generation_workflow_id: Optional[str] = None,
     ) -> AsyncGenerator:
         """轮询视频生成结果
-        
+
         Args:
             upsample_config: 放大配置 {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
+            extend_config: 延长配置 {"model_key": "veo_3_1_extend_landscape"}
         """
 
         if response_state is None:
@@ -1758,6 +2054,8 @@ class GenerationHandler:
         # 如果需要放大，轮询次数加倍（放大可能需要 30 分钟）
         if upsample_config:
             max_attempts = max_attempts * 3  # 放大需要更长时间
+        if extend_config:
+            max_attempts = max_attempts * 2  # 延长+拼接也需要额外时间
 
         consecutive_poll_errors = 0
         last_poll_error: Optional[Exception] = None
@@ -1827,7 +2125,7 @@ class GenerationHandler:
                                 
                                 # 递归轮询放大结果（不再放大）
                                 async for chunk in self._poll_video_result(
-                                    token, project_id, upsample_operations, stream, None, generation_result, response_state, request_log_state
+                                    token, project_id, upsample_operations, stream, None, None, generation_result, response_state, request_log_state
                                 ):
                                     yield chunk
                                 return
@@ -1838,6 +2136,191 @@ class GenerationHandler:
                             debug_logger.log_error(f"Video upsample failed: {str(e)}")
                             if stream:
                                 yield self._create_stream_chunk(f"⚠️ 放大失败: {str(e)}，返回原始视频\n")
+
+                    # ========== 视频延长处理 ==========
+                    if extend_config and video_media_id:
+                        # Use media_id from video URL (CDN URL contains the correct media name)
+                        # operation.name may differ from the actual media name for I2V/R2V
+                        url_media_id = video_url.split('/')[-1].split('?')[0] if video_url else None
+                        if url_media_id:
+                            try:
+                                source_media_id = str(uuid.UUID(url_media_id))
+                            except ValueError:
+                                source_media_id = url_media_id
+                        else:
+                            raw_media_id = operation["operation"]["name"]
+                            try:
+                                source_media_id = str(uuid.UUID(raw_media_id))
+                            except ValueError:
+                                source_media_id = raw_media_id
+                        # Resolve workflow_id: prefer from generation response, fallback to media-format poll
+                        workflow_id = generation_workflow_id
+                        if not workflow_id:
+                            workflow_id = await self.flow_client.get_media_workflow_id(
+                                token.at, source_media_id, project_id
+                            )
+                        if not workflow_id:
+                            workflow_id = scene_id or str(uuid.uuid4())
+                        if stream:
+                            yield self._create_stream_chunk("\n视频生成完成，开始延长处理...（可能需要较长时间）\n")
+                        try:
+                            normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
+
+                            # 提交延长任务
+                            extend_result = await self.flow_client.extend_video(
+                                at=token.at,
+                                project_id=project_id,
+                                video_media_id=source_media_id,
+                                aspect_ratio=aspect_ratio,
+                                workflow_id=workflow_id,
+                                model_key=extend_config["model_key"],
+                                user_paygate_tier=normalized_tier,
+                                token_id=token.id,
+                                token_video_concurrency=token.video_concurrency,
+                            )
+
+                            extend_operations = extend_result.get("operations", [])
+                            if not extend_operations:
+                                if stream:
+                                    yield self._create_stream_chunk("⚠️ 延长任务创建失败，返回原始视频\n")
+                            else:
+                                if stream:
+                                    yield self._create_stream_chunk("延长任务已提交，等待延长完成...\n")
+
+                                # 轮询延长状态
+                                extend_success = False
+                                extend_media_id = None
+                                extend_max_attempts = 200
+                                ext_consecutive_errors = 0
+                                for ext_attempt in range(extend_max_attempts):
+                                    await asyncio.sleep(poll_interval)
+                                    try:
+                                        ext_result = await self.flow_client.check_video_status(token.at, extend_operations)
+                                        ext_ops = ext_result.get("operations", [])
+                                        ext_consecutive_errors = 0
+                                        if ext_ops:
+                                            ext_op = ext_ops[0]
+                                            ext_status = ext_op.get("status")
+                                            if stream and ext_attempt % 7 == 0:
+                                                yield self._create_stream_chunk(f"延长进度: {min(int((ext_attempt / extend_max_attempts) * 100), 95)}%\n")
+                                            if ext_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                                                ext_meta = ext_op["operation"].get("metadata", {})
+                                                ext_video_info = ext_meta.get("video", {})
+                                                extend_media_id = ext_video_info.get("mediaGenerationId")
+                                                extend_success = True
+                                                break
+                                            elif ext_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (ext_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                                if stream:
+                                                    yield self._create_stream_chunk("⚠️ 视频延长失败，返回原始视频\n")
+                                                break
+                                    except Exception as e:
+                                        ext_consecutive_errors += 1
+                                        debug_logger.log_error(f"Extend poll error: {str(e)}")
+                                        if ext_consecutive_errors >= 5:
+                                            if stream:
+                                                yield self._create_stream_chunk("⚠️ 延长状态查询持续失败，返回原始视频\n")
+                                            break
+
+                                if extend_success and extend_media_id:
+                                    if stream:
+                                        yield self._create_stream_chunk("延长完成，开始拼接视频...\n")
+
+                                    # 拼接视频
+                                    concat_result = await self.flow_client.concatenate_videos(
+                                        at=token.at,
+                                        original_media_id=video_media_id,
+                                        extended_media_id=extend_media_id,
+                                    )
+                                    concat_op_name = None
+                                    if isinstance(concat_result, dict):
+                                        # 尝试多种响应格式提取 operation name
+                                        concat_op_name = (
+                                            concat_result.get("name")
+                                            or (concat_result.get("operation") or {}).get("name")
+                                            or ((concat_result.get("operation") or {}).get("operation") or {}).get("name")
+                                        )
+
+                                    if not concat_op_name:
+                                        if stream:
+                                            yield self._create_stream_chunk("⚠️ 拼接任务创建失败，返回原始视频\n")
+                                    else:
+                                        # 轮询拼接状态
+                                        concat_success = False
+                                        encoded_video = None
+                                        concat_max_attempts = 120
+                                        concat_consecutive_errors = 0
+                                        for c_attempt in range(concat_max_attempts):
+                                            await asyncio.sleep(2)
+                                            try:
+                                                c_result = await self.flow_client.check_concatenation_status(token.at, concat_op_name)
+                                                c_status = c_result.get("status")
+                                                concat_consecutive_errors = 0
+                                                if c_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                                                    encoded_video = c_result.get("encodedVideo")
+                                                    concat_success = True
+                                                    break
+                                                elif c_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (c_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                                    break
+                                                if stream and c_attempt % 10 == 0:
+                                                    yield self._create_stream_chunk(f"拼接进度: {min(int((c_attempt / concat_max_attempts) * 100), 95)}%\n")
+                                            except Exception as e:
+                                                concat_consecutive_errors += 1
+                                                debug_logger.log_error(f"Concat poll error: {str(e)}")
+                                                if concat_consecutive_errors >= 5:
+                                                    if stream:
+                                                        yield self._create_stream_chunk("⚠️ 拼接状态查询持续失败，返回原始视频\n")
+                                                    break
+
+                                        if concat_success and encoded_video:
+                                            # 解码 base64 视频并保存到缓存
+                                            video_data = base64.b64decode(encoded_video)
+                                            unique_id = hashlib.md5(f"{uuid.uuid4()}{time.time()}".encode()).hexdigest()
+                                            concat_filename = f"{unique_id}_16s.mp4"
+                                            concat_path = self.file_cache.cache_dir / concat_filename
+                                            with open(concat_path, 'wb') as f:
+                                                f.write(video_data)
+                                            local_url = f"{self._get_base_url(response_state)}/tmp/{concat_filename}"
+
+                                            if stream:
+                                                yield self._create_stream_chunk("✅ 16秒视频拼接完成！\n")
+
+                                            # 更新数据库
+                                            task_id = operation["operation"]["name"]
+                                            await self.db.update_task(
+                                                task_id,
+                                                status="completed",
+                                                progress=100,
+                                                result_urls=[local_url],
+                                                completed_at=time.time()
+                                            )
+
+                                            response_state["url"] = local_url
+                                            response_state["generated_assets"] = {
+                                                "type": "video",
+                                                "final_video_url": local_url
+                                            }
+                                            self._mark_generation_succeeded(generation_result)
+
+                                            if stream:
+                                                yield self._create_stream_chunk(
+                                                    f"<video src='{local_url}' controls style='max-width:100%'></video>",
+                                                    finish_reason="stop"
+                                                )
+                                            else:
+                                                yield self._create_completion_response(
+                                                    local_url,
+                                                    media_type="video"
+                                                )
+                                            return
+                                        else:
+                                            if stream:
+                                                yield self._create_stream_chunk("⚠️ 拼接失败，返回原始视频\n")
+                                else:
+                                    pass  # extend failed, fall through to original video
+                        except Exception as e:
+                            debug_logger.log_error(f"Video extend failed: {str(e)}")
+                            if stream:
+                                yield self._create_stream_chunk(f"⚠️ 延长失败: {str(e)}，返回原始视频\n")
 
                     # 缓存视频 (如果启用)
                     local_url = video_url
