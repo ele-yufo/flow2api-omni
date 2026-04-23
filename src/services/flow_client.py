@@ -1830,6 +1830,208 @@ class FlowClient:
         
         raise last_error
 
+    # ========== 视频延长 (使用AT) ==========
+
+    async def extend_video(
+        self,
+        at: str,
+        project_id: str,
+        video_media_id: str,
+        aspect_ratio: str,
+        workflow_id: str,
+        model_key: str,
+        prompt: str = "Continue this video naturally, maintaining consistent visual style, motion, and environment.",
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None,
+        token_video_concurrency: Optional[int] = None,
+    ) -> dict:
+        """视频延长约8秒，返回 task_id
+
+        Args:
+            at: Access Token
+            project_id: 项目ID
+            video_media_id: 原始视频的 mediaId
+            aspect_ratio: 视频宽高比 VIDEO_ASPECT_RATIO_PORTRAIT/LANDSCAPE
+            workflow_id: 工作流ID
+            model_key: 延长模型 key (veo_3_1_extend_landscape / veo_3_1_extend_portrait)
+            prompt: 延长提示词
+            user_paygate_tier: 用户等级
+
+        Returns:
+            同 generate_video_text
+        """
+        url = f"{self.api_base_url}/video:batchAsyncGenerateVideoExtendVideo"
+
+        # 403/reCAPTCHA 重试逻辑 - 最多重试3次
+        max_retries = 3
+        last_error = None
+
+        for retry_attempt in range(max_retries):
+            launch_gate_acquired = False
+            launch_ok, _, _ = await self._acquire_video_launch_gate(
+                token_id=token_id,
+                token_video_concurrency=token_video_concurrency,
+            )
+            if not launch_ok:
+                last_error = Exception("Video launch queue wait timeout")
+                raise last_error
+
+            launch_gate_acquired = True
+            try:
+                recaptcha_token, browser_id = await self._get_recaptcha_token(
+                    project_id,
+                    action="VIDEO_GENERATION",
+                    token_id=token_id
+                )
+            finally:
+                if launch_gate_acquired:
+                    await self._release_video_launch_gate(token_id)
+            if not recaptcha_token:
+                last_error = Exception("Failed to obtain reCAPTCHA token")
+                should_retry = await self._handle_missing_recaptcha_token(
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO EXTEND] 延长",
+                )
+                if should_retry:
+                    continue
+                raise last_error
+            session_id = self._generate_session_id()
+
+            json_data = {
+                "mediaGenerationContext": {
+                    "batchId": str(uuid.uuid4())
+                },
+                "useV2ModelConfig": True,
+                "clientContext": {
+                    "projectId": project_id,
+                    "tool": "PINHOLE",
+                    "userPaygateTier": user_paygate_tier,
+                    "sessionId": session_id,
+                    "recaptchaContext": {
+                        "token": recaptcha_token,
+                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+                    }
+                },
+                "requests": [{
+                    "aspectRatio": aspect_ratio,
+                    "seed": random.randint(1, 99999),
+                    "textInput": self._build_video_text_input(prompt, use_v2_model_config=True),
+                    "videoModelKey": model_key,
+                    "metadata": {
+                        "workflowId": workflow_id
+                    },
+                    "videoInput": {
+                        "mediaId": video_media_id
+                    }
+                }]
+            }
+
+            try:
+                result = await self._make_request(
+                    method="POST",
+                    url=url,
+                    json_data=json_data,
+                    use_at=True,
+                    at_token=at
+                )
+                return result
+            except Exception as e:
+                last_error = e
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO EXTEND] 延长",
+                )
+                if should_retry:
+                    continue
+                raise
+            finally:
+                await self._notify_browser_captcha_request_finished(browser_id)
+
+        # 所有重试都失败
+        raise last_error
+
+    async def concatenate_videos(
+        self,
+        at: str,
+        original_media_id: str,
+        extended_media_id: str,
+        original_duration_nanos: int = 8000,
+        extended_start_offset: str = "1s",
+    ) -> dict:
+        """拼接原始视频和延长视频
+
+        Args:
+            at: Access Token
+            original_media_id: 原始视频的 mediaGenerationId
+            extended_media_id: 延长视频的 mediaGenerationId
+            original_duration_nanos: 原始视频时长（纳秒），默认 8000（8秒）
+            extended_start_offset: 延长视频起始偏移，默认 "1s"
+
+        Returns:
+            操作结果，包含 operation name 用于后续轮询
+        """
+        url = f"{self.api_base_url}:runVideoFxConcatenation"
+
+        json_data = {
+            "inputVideos": [
+                {
+                    "mediaGenerationId": original_media_id,
+                    "lengthNanos": original_duration_nanos,
+                    "startTimeOffset": "0s",
+                    "endTimeOffset": "8s",
+                },
+                {
+                    "mediaGenerationId": extended_media_id,
+                    "lengthNanos": original_duration_nanos,
+                    "startTimeOffset": extended_start_offset,
+                    "endTimeOffset": "8s",
+                },
+            ]
+        }
+
+        return await self._make_request(
+            method="POST",
+            url=url,
+            json_data=json_data,
+            use_at=True,
+            at_token=at
+        )
+
+    async def check_concatenation_status(self, at: str, operation_name: str) -> dict:
+        """查询视频拼接状态
+
+        Args:
+            at: Access Token
+            operation_name: concatenate_videos 返回的 operation name
+
+        Returns:
+            拼接状态结果
+        """
+        url = f"{self.api_base_url}:runVideoFxCheckConcatenationStatus"
+
+        json_data = {
+            "operation": {
+                "operation": {
+                    "name": operation_name
+                }
+            }
+        }
+
+        return await self._make_request(
+            method="POST",
+            url=url,
+            json_data=json_data,
+            use_at=True,
+            at_token=at
+        )
+
     # ========== 任务轮询 (使用AT) ==========
 
     async def check_video_status(self, at: str, operations: List[Dict]) -> dict:
@@ -1881,6 +2083,23 @@ class FlowClient:
         if last_error is not None:
             raise last_error
         raise RuntimeError("视频状态查询失败")
+
+    async def get_media_workflow_id(self, at: str, media_name: str, project_id: str) -> Optional[str]:
+        """通过 media 格式轮询获取 workflowId"""
+        url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"
+        json_data = {
+            "media": [{"name": media_name, "projectId": project_id}]
+        }
+        try:
+            result = await self._make_request(
+                method="POST", url=url, json_data=json_data, use_at=True, at_token=at
+            )
+            media_list = result.get("media", [])
+            if media_list:
+                return media_list[0].get("workflowId")
+        except Exception:
+            pass
+        return None
 
     # ========== 媒体删除 (使用ST) ==========
 
