@@ -1905,7 +1905,8 @@ class FlowClient:
 
             json_data = {
                 "mediaGenerationContext": {
-                    "batchId": str(uuid.uuid4())
+                    "batchId": str(uuid.uuid4()),
+                    "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
                 },
                 "useV2ModelConfig": True,
                 "clientContext": {
