@@ -1018,6 +1018,174 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+
+    # ========== 视频延长+放大 (Video Extend 16s + Upsample) ==========
+
+    # T2V 延长+放大版
+    "veo_3_1_t2v_fast_landscape_16s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_landscape_16s_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_portrait_16s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_portrait_16s_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_ultra_16s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_ultra_16s_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_t2v_fast_portrait_ultra_16s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_t2v_fast_portrait_ultra_16s_4k": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "veo_3_1_t2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+
+    # I2V 延长+放大版
+    "veo_3_1_i2v_s_fast_ultra_fl_16s_1080p": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_s_fast_ultra_fl_16s_4k": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_1080p": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_4k": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+
+    # R2V 延长+放大版
+    "veo_3_1_r2v_fast_ultra_16s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_r2v_fast_ultra_16s_4k": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_landscape_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+    "veo_3_1_r2v_fast_portrait_ultra_16s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_r2v_fast_portrait_ultra_16s_4k": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "veo_3_1_r2v_fast_portrait_ultra",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
     }
 }
 
@@ -2100,11 +2268,14 @@ class GenerationHandler:
                         return
 
                     # ========== 视频放大处理 ==========
+                    upsampled_video_url = None
+                    upsampled_media_id = None
+                    source_media_id = None
                     if upsample_config and video_media_id:
                         if stream:
                             resolution_name = "4K" if "4K" in upsample_config["resolution"] else "1080P"
                             yield self._create_stream_chunk(f"\n视频生成完成，开始 {resolution_name} 放大处理...（可能需要 30 分钟）\n")
-                        
+
                         try:
                             # 提交放大任务
                             upsample_result = await self.flow_client.upsample_video(
@@ -2117,18 +2288,63 @@ class GenerationHandler:
                                 token_id=token.id,
                                 token_video_concurrency=token.video_concurrency,
                             )
-                            
+
                             upsample_operations = upsample_result.get("operations", [])
                             if upsample_operations:
                                 if stream:
                                     yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")
-                                
-                                # 递归轮询放大结果（不再放大）
-                                async for chunk in self._poll_video_result(
-                                    token, project_id, upsample_operations, stream, None, None, generation_result, response_state, request_log_state
-                                ):
-                                    yield chunk
-                                return
+
+                                if extend_config:
+                                    # Upsample + Extend 模式: 内联轮询放大结果，不 return
+                                    up_ok = False
+                                    ups_max = max_attempts
+                                    ups_consecutive_errors = 0
+                                    for ups_attempt in range(ups_max):
+                                        await asyncio.sleep(poll_interval)
+                                        try:
+                                            ups_result = await self.flow_client.check_video_status(token.at, upsample_operations)
+                                            ups_ops = ups_result.get("operations", [])
+                                            ups_consecutive_errors = 0
+                                            if ups_ops:
+                                                ups_op = ups_ops[0]
+                                                ups_status = ups_op.get("status")
+                                                if stream and ups_attempt % 7 == 0:
+                                                    yield self._create_stream_chunk(f"放大进度: {min(int((ups_attempt / ups_max) * 100), 95)}%\n")
+                                                if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                                                    ups_meta = ups_op["operation"].get("metadata", {})
+                                                    ups_video_info = ups_meta.get("video", {})
+                                                    upsampled_video_url = ups_video_info.get("fifeUrl")
+                                                    ups_raw_media_id = ups_op["operation"]["name"]
+                                                    try:
+                                                        upsampled_media_id = str(uuid.UUID(ups_raw_media_id))
+                                                    except ValueError:
+                                                        upsampled_media_id = ups_raw_media_id
+                                                    up_ok = True
+                                                    break
+                                                elif ups_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (ups_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                                    if stream:
+                                                        yield self._create_stream_chunk("⚠️ 视频放大失败，将使用原始视频进行延长\n")
+                                                    break
+                                        except Exception as e:
+                                            ups_consecutive_errors += 1
+                                            if ups_consecutive_errors >= 5:
+                                                if stream:
+                                                    yield self._create_stream_chunk("⚠️ 放大状态查询持续失败，将使用原始视频进行延长\n")
+                                                break
+
+                                    if up_ok and upsampled_media_id:
+                                        if stream:
+                                            yield self._create_stream_chunk(f"✅ {resolution_name} 放大完成，开始延长处理...\n")
+                                        # 更新 source_media_id 为放大后的视频
+                                        source_media_id = upsampled_media_id
+                                        video_url = upsampled_video_url
+                                else:
+                                    # 仅 Upsample 模式: 递归轮询并返回
+                                    async for chunk in self._poll_video_result(
+                                        token, project_id, upsample_operations, stream, None, None, generation_result, response_state, request_log_state
+                                    ):
+                                        yield chunk
+                                    return
                             else:
                                 if stream:
                                     yield self._create_stream_chunk("⚠️ 放大任务创建失败，返回原始视频\n")
@@ -2139,20 +2355,20 @@ class GenerationHandler:
 
                     # ========== 视频延长处理 ==========
                     if extend_config and video_media_id:
-                        # Use media_id from video URL (CDN URL contains the correct media name)
-                        # operation.name may differ from the actual media name for I2V/R2V
-                        url_media_id = video_url.split('/')[-1].split('?')[0] if video_url else None
-                        if url_media_id:
-                            try:
-                                source_media_id = str(uuid.UUID(url_media_id))
-                            except ValueError:
-                                source_media_id = url_media_id
-                        else:
-                            raw_media_id = operation["operation"]["name"]
-                            try:
-                                source_media_id = str(uuid.UUID(raw_media_id))
-                            except ValueError:
-                                source_media_id = raw_media_id
+                        if not source_media_id:
+                            # Use media_id from video URL (CDN URL contains the correct media name)
+                            url_media_id = video_url.split('/')[-1].split('?')[0] if video_url else None
+                            if url_media_id:
+                                try:
+                                    source_media_id = str(uuid.UUID(url_media_id))
+                                except ValueError:
+                                    source_media_id = url_media_id
+                            else:
+                                raw_media_id = operation["operation"]["name"]
+                                try:
+                                    source_media_id = str(uuid.UUID(raw_media_id))
+                                except ValueError:
+                                    source_media_id = raw_media_id
                         # Resolve workflow_id: prefer from generation response, fallback to media-format poll
                         workflow_id = generation_workflow_id
                         if not workflow_id:
@@ -2161,8 +2377,10 @@ class GenerationHandler:
                             )
                         if not workflow_id:
                             workflow_id = scene_id or str(uuid.uuid4())
-                        if stream:
+                        if stream and not upsampled_media_id:
                             yield self._create_stream_chunk("\n视频生成完成，开始延长处理...（可能需要较长时间）\n")
+                        elif stream and upsampled_media_id:
+                            pass  # Already showed "放大完成，开始延长处理" above
                         try:
                             normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
 
