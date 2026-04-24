@@ -11,21 +11,23 @@
 
 </div>
 
-## ✨ 核心特性
+## 核心特性
 
-- 🎨 **文生图** / **图生图**
-- 🎬 **文生视频** / **图生视频**
-- 🎞️ **首尾帧视频**
-- 🔄 **AT/ST自动刷新** - AT 过期自动刷新，ST 过期时自动通过浏览器更新（personal 模式）
-- 📊 **余额显示** - 实时查询和显示 VideoFX Credits
-- 🚀 **负载均衡** - 多 Token 轮询和并发控制
-- 🌐 **代理支持** - 支持 HTTP/SOCKS5 代理
-- 📱 **Web 管理界面** - 直观的 Token 和配置管理
-- 🎨 **图片生成连续对话**
-- 🧩 **Gemini 官方请求体兼容** - 支持 `generateContent` / `streamGenerateContent`、`systemInstruction`、`contents.parts.text/inlineData/fileData`
-- ✅ **Gemini 官方格式已实测出图** - 已使用真实 Token 验证 `/models/{model}:generateContent` 可正常返回官方 `candidates[].content.parts[].inlineData`
+- **文生图** / **图生图**
+- **文生视频** / **图生视频** / **多图视频**
+- **首尾帧视频**
+- **视频放大** (1080P / 4K)
+- **视频延长 16s** — 生成 8s + 延长 8s + 拼接，对上游透明
+- **AT/ST自动刷新** - AT 过期自动刷新，ST 过期时自动通过浏览器更新（personal 模式）
+- **余额显示** - 实时查询和显示 VideoFX Credits
+- **负载均衡** - 多 Token 轮询和并发控制
+- **代理支持** - 支持 HTTP/SOCKS5 代理
+- **Web 管理界面** - 直观的 Token 和配置管理
+- **图片生成连续对话**
+- **Gemini 官方请求体兼容** - 支持 `generateContent` / `streamGenerateContent`、`systemInstruction`、`contents.parts.text/inlineData/fileData`
+- **Gemini 官方格式已实测出图** - 已使用真实 Token 验证 `/models/{model}:generateContent` 可正常返回官方 `candidates[].content.parts[].inlineData`
 
-## 🚀 快速开始
+## 快速开始
 
 ### 前置要求
 
@@ -55,7 +57,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-> 说明：Compose 已默认挂载 `./tmp:/app/tmp`。如果把缓存超时设为 `0`，语义是“不自动过期删除”；若希望容器重建后仍保留缓存文件，也需要保留这个 `tmp` 挂载。
+> 说明：Compose 已默认挂载 `./tmp:/app/tmp`。如果把缓存超时设为 `0`，语义是"不自动过期删除"；若希望容器重建后仍保留缓存文件，也需要保留这个 `tmp` 挂载。
 
 #### WARP 模式（使用代理）
 
@@ -69,8 +71,8 @@ docker-compose -f docker-compose.warp.yml logs -f
 
 #### Docker 有头打码模式（browser / personal）
 
-> 适用于你有虚拟化桌面需求、希望在容器里启用有头浏览器打码的场景。  
-> 该模式默认启动 `Xvfb + Fluxbox` 实现容器内部可视化，并设置 `ALLOW_DOCKER_HEADED_CAPTCHA=true`。  
+> 适用于你有虚拟化桌面需求、希望在容器里启用有头浏览器打码的场景。
+> 该模式默认启动 `Xvfb + Fluxbox` 实现容器内部可视化，并设置 `ALLOW_DOCKER_HEADED_CAPTCHA=true`。
 > 仅开放应用端口，不提供任何远程桌面连接端口。
 
 ```bash
@@ -123,12 +125,12 @@ python main.py
 - 图生图 / 图生视频场景支持上传图片
 - 生成完成后直接预览图片或视频
 
-## 📋 支持的模型
+## 支持的模型
 
 ### 图片生成
 
-| 模型名称 | 说明| 尺寸 |
-|---------|--------|--------|
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
 | `gemini-2.5-flash-image-landscape` | 图/文生图 | 横屏 |
 | `gemini-2.5-flash-image-portrait` | 图/文生图 | 竖屏 |
 | `gemini-3.0-pro-image-landscape` | 图/文生图 | 横屏 |
@@ -167,10 +169,11 @@ python main.py
 ### 视频生成
 
 #### 文生视频 (T2V - Text to Video)
-⚠️ **不支持上传图片**
 
-| 模型名称 | 说明| 尺寸 |
-|---------|---------|--------|
+不支持上传图片
+
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
 | `veo_3_1_t2v_fast_portrait` | 文生视频 | 竖屏 |
 | `veo_3_1_t2v_fast_landscape` | 文生视频 | 横屏 |
 | `veo_2_1_fast_d_15_t2v_portrait` | 文生视频 | 竖屏 |
@@ -187,16 +190,19 @@ python main.py
 | `veo_3_1_t2v_lite_landscape` | 文生视频 Lite | 横屏 |
 
 #### 首尾帧模型 (I2V - Image to Video)
-📸 **支持1-2张图片：1张作为首帧，2张作为首尾帧**
 
-> 💡 **自动适配**：系统会根据图片数量自动选择对应的 model_key
+支持 1-2 张图片：1 张作为首帧，2 张作为首尾帧
+
+> **自动适配**：系统会根据图片数量自动选择对应的 model_key
 > - **单帧模式**（1张图）：使用首帧生成视频
 > - **双帧模式**（2张图）：使用首帧+尾帧生成过渡视频
 > - `veo_3_1_i2v_lite_*` 仅支持 **1 张** 首帧图片
 > - `veo_3_1_interpolation_lite_*` 仅支持 **2 张** 首尾帧图片
 
-| 模型名称 | 说明| 尺寸 |
-|---------|---------|--------|
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_i2v_s_portrait` | 图生视频 满血版 | 竖屏 |
+| `veo_3_1_i2v_s_landscape` | 图生视频 满血版 | 横屏 |
 | `veo_3_1_i2v_s_fast_portrait_fl` | 图生视频 | 竖屏 |
 | `veo_3_1_i2v_s_fast_fl` | 图生视频 | 横屏 |
 | `veo_2_1_fast_d_15_i2v_portrait` | 图生视频 | 竖屏 |
@@ -207,39 +213,30 @@ python main.py
 | `veo_3_1_i2v_s_fast_ultra_fl` | 图生视频 | 横屏 |
 | `veo_3_1_i2v_s_fast_portrait_ultra_relaxed` | 图生视频 | 竖屏 |
 | `veo_3_1_i2v_s_fast_ultra_relaxed` | 图生视频 | 横屏 |
-| `veo_3_1_i2v_s_portrait` | 图生视频 | 竖屏 |
-| `veo_3_1_i2v_s_landscape` | 图生视频 | 横屏 |
 | `veo_3_1_i2v_lite_portrait` | 图生视频 Lite（仅首帧） | 竖屏 |
 | `veo_3_1_i2v_lite_landscape` | 图生视频 Lite（仅首帧） | 横屏 |
 | `veo_3_1_interpolation_lite_portrait` | 图生视频 Lite（首尾帧过渡） | 竖屏 |
 | `veo_3_1_interpolation_lite_landscape` | 图生视频 Lite（首尾帧过渡） | 横屏 |
 
 #### 多图生成 (R2V - Reference Images to Video)
-🖼️ **支持多张图片**
 
-> **2026-03-06 更新**
->
-> - 已同步上游新版 `R2V` 视频请求体
-> - `textInput` 已切换为 `structuredPrompt.parts`
-> - 顶层新增 `mediaGenerationContext.batchId`
-> - 顶层新增 `useV2ModelConfig: true`
-> - 横屏 / 竖屏 `R2V` 模型共用同一套新版请求体
-> - 横屏 `R2V` 的上游 `videoModelKey` 已切换为 `*_landscape` 形式
-> - 根据当前上游协议，`referenceImages` 当前最多传 **3 张**
+支持多张参考图（最多 3 张）
 
-| 模型名称 | 说明| 尺寸 |
-|---------|---------|--------|
-| `veo_3_1_r2v_fast_portrait` | 图生视频 | 竖屏 |
-| `veo_3_1_r2v_fast` | 图生视频 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra` | 图生视频 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra` | 图生视频 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_relaxed` | 图生视频 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_relaxed` | 图生视频 | 横屏 |
+> 服务端自动组装新版视频请求体，调用方仍然使用 OpenAI 兼容输入即可。
 
-#### 视频放大模型 (Upsample)
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_r2v_fast_portrait` | 多图视频 | 竖屏 |
+| `veo_3_1_r2v_fast` | 多图视频 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra` | 多图视频 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra` | 多图视频 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_relaxed` | 多图视频 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_relaxed` | 多图视频 | 横屏 |
+
+### 视频放大 (Upsample)
 
 | 模型名称 | 说明 | 输出 |
-|---------|---------|--------|
+|---------|------|------|
 | `veo_3_1_t2v_fast_portrait_4k` | 文生视频放大 | 4K |
 | `veo_3_1_t2v_fast_4k` | 文生视频放大 | 4K |
 | `veo_3_1_t2v_fast_portrait_ultra_4k` | 文生视频放大 | 4K |
@@ -257,7 +254,91 @@ python main.py
 | `veo_3_1_r2v_fast_portrait_ultra_1080p` | 多图视频放大 | 1080P |
 | `veo_3_1_r2v_fast_ultra_1080p` | 多图视频放大 | 1080P |
 
-## 📡 API 使用示例（需要使用流式）
+### 视频延长 16s (Video Extend)
+
+内部流程：生成 8s 视频 → 延长 8s → 拼接 → 返回约 16s 视频。对上游调用方透明，使用方式与普通视频模型完全一致。
+
+使用 `_16s` 后缀的模型名即可触发。也支持省略横竖屏后缀的简写（如 `veo_3_1_t2v_fast_16s`），服务端根据请求自动匹配横竖屏。
+
+#### 文生视频 16s (T2V 16s)
+
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_t2v_fast_portrait_16s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_16s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_16s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_16s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_relaxed_16s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_relaxed_16s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_portrait_16s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_landscape_16s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_lite_portrait_16s` | 文生视频延长 Lite | 竖屏 |
+| `veo_3_1_t2v_lite_landscape_16s` | 文生视频延长 Lite | 横屏 |
+
+#### 图生视频 16s (I2V 16s)
+
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_i2v_s_portrait_16s` | 图生视频延长 满血版 | 竖屏 |
+| `veo_3_1_i2v_s_landscape_16s` | 图生视频延长 满血版 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_fl_16s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_fl_16s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_16s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_relaxed_16s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_relaxed_16s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_lite_portrait_16s` | 图生视频延长 Lite（仅首帧） | 竖屏 |
+| `veo_3_1_i2v_lite_landscape_16s` | 图生视频延长 Lite（仅首帧） | 横屏 |
+| `veo_3_1_interpolation_lite_portrait_16s` | 图生视频延长 Lite（首尾帧） | 竖屏 |
+| `veo_3_1_interpolation_lite_landscape_16s` | 图生视频延长 Lite（首尾帧） | 横屏 |
+
+#### 多图视频 16s (R2V 16s)
+
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_r2v_fast_portrait_16s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_16s` | 多图视频延长 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_16s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_16s` | 多图视频延长 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_relaxed_16s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_relaxed_16s` | 多图视频延长 | 横屏 |
+
+### 视频延长 16s + 放大 (Extend + Upsample)
+
+在 16s 延长基础上叠加 1080P 或 4K 放大。流程：生成 8s → 放大 → 延长 8s → 拼接 → 返回 16s 高清视频。
+
+#### T2V 延长 + 放大
+
+| 模型名称 | 输出 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_t2v_fast_portrait_16s_1080p` | 16s + 1080P | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_16s_1080p` | 16s + 1080P | 横屏 |
+| `veo_3_1_t2v_fast_portrait_16s_4k` | 16s + 4K | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_16s_4k` | 16s + 4K | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_16s_1080p` | 16s + 1080P | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_16s_1080p` | 16s + 1080P | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_16s_4k` | 16s + 4K | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_16s_4k` | 16s + 4K | 横屏 |
+
+#### I2V 延长 + 放大
+
+| 模型名称 | 输出 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_1080p` | 16s + 1080P | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_16s_1080p` | 16s + 1080P | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_4k` | 16s + 4K | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_16s_4k` | 16s + 4K | 横屏 |
+
+#### R2V 延长 + 放大
+
+| 模型名称 | 输出 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_r2v_fast_portrait_ultra_16s_1080p` | 16s + 1080P | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_16s_1080p` | 16s + 1080P | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_16s_4k` | 16s + 4K | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_16s_4k` | 16s + 4K | 横屏 |
+
+## API 使用示例（需要使用流式）
 
 > 除了下方 `OpenAI-compatible` 示例，服务也支持 Gemini 官方格式：
 > - `POST /v1beta/models/{model}:generateContent`
@@ -381,6 +462,24 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   }'
 ```
 
+### 文生视频 16s
+
+```bash
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Authorization: Bearer han1234" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "veo_3_1_t2v_fast_landscape_16s",
+    "messages": [
+      {
+        "role": "user",
+        "content": "一只小猫在草地上追逐蝴蝶"
+      }
+    ],
+    "stream": true
+  }'
+```
+
 ### 首尾帧生成视频
 
 ```bash
@@ -463,13 +562,13 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ---
 
-## 📄 许可证
+## 许可证
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ---
 
-## 🙏 致谢
+## 致谢
 
 - [PearNoDec](https://github.com/PearNoDec) 提供的YesCaptcha打码方案
 - [raomaiping](https://github.com/raomaiping) 提供的无头打码方案
@@ -477,13 +576,13 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ---
 
-## 📞 联系方式
+## 联系方式
 
 - 提交 Issue：[GitHub Issues](https://github.com/TheSmallHanCat/flow2api/issues)
 
 ---
 
-**⭐ 如果这个项目对你有帮助，请给个 Star！**
+**如果这个项目对你有帮助，请给个 Star！**
 
 ## Star History
 

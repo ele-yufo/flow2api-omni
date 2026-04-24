@@ -47,6 +47,8 @@ class FlowClient:
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "cross-site",
+            "origin": "https://labs.google",
+            "referer": "https://labs.google/",
             "x-browser-channel": "stable",
             "x-browser-copyright": "Copyright 2026 Google LLC. All Rights reserved.",
             "x-browser-validation": "UujAs0GAwdnCJ9nvrswZ+O+oco0=",
@@ -1290,7 +1292,8 @@ class FlowClient:
             }
             if use_v2_model_config:
                 json_data["mediaGenerationContext"] = {
-                    "batchId": str(uuid.uuid4())
+                    "batchId": str(uuid.uuid4()),
+                    "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
                 }
                 json_data["useV2ModelConfig"] = True
 
@@ -1971,8 +1974,8 @@ class FlowClient:
             at: Access Token
             original_media_id: 原始视频的 mediaGenerationId
             extended_media_id: 延长视频的 mediaGenerationId
-            original_duration_nanos: 原始视频时长（纳秒），默认 8000（8秒）
-            extended_start_offset: 延长视频起始偏移，默认 "1s"
+            original_duration_nanos: 原始视频时长，默认 8000（Flow API lengthNanos 字段，实际非纳秒单位）
+            extended_start_offset: 延长视频起始偏移，默认 "1s"（跳过1秒重叠）
 
         Returns:
             操作结果，包含 operation name 用于后续轮询
@@ -2097,8 +2100,8 @@ class FlowClient:
             media_list = result.get("media", [])
             if media_list:
                 return media_list[0].get("workflowId")
-        except Exception:
-            pass
+        except Exception as e:
+            debug_logger.log_error(f"[WORKFLOW_ID] Failed to get workflow_id for {media_name}: {e}")
         return None
 
     # ========== 媒体删除 (使用ST) ==========

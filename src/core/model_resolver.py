@@ -175,10 +175,6 @@ VIDEO_BASE_MODELS = {
         "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed",
         "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed",
     },
-    "veo_3_1_i2v_s": {
-        "landscape": "veo_3_1_i2v_s_landscape",
-        "portrait": "veo_3_1_i2v_s_portrait",
-    },
     "veo_3_1_i2v_lite": {
         "landscape": "veo_3_1_i2v_lite_landscape",
         "portrait": "veo_3_1_i2v_lite_portrait",
@@ -186,6 +182,10 @@ VIDEO_BASE_MODELS = {
     "veo_3_1_interpolation_lite": {
         "landscape": "veo_3_1_interpolation_lite_landscape",
         "portrait": "veo_3_1_interpolation_lite_portrait",
+    },
+    "veo_3_1_i2v_s": {
+        "landscape": "veo_3_1_i2v_s_landscape",
+        "portrait": "veo_3_1_i2v_s_portrait",
     },
     # R2V models
     "veo_3_1_r2v_fast": {
@@ -235,10 +235,6 @@ VIDEO_BASE_MODELS = {
         "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed_16s",
         "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed_16s",
     },
-    "veo_3_1_i2v_s_16s": {
-        "landscape": "veo_3_1_i2v_s_landscape_16s",
-        "portrait": "veo_3_1_i2v_s_portrait_16s",
-    },
     "veo_3_1_i2v_lite_16s": {
         "landscape": "veo_3_1_i2v_lite_landscape_16s",
         "portrait": "veo_3_1_i2v_lite_portrait_16s",
@@ -246,6 +242,10 @@ VIDEO_BASE_MODELS = {
     "veo_3_1_interpolation_lite_16s": {
         "landscape": "veo_3_1_interpolation_lite_landscape_16s",
         "portrait": "veo_3_1_interpolation_lite_portrait_16s",
+    },
+    "veo_3_1_i2v_s_16s": {
+        "landscape": "veo_3_1_i2v_s_landscape_16s",
+        "portrait": "veo_3_1_i2v_s_portrait_16s",
     },
     # R2V 16s
     "veo_3_1_r2v_fast_16s": {

@@ -450,15 +450,16 @@ MODEL_CONFIG = {
         "max_images": 2
     },
 
-    # veo_3_1_i2v_s (需要新增横竖屏)
+    # veo_3_1_i2v_s 满血版 (标准 I2V, 支持 1-2 张图片)
     "veo_3_1_i2v_s_portrait": {
         "type": "video",
         "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s",
+        "model_key": "veo_3_1_i2v_s_portrait",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 1,
-        "max_images": 2
+        "max_images": 2,
+        "allow_tier_upgrade": False
     },
     "veo_3_1_i2v_s_landscape": {
         "type": "video",
@@ -467,8 +468,10 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 1,
-        "max_images": 2
+        "max_images": 2,
+        "allow_tier_upgrade": False
     },
+
     # veo_3_1_i2v_lite (横竖屏，仅首帧，来自 labs.google.har)
     "veo_3_1_i2v_lite_portrait": {
         "type": "video",
@@ -889,26 +892,6 @@ MODEL_CONFIG = {
         "max_images": 2,
         "extend": {"model_key": "veo_3_1_extend_landscape"}
     },
-    "veo_3_1_i2v_s_portrait_16s": {
-        "type": "video",
-        "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 1,
-        "max_images": 2,
-        "extend": {"model_key": "veo_3_1_extend_portrait"}
-    },
-    "veo_3_1_i2v_s_landscape_16s": {
-        "type": "video",
-        "video_type": "i2v",
-        "model_key": "veo_3_1_i2v_s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 1,
-        "max_images": 2,
-        "extend": {"model_key": "veo_3_1_extend_landscape"}
-    },
     "veo_3_1_i2v_lite_portrait_16s": {
         "type": "video",
         "video_type": "i2v",
@@ -954,6 +937,30 @@ MODEL_CONFIG = {
         "min_images": 2,
         "max_images": 2,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_landscape"}
+    },
+
+    # I2V 满血版 延长 16s
+    "veo_3_1_i2v_s_portrait_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s_portrait",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
+        "allow_tier_upgrade": False,
+        "extend": {"model_key": "veo_3_1_extend_portrait"}
+    },
+    "veo_3_1_i2v_s_landscape_16s": {
+        "type": "video",
+        "video_type": "i2v",
+        "model_key": "veo_3_1_i2v_s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 1,
+        "max_images": 2,
         "allow_tier_upgrade": False,
         "extend": {"model_key": "veo_3_1_extend_landscape"}
     },
@@ -1186,7 +1193,7 @@ MODEL_CONFIG = {
         "max_images": 3,
         "upsample": {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"},
         "extend": {"model_key": "veo_3_1_extend_portrait"}
-    }
+    },
 }
 
 
@@ -2376,7 +2383,7 @@ class GenerationHandler:
                                 token.at, source_media_id, project_id
                             )
                         if not workflow_id:
-                            workflow_id = scene_id or str(uuid.uuid4())
+                            workflow_id = str(uuid.uuid4())
                         if stream and not upsampled_media_id:
                             yield self._create_stream_chunk("\n视频生成完成，开始延长处理...（可能需要较长时间）\n")
                         elif stream and upsampled_media_id:
@@ -2446,7 +2453,7 @@ class GenerationHandler:
                                     # 拼接视频
                                     concat_result = await self.flow_client.concatenate_videos(
                                         at=token.at,
-                                        original_media_id=video_media_id,
+                                        original_media_id=source_media_id,
                                         extended_media_id=extend_media_id,
                                     )
                                     concat_op_name = None
