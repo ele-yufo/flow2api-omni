@@ -17,7 +17,7 @@
 - **文生视频** / **图生视频** / **多图视频**
 - **首尾帧视频**
 - **视频放大** (1080P / 4K)
-- **视频延长 16s** — 生成 8s + 延长 8s + 拼接，对上游透明
+- **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
 - **AT/ST自动刷新** - AT 过期自动刷新，ST 过期时自动通过浏览器更新（personal 模式）
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制
@@ -254,89 +254,89 @@ python main.py
 | `veo_3_1_r2v_fast_portrait_ultra_1080p` | 多图视频放大 | 1080P |
 | `veo_3_1_r2v_fast_ultra_1080p` | 多图视频放大 | 1080P |
 
-### 视频延长 16s (Video Extend)
+### 视频延长 15s (Video Extend)
 
-内部流程：生成 8s 视频 → 延长 8s → 拼接 → 返回约 16s 视频。对上游调用方透明，使用方式与普通视频模型完全一致。
+内部流程：生成 8s 视频 → 延长 8s → 拼接（跳过 1s 重叠）→ 返回约 15s 视频。对上游调用方透明，使用方式与普通视频模型完全一致。
 
-使用 `_16s` 后缀的模型名即可触发。也支持省略横竖屏后缀的简写（如 `veo_3_1_t2v_fast_16s`），服务端根据请求自动匹配横竖屏。
+使用 `_15s` 后缀的模型名即可触发。也支持省略横竖屏后缀的简写（如 `veo_3_1_t2v_fast_15s`），服务端根据请求自动匹配横竖屏。
 
-#### 文生视频 16s (T2V 16s)
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_t2v_fast_portrait_16s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_16s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_16s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_16s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_relaxed_16s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_relaxed_16s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_portrait_16s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_landscape_16s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_lite_portrait_16s` | 文生视频延长 Lite | 竖屏 |
-| `veo_3_1_t2v_lite_landscape_16s` | 文生视频延长 Lite | 横屏 |
-
-#### 图生视频 16s (I2V 16s)
+#### 文生视频 15s (T2V 15s)
 
 | 模型名称 | 说明 | 尺寸 |
 |---------|------|------|
-| `veo_3_1_i2v_s_portrait_16s` | 图生视频延长 满血版 | 竖屏 |
-| `veo_3_1_i2v_s_landscape_16s` | 图生视频延长 满血版 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_fl_16s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_fl_16s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_16s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_relaxed_16s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_relaxed_16s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_lite_portrait_16s` | 图生视频延长 Lite（仅首帧） | 竖屏 |
-| `veo_3_1_i2v_lite_landscape_16s` | 图生视频延长 Lite（仅首帧） | 横屏 |
-| `veo_3_1_interpolation_lite_portrait_16s` | 图生视频延长 Lite（首尾帧） | 竖屏 |
-| `veo_3_1_interpolation_lite_landscape_16s` | 图生视频延长 Lite（首尾帧） | 横屏 |
+| `veo_3_1_t2v_fast_portrait_15s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_15s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_15s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_15s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_relaxed_15s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_relaxed_15s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_portrait_15s` | 文生视频延长 | 竖屏 |
+| `veo_3_1_t2v_landscape_15s` | 文生视频延长 | 横屏 |
+| `veo_3_1_t2v_lite_portrait_15s` | 文生视频延长 Lite | 竖屏 |
+| `veo_3_1_t2v_lite_landscape_15s` | 文生视频延长 Lite | 横屏 |
 
-#### 多图视频 16s (R2V 16s)
+#### 图生视频 15s (I2V 15s)
 
 | 模型名称 | 说明 | 尺寸 |
 |---------|------|------|
-| `veo_3_1_r2v_fast_portrait_16s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_16s` | 多图视频延长 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_16s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_16s` | 多图视频延长 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_relaxed_16s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_relaxed_16s` | 多图视频延长 | 横屏 |
+| `veo_3_1_i2v_s_portrait_15s` | 图生视频延长 满血版 | 竖屏 |
+| `veo_3_1_i2v_s_landscape_15s` | 图生视频延长 满血版 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_fl_15s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_fl_15s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_15s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_relaxed_15s` | 图生视频延长 | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_relaxed_15s` | 图生视频延长 | 横屏 |
+| `veo_3_1_i2v_lite_portrait_15s` | 图生视频延长 Lite（仅首帧） | 竖屏 |
+| `veo_3_1_i2v_lite_landscape_15s` | 图生视频延长 Lite（仅首帧） | 横屏 |
+| `veo_3_1_interpolation_lite_portrait_15s` | 图生视频延长 Lite（首尾帧） | 竖屏 |
+| `veo_3_1_interpolation_lite_landscape_15s` | 图生视频延长 Lite（首尾帧） | 横屏 |
 
-### 视频延长 16s + 放大 (Extend + Upsample)
+#### 多图视频 15s (R2V 15s)
 
-在 16s 延长基础上叠加 1080P 或 4K 放大。流程：生成 8s → 放大 → 延长 8s → 拼接 → 返回 16s 高清视频。
+| 模型名称 | 说明 | 尺寸 |
+|---------|------|------|
+| `veo_3_1_r2v_fast_portrait_15s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_15s` | 多图视频延长 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_15s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_15s` | 多图视频延长 | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_relaxed_15s` | 多图视频延长 | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_relaxed_15s` | 多图视频延长 | 横屏 |
+
+### 视频延长 15s + 放大 (Extend + Upsample)
+
+在 15s 延长基础上叠加 1080P 或 4K 放大。流程：生成 8s → 放大 → 延长 8s → 拼接（跳过 1s 重叠）→ 返回 15s 高清视频。
 
 #### T2V 延长 + 放大
 
 | 模型名称 | 输出 | 尺寸 |
 |---------|------|------|
-| `veo_3_1_t2v_fast_portrait_16s_1080p` | 16s + 1080P | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_16s_1080p` | 16s + 1080P | 横屏 |
-| `veo_3_1_t2v_fast_portrait_16s_4k` | 16s + 4K | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_16s_4k` | 16s + 4K | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_16s_1080p` | 16s + 1080P | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_16s_1080p` | 16s + 1080P | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_16s_4k` | 16s + 4K | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_16s_4k` | 16s + 4K | 横屏 |
+| `veo_3_1_t2v_fast_portrait_15s_1080p` | 15s + 1080P | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_15s_1080p` | 15s + 1080P | 横屏 |
+| `veo_3_1_t2v_fast_portrait_15s_4k` | 15s + 4K | 竖屏 |
+| `veo_3_1_t2v_fast_landscape_15s_4k` | 15s + 4K | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_15s_1080p` | 15s + 1080P | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_15s_1080p` | 15s + 1080P | 横屏 |
+| `veo_3_1_t2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
+| `veo_3_1_t2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
 
 #### I2V 延长 + 放大
 
 | 模型名称 | 输出 | 尺寸 |
 |---------|------|------|
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_1080p` | 16s + 1080P | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_16s_1080p` | 16s + 1080P | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_4k` | 16s + 4K | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_16s_4k` | 16s + 4K | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_1080p` | 15s + 1080P | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_15s_1080p` | 15s + 1080P | 横屏 |
+| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_4k` | 15s + 4K | 竖屏 |
+| `veo_3_1_i2v_s_fast_ultra_fl_15s_4k` | 15s + 4K | 横屏 |
 
 #### R2V 延长 + 放大
 
 | 模型名称 | 输出 | 尺寸 |
 |---------|------|------|
-| `veo_3_1_r2v_fast_portrait_ultra_16s_1080p` | 16s + 1080P | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_16s_1080p` | 16s + 1080P | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_16s_4k` | 16s + 4K | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_16s_4k` | 16s + 4K | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_15s_1080p` | 15s + 1080P | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_15s_1080p` | 15s + 1080P | 横屏 |
+| `veo_3_1_r2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
+| `veo_3_1_r2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
 
 ## API 使用示例（需要使用流式）
 
@@ -462,14 +462,14 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   }'
 ```
 
-### 文生视频 16s
+### 文生视频 15s
 
 ```bash
 curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer han1234" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo_3_1_t2v_fast_landscape_16s",
+    "model": "veo_3_1_t2v_fast_landscape_15s",
     "messages": [
       {
         "role": "user",
