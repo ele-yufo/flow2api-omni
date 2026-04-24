@@ -1,7 +1,7 @@
 """Generation handler for Flow2API"""
 import asyncio
 import base64
-import hashlib
+
 import json
 import time
 import uuid
@@ -2304,7 +2304,7 @@ class GenerationHandler:
                                 if extend_config:
                                     # Upsample + Extend 模式: 内联轮询放大结果，不 return
                                     up_ok = False
-                                    ups_max = max_attempts
+                                    ups_max = 200  # 固定轮询上限，避免使用已放大的 max_attempts
                                     ups_consecutive_errors = 0
                                     for ups_attempt in range(ups_max):
                                         await asyncio.sleep(poll_interval)
@@ -2498,8 +2498,17 @@ class GenerationHandler:
 
                                         if concat_success and encoded_video:
                                             # 解码 base64 视频并保存到缓存
-                                            video_data = base64.b64decode(encoded_video)
-                                            unique_id = hashlib.md5(f"{uuid.uuid4()}{time.time()}".encode()).hexdigest()
+                                            try:
+                                                video_data = base64.b64decode(encoded_video)
+                                            except Exception as decode_err:
+                                                debug_logger.log_error(f"Base64 decode failed: {decode_err}")
+                                                if stream:
+                                                    yield self._create_stream_chunk("⚠️ 拼接视频解码失败，返回原始视频\n")
+                                                # Fall through to return original video
+                                                concat_success = False
+
+                                        if concat_success and encoded_video:
+                                            unique_id = str(uuid.uuid4())
                                             concat_filename = f"{unique_id}_16s.mp4"
                                             concat_path = self.file_cache.cache_dir / concat_filename
                                             with open(concat_path, 'wb') as f:
