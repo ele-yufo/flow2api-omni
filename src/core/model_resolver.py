@@ -200,99 +200,99 @@ VIDEO_BASE_MODELS = {
         "landscape": "veo_3_1_r2v_fast_ultra_relaxed",
         "portrait": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
     },
-    # ========== 视频延长 16s (Video Extend) ==========
-    # T2V 16s
-    "veo_3_1_t2v_fast_16s": {
-        "landscape": "veo_3_1_t2v_fast_landscape_16s",
-        "portrait": "veo_3_1_t2v_fast_portrait_16s",
+    # ========== 视频延长 15s (Video Extend) ==========
+    # T2V 15s
+    "veo_3_1_t2v_fast_15s": {
+        "landscape": "veo_3_1_t2v_fast_landscape_15s",
+        "portrait": "veo_3_1_t2v_fast_portrait_15s",
     },
-    "veo_3_1_t2v_fast_ultra_16s": {
-        "landscape": "veo_3_1_t2v_fast_ultra_16s",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_16s",
+    "veo_3_1_t2v_fast_ultra_15s": {
+        "landscape": "veo_3_1_t2v_fast_ultra_15s",
+        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s",
     },
-    "veo_3_1_t2v_fast_ultra_relaxed_16s": {
-        "landscape": "veo_3_1_t2v_fast_ultra_relaxed_16s",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_relaxed_16s",
+    "veo_3_1_t2v_fast_ultra_relaxed_15s": {
+        "landscape": "veo_3_1_t2v_fast_ultra_relaxed_15s",
+        "portrait": "veo_3_1_t2v_fast_portrait_ultra_relaxed_15s",
     },
-    "veo_3_1_t2v_16s": {
-        "landscape": "veo_3_1_t2v_landscape_16s",
-        "portrait": "veo_3_1_t2v_portrait_16s",
+    "veo_3_1_t2v_15s": {
+        "landscape": "veo_3_1_t2v_landscape_15s",
+        "portrait": "veo_3_1_t2v_portrait_15s",
     },
-    "veo_3_1_t2v_lite_16s": {
-        "landscape": "veo_3_1_t2v_lite_landscape_16s",
-        "portrait": "veo_3_1_t2v_lite_portrait_16s",
+    "veo_3_1_t2v_lite_15s": {
+        "landscape": "veo_3_1_t2v_lite_landscape_15s",
+        "portrait": "veo_3_1_t2v_lite_portrait_15s",
     },
-    # I2V 16s
-    "veo_3_1_i2v_s_fast_fl_16s": {
-        "landscape": "veo_3_1_i2v_s_fast_fl_16s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_fl_16s",
+    # I2V 15s
+    "veo_3_1_i2v_s_fast_fl_15s": {
+        "landscape": "veo_3_1_i2v_s_fast_fl_15s",
+        "portrait": "veo_3_1_i2v_s_fast_portrait_fl_15s",
     },
-    "veo_3_1_i2v_s_fast_ultra_fl_16s": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_16s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s",
+    "veo_3_1_i2v_s_fast_ultra_fl_15s": {
+        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s",
+        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s",
     },
-    "veo_3_1_i2v_s_fast_ultra_relaxed_16s": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed_16s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed_16s",
+    "veo_3_1_i2v_s_fast_ultra_relaxed_15s": {
+        "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed_15s",
+        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed_15s",
     },
-    "veo_3_1_i2v_lite_16s": {
-        "landscape": "veo_3_1_i2v_lite_landscape_16s",
-        "portrait": "veo_3_1_i2v_lite_portrait_16s",
+    "veo_3_1_i2v_lite_15s": {
+        "landscape": "veo_3_1_i2v_lite_landscape_15s",
+        "portrait": "veo_3_1_i2v_lite_portrait_15s",
     },
-    "veo_3_1_interpolation_lite_16s": {
-        "landscape": "veo_3_1_interpolation_lite_landscape_16s",
-        "portrait": "veo_3_1_interpolation_lite_portrait_16s",
+    "veo_3_1_interpolation_lite_15s": {
+        "landscape": "veo_3_1_interpolation_lite_landscape_15s",
+        "portrait": "veo_3_1_interpolation_lite_portrait_15s",
     },
-    "veo_3_1_i2v_s_16s": {
-        "landscape": "veo_3_1_i2v_s_landscape_16s",
-        "portrait": "veo_3_1_i2v_s_portrait_16s",
+    "veo_3_1_i2v_s_15s": {
+        "landscape": "veo_3_1_i2v_s_landscape_15s",
+        "portrait": "veo_3_1_i2v_s_portrait_15s",
     },
-    # R2V 16s
-    "veo_3_1_r2v_fast_16s": {
-        "landscape": "veo_3_1_r2v_fast_16s",
-        "portrait": "veo_3_1_r2v_fast_portrait_16s",
+    # R2V 15s
+    "veo_3_1_r2v_fast_15s": {
+        "landscape": "veo_3_1_r2v_fast_15s",
+        "portrait": "veo_3_1_r2v_fast_portrait_15s",
     },
-    "veo_3_1_r2v_fast_ultra_16s": {
-        "landscape": "veo_3_1_r2v_fast_ultra_16s",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_16s",
+    "veo_3_1_r2v_fast_ultra_15s": {
+        "landscape": "veo_3_1_r2v_fast_ultra_15s",
+        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s",
     },
-    "veo_3_1_r2v_fast_ultra_relaxed_16s": {
-        "landscape": "veo_3_1_r2v_fast_ultra_relaxed_16s",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_relaxed_16s",
+    "veo_3_1_r2v_fast_ultra_relaxed_15s": {
+        "landscape": "veo_3_1_r2v_fast_ultra_relaxed_15s",
+        "portrait": "veo_3_1_r2v_fast_portrait_ultra_relaxed_15s",
     },
 
-    # ========== 视频延长+放大 (Video Extend 16s + Upsample) ==========
-    "veo_3_1_t2v_fast_16s_1080p": {
-        "landscape": "veo_3_1_t2v_fast_landscape_16s_1080p",
-        "portrait": "veo_3_1_t2v_fast_portrait_16s_1080p",
+    # ========== 视频延长+放大 (Video Extend 15s + Upsample) ==========
+    "veo_3_1_t2v_fast_15s_1080p": {
+        "landscape": "veo_3_1_t2v_fast_landscape_15s_1080p",
+        "portrait": "veo_3_1_t2v_fast_portrait_15s_1080p",
     },
-    "veo_3_1_t2v_fast_16s_4k": {
-        "landscape": "veo_3_1_t2v_fast_landscape_16s_4k",
-        "portrait": "veo_3_1_t2v_fast_portrait_16s_4k",
+    "veo_3_1_t2v_fast_15s_4k": {
+        "landscape": "veo_3_1_t2v_fast_landscape_15s_4k",
+        "portrait": "veo_3_1_t2v_fast_portrait_15s_4k",
     },
-    "veo_3_1_t2v_fast_ultra_16s_1080p": {
-        "landscape": "veo_3_1_t2v_fast_ultra_16s_1080p",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_16s_1080p",
+    "veo_3_1_t2v_fast_ultra_15s_1080p": {
+        "landscape": "veo_3_1_t2v_fast_ultra_15s_1080p",
+        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s_1080p",
     },
-    "veo_3_1_t2v_fast_ultra_16s_4k": {
-        "landscape": "veo_3_1_t2v_fast_ultra_16s_4k",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_16s_4k",
+    "veo_3_1_t2v_fast_ultra_15s_4k": {
+        "landscape": "veo_3_1_t2v_fast_ultra_15s_4k",
+        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s_4k",
     },
-    "veo_3_1_i2v_s_fast_ultra_fl_16s_1080p": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_16s_1080p",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_1080p",
+    "veo_3_1_i2v_s_fast_ultra_fl_15s_1080p": {
+        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s_1080p",
+        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_1080p",
     },
-    "veo_3_1_i2v_s_fast_ultra_fl_16s_4k": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_16s_4k",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_16s_4k",
+    "veo_3_1_i2v_s_fast_ultra_fl_15s_4k": {
+        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s_4k",
+        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_4k",
     },
-    "veo_3_1_r2v_fast_ultra_16s_1080p": {
-        "landscape": "veo_3_1_r2v_fast_ultra_16s_1080p",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_16s_1080p",
+    "veo_3_1_r2v_fast_ultra_15s_1080p": {
+        "landscape": "veo_3_1_r2v_fast_ultra_15s_1080p",
+        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s_1080p",
     },
-    "veo_3_1_r2v_fast_ultra_16s_4k": {
-        "landscape": "veo_3_1_r2v_fast_ultra_16s_4k",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_16s_4k",
+    "veo_3_1_r2v_fast_ultra_15s_4k": {
+        "landscape": "veo_3_1_r2v_fast_ultra_15s_4k",
+        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s_4k",
     },
 }
 
