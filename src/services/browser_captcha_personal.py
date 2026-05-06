@@ -555,7 +555,7 @@ class BrowserCaptchaService:
 
     def __init__(self, db=None):
         """初始化服务"""
-        self.headless = True  # 无头模式
+        self.headless = False  # 有头模式 via Xvfb，headless 下 reCAPTCHA token 质量极低
         self.browser = None
         self._initialized = False
         self.website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"

@@ -1553,6 +1553,9 @@ async def update_captcha_config(
     except Exception:
         return {"success": False, "message": "远程打码超时时间必须是整数秒"}
 
+    if captcha_method == "browser":
+        return {"success": False, "message": "browser (playwright) 模式已禁用，请使用 personal 模式"}
+
     if captcha_method == "remote_browser":
         if not (remote_browser_base_url or "").strip():
             return {"success": False, "message": "remote_browser 模式需要配置远程打码服务地址"}
