@@ -208,7 +208,7 @@ class Database:
         cursor = await db.execute("SELECT COUNT(*) FROM captcha_config")
         count = await cursor.fetchone()
         if count[0] == 0:
-            captcha_method = "browser"
+            captcha_method = "personal"
             yescaptcha_api_key = ""
             yescaptcha_base_url = "https://api.yescaptcha.com"
             remote_browser_base_url = ""
@@ -221,7 +221,7 @@ class Database:
 
             if config_dict:
                 captcha_config = config_dict.get("captcha", {})
-                captcha_method = captcha_config.get("captcha_method", "browser")
+                captcha_method = captcha_config.get("captcha_method", "personal")
                 yescaptcha_api_key = captcha_config.get("yescaptcha_api_key", "")
                 yescaptcha_base_url = captcha_config.get("yescaptcha_base_url", "https://api.yescaptcha.com")
                 remote_browser_base_url = captcha_config.get("remote_browser_base_url", "")
@@ -347,7 +347,7 @@ class Database:
                 await db.execute("""
                     CREATE TABLE captcha_config (
                         id INTEGER PRIMARY KEY DEFAULT 1,
-                        captcha_method TEXT DEFAULT 'browser',
+                        captcha_method TEXT DEFAULT 'personal',
                         yescaptcha_api_key TEXT DEFAULT '',
                         yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
                         capmonster_api_key TEXT DEFAULT '',

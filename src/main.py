@@ -50,6 +50,13 @@ async def lifespan(app: FastAPI):
     cache_cleanup_enabled = await generation_handler.file_cache.refresh_cleanup_task()
     captcha_config = await db.get_captcha_config()
 
+    # Guard: browser (playwright) mode is broken — auto-correct to personal.
+    if captcha_config.captcha_method == "browser":
+        print("⚠ Detected captcha_method=browser (playwright) — auto-correcting to personal (nodriver)")
+        await db.update_captcha_config(captcha_method="personal")
+        config.set_captcha_method("personal")
+        captcha_config = await db.get_captcha_config()
+
     # 尽量在浏览器服务启动前就拿到 token 快照，后续并发管理和预热共用。
     tokens = await token_manager.get_all_tokens()
 
