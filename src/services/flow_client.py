@@ -1109,7 +1109,7 @@ class FlowClient:
         url = f"{self.api_base_url}/flow/upsampleImage"
 
         # 403/reCAPTCHA/500 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
 
         for retry_attempt in range(max_retries):
@@ -1229,7 +1229,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoText"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
         
         for retry_attempt in range(max_retries):
@@ -1354,7 +1354,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoReferenceImages"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
         
         for retry_attempt in range(max_retries):
@@ -1487,7 +1487,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoStartAndEndImage"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
         
         for retry_attempt in range(max_retries):
@@ -1618,7 +1618,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoStartImage"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
         
         for retry_attempt in range(max_retries):
@@ -1746,7 +1746,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoUpsampleVideo"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
         
         for retry_attempt in range(max_retries):
@@ -1866,7 +1866,7 @@ class FlowClient:
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoExtendVideo"
 
         # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = 3
+        max_retries = config.flow_max_retries
         last_error = None
 
         for retry_attempt in range(max_retries):
@@ -2143,13 +2143,15 @@ class FlowClient:
         """统一处理生成链路的重试判定与打码自愈通知。"""
         error_str = str(error)
         retry_reason = self._get_retry_reason(error_str)
-        notify_reason = retry_reason or error_str[:120] or type(error).__name__
-        await self._notify_browser_captcha_error(
-            browser_id=browser_id,
-            project_id=project_id,
-            error_reason=notify_reason,
-            error_message=error_str,
-        )
+        # Only notify captcha service for retryable or captcha-related errors.
+        # Non-retryable errors (INVALID_ARGUMENT, etc.) should not trigger browser rebuilds.
+        if retry_reason:
+            await self._notify_browser_captcha_error(
+                browser_id=browser_id,
+                project_id=project_id,
+                error_reason=retry_reason,
+                error_message=error_str,
+            )
         if not retry_reason:
             return False
 
@@ -2234,8 +2236,8 @@ class FlowClient:
                     browser_id,
                     error_reason=error_reason or error_message or "upstream_error"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                debug_logger.log_warning(f"[reCAPTCHA] 通知 browser 打码服务失败: {e}")
         elif config.captcha_method == "personal" and project_id:
             try:
                 from .browser_captcha_personal import BrowserCaptchaService
@@ -2245,8 +2247,8 @@ class FlowClient:
                     error_reason=error_reason or "",
                     error_message=error_message or "",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                debug_logger.log_warning(f"[reCAPTCHA] 通知 personal 打码服务失败: {e}")
         elif config.captcha_method == "remote_browser" and browser_id:
             try:
                 session_id = quote(str(browser_id), safe="")
@@ -2266,8 +2268,8 @@ class FlowClient:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
                 await service.report_request_finished(browser_id)
-            except Exception:
-                pass
+            except Exception as e:
+                debug_logger.log_warning(f"[reCAPTCHA] 通知 browser request_finished 失败: {e}")
         elif config.captcha_method == "remote_browser" and browser_id:
             try:
                 session_id = quote(str(browser_id), safe="")
