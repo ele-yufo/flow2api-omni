@@ -1414,6 +1414,53 @@ class BrowserCaptchaService:
                         debug_logger.log_info(
                             f"[BrowserCaptcha] 复用 playwright chromium 作为 nodriver 浏览器: {browser_executable_path}"
                         )
+                # Guard: detect Chrome for Testing / headless_shell — reCAPTCHA tokens
+                # from these builds are low quality and rejected by Google.
+                if browser_executable_path:
+                    basename = os.path.basename(browser_executable_path).lower()
+                    version_output_check = ""
+                    try:
+                        _vr = subprocess.run(
+                            [browser_executable_path, "--version"],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        version_output_check = ((_vr.stdout or "") + (_vr.stderr or "")).strip()
+                    except Exception:
+                        pass
+                    if (
+                        "headless_shell" in basename
+                        or "headless-shell" in basename
+                        or "chrome for testing" in version_output_check.lower()
+                    ):
+                        print(
+                            f"⚠ [BrowserCaptcha] 检测到 '{version_output_check or basename}' — "
+                            f"reCAPTCHA token 质量极低，尝试回退到系统 Chrome..."
+                        )
+                        debug_logger.log_warning(
+                            f"[BrowserCaptcha] 检测到 Chrome for Testing ({version_output_check})，"
+                            f"尝试回退到系统 Chrome"
+                        )
+                        browser_executable_path = None
+                        # Try system Chrome
+                        for candidate in [
+                            "/usr/bin/google-chrome-stable",
+                            "/usr/bin/google-chrome",
+                            "/usr/bin/chromium-browser",
+                            "/usr/bin/chromium",
+                        ]:
+                            if os.path.exists(candidate):
+                                browser_executable_path = candidate
+                                print(f"✓ [BrowserCaptcha] 回退到系统浏览器: {candidate}")
+                                debug_logger.log_info(
+                                    f"[BrowserCaptcha] 回退到系统浏览器: {candidate}"
+                                )
+                                break
+                        if not browser_executable_path:
+                            print(
+                                "⚠ [BrowserCaptcha] 未找到系统 Chrome，使用 Chrome for Testing "
+                                "(reCAPTCHA token 质量可能很低)"
+                            )
+                            browser_executable_path = playwright_browser_path
                 if browser_executable_path:
                     debug_logger.log_info(
                         f"[BrowserCaptcha] 使用指定浏览器可执行文件: {browser_executable_path}"

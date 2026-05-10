@@ -690,7 +690,7 @@ class Database:
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS captcha_config (
                     id INTEGER PRIMARY KEY DEFAULT 1,
-                    captcha_method TEXT DEFAULT 'browser',
+                    captcha_method TEXT DEFAULT 'personal',
                     yescaptcha_api_key TEXT DEFAULT '',
                     yescaptcha_base_url TEXT DEFAULT 'https://api.yescaptcha.com',
                     capmonster_api_key TEXT DEFAULT '',
