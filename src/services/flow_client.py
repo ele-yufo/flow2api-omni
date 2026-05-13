@@ -37,13 +37,17 @@ class FlowClient:
             "flow_request_fingerprint",
             default=None
         )
+        self._request_browser_ctx: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+            "flow_request_browser",
+            default=None
+        )
         self._remote_browser_prefill_last_sent: Dict[str, float] = {}
+        self._captcha_rejection_streaks: Dict[str, int] = {}
+        self._captcha_cooldowns_until: Dict[str, float] = {}
 
-        # Default "real browser" headers (Android Chrome style) to reduce upstream 4xx/5xx instability.
-        # These will be applied as defaults (won't override caller-provided headers).
+        # Site-level browser headers. UA/client-hint headers are built per request
+        # so they do not contradict the browser that solved reCAPTCHA.
         self._default_client_headers = {
-            "sec-ch-ua-mobile": "?1",
-            "sec-ch-ua-platform": "\"Android\"",
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "cross-site",
@@ -54,6 +58,11 @@ class FlowClient:
             "x-browser-validation": "UujAs0GAwdnCJ9nvrswZ+O+oco0=",
             "x-browser-year": "2026",
             "x-client-data": "CJS2yQEIpLbJAQipncoBCNj9ygEIlKHLAQiFoM0BGP6lzwE="
+        }
+        self._fallback_chromium_client_hints = {
+            "sec-ch-ua": '"Google Chrome";v="132", "Chromium";v="132", "Not_A Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
         }
         # 发车策略改为“请求到就发”：
         # 不在 flow2api 本地对提交做批次整形或排队，避免把同批请求打成阶梯。
@@ -80,59 +89,144 @@ class FlowClient:
         seed = int(hashlib.md5(account_id.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
         
-        # Chrome 版本池
+        # Fallback 必须和底层 curl_cffi Chrome impersonation 保持同一浏览器族。
+        # 有头浏览器成功取到 token 时会优先使用真实指纹，这里只处理缺失指纹的兜底。
         chrome_versions = ["130.0.0.0", "131.0.0.0", "132.0.0.0", "129.0.0.0"]
-        # Firefox 版本池
-        firefox_versions = ["133.0", "132.0", "131.0", "134.0"]
-        # Safari 版本池
-        safari_versions = ["18.2", "18.1", "18.0", "17.6"]
-        # Edge 版本池
-        edge_versions = ["130.0.0.0", "131.0.0.0", "132.0.0.0"]
 
-        # 操作系统配置
         os_configs = [
-            # Windows
-            {
-                "platform": "Windows NT 10.0; Win64; x64",
-                "browsers": [
-                    lambda r: f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{r.choice(chrome_versions)} Safari/537.36",
-                    lambda r: f"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{r.choice(firefox_versions).split('.')[0]}.0) Gecko/20100101 Firefox/{r.choice(firefox_versions)}",
-                    lambda r: f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{r.choice(chrome_versions)} Safari/537.36 Edg/{r.choice(edge_versions)}",
-                ]
-            },
-            # macOS
-            {
-                "platform": "Macintosh; Intel Mac OS X 10_15_7",
-                "browsers": [
-                    lambda r: f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{r.choice(chrome_versions)} Safari/537.36",
-                    lambda r: f"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{r.choice(safari_versions)} Safari/605.1.15",
-                    lambda r: f"Mozilla/5.0 (Macintosh; Intel Mac OS X 14.{r.randint(0, 7)}; rv:{r.choice(firefox_versions).split('.')[0]}.0) Gecko/20100101 Firefox/{r.choice(firefox_versions)}",
-                ]
-            },
-            # Linux
-            {
-                "platform": "X11; Linux x86_64",
-                "browsers": [
-                    lambda r: f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{r.choice(chrome_versions)} Safari/537.36",
-                    lambda r: f"Mozilla/5.0 (X11; Linux x86_64; rv:{r.choice(firefox_versions).split('.')[0]}.0) Gecko/20100101 Firefox/{r.choice(firefox_versions)}",
-                    lambda r: f"Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:{r.choice(firefox_versions).split('.')[0]}.0) Gecko/20100101 Firefox/{r.choice(firefox_versions)}",
-                ]
-            }
+            "Windows NT 10.0; Win64; x64",
+            "Macintosh; Intel Mac OS X 10_15_7",
+            "X11; Linux x86_64",
         ]
 
-        # 使用固定种子随机选择操作系统和浏览器
-        os_config = rng.choice(os_configs)
-        browser_generator = rng.choice(os_config["browsers"])
-        user_agent = browser_generator(rng)
+        platform = rng.choice(os_configs)
+        user_agent = (
+            f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"Chrome/{rng.choice(chrome_versions)} Safari/537.36"
+        )
         
         # 缓存结果
         self._user_agent_cache[account_id] = user_agent
         
         return user_agent
 
+    def _build_request_headers(
+        self,
+        headers: Optional[Dict] = None,
+        st_token: Optional[str] = None,
+        at_token: Optional[str] = None,
+        use_st: bool = False,
+        use_at: bool = False,
+        fingerprint: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build request headers without mixing incompatible browser fingerprints."""
+        request_headers = dict(headers or {})
+
+        if use_st and st_token:
+            request_headers["Cookie"] = f"__Secure-next-auth.session-token={st_token}"
+        if use_at and at_token:
+            request_headers["authorization"] = f"Bearer {at_token}"
+
+        account_id = None
+        if st_token:
+            account_id = st_token[:16]
+        elif at_token:
+            account_id = at_token[:16]
+
+        fingerprint = fingerprint if isinstance(fingerprint, dict) else None
+        fingerprint_user_agent = fingerprint.get("user_agent") if fingerprint else None
+
+        request_headers["Content-Type"] = "application/json"
+        request_headers["User-Agent"] = fingerprint_user_agent or self._generate_user_agent(account_id)
+
+        if fingerprint:
+            if fingerprint.get("accept_language"):
+                request_headers.setdefault("Accept-Language", fingerprint["accept_language"])
+            for fp_key, header_key in (
+                ("sec_ch_ua", "sec-ch-ua"),
+                ("sec_ch_ua_mobile", "sec-ch-ua-mobile"),
+                ("sec_ch_ua_platform", "sec-ch-ua-platform"),
+            ):
+                if fingerprint.get(fp_key):
+                    request_headers[header_key] = fingerprint[fp_key]
+        else:
+            for key, value in self._fallback_chromium_client_hints.items():
+                request_headers.setdefault(key, value)
+
+        for key, value in self._default_client_headers.items():
+            request_headers.setdefault(key, value)
+
+        return request_headers
+
+    @staticmethod
+    def _get_user_agent_family(user_agent: str) -> str:
+        ua = (user_agent or "").lower()
+        if "edg/" in ua:
+            return "edge"
+        if "chrome/" in ua or "chromium/" in ua:
+            return "chrome"
+        if "firefox/" in ua:
+            return "firefox"
+        if "safari/" in ua:
+            return "safari"
+        return "unknown"
+
+    def _select_impersonate_for_headers(self, headers: Dict[str, Any]) -> Optional[str]:
+        """Choose a TLS impersonation that does not contradict the visible UA."""
+        family = self._get_user_agent_family(str(headers.get("User-Agent", "")))
+        if family in ("chrome", "edge"):
+            return "chrome110"
+        if family == "safari":
+            return "safari15_3"
+        return None
+
+    def _captcha_cooldown_key(self, project_id: Optional[str]) -> str:
+        return str(project_id or "").strip() or "_global"
+
+    def _record_captcha_rejection(self, project_id: Optional[str]) -> float:
+        key = self._captcha_cooldown_key(project_id)
+        streak = int(self._captcha_rejection_streaks.get(key, 0) or 0) + 1
+        self._captcha_rejection_streaks[key] = streak
+        delay = min(120.0, 10.0 * (2 ** (streak - 1)))
+        self._captcha_cooldowns_until[key] = time.monotonic() + delay
+        debug_logger.log_warning(
+            f"[reCAPTCHA] upstream rejection streak={streak}, cooldown={delay:.0f}s, project_id={project_id}"
+        )
+        return delay
+
+    def _get_captcha_cooldown_delay(self, project_id: Optional[str]) -> float:
+        key = self._captcha_cooldown_key(project_id)
+        until = float(self._captcha_cooldowns_until.get(key, 0.0) or 0.0)
+        remaining = until - time.monotonic()
+        return remaining if remaining > 0 else 0.0
+
+    def _clear_captcha_rejection(self, project_id: Optional[str]):
+        key = self._captcha_cooldown_key(project_id)
+        self._captcha_rejection_streaks.pop(key, None)
+        self._captcha_cooldowns_until.pop(key, None)
+
+    async def _wait_for_captcha_cooldown(self, project_id: Optional[str], action: str):
+        delay = self._get_captcha_cooldown_delay(project_id)
+        if delay <= 0:
+            return
+        debug_logger.log_warning(
+            f"[reCAPTCHA] 最近连续被上游拒绝，等待 {delay:.1f}s 后重新取 token: project_id={project_id}, action={action}"
+        )
+        await asyncio.sleep(delay)
+
     def _set_request_fingerprint(self, fingerprint: Optional[Dict[str, Any]]):
         """设置当前请求链路的浏览器指纹上下文。"""
         self._request_fingerprint_ctx.set(dict(fingerprint) if fingerprint else None)
+
+    def _set_request_browser_context(self, browser_context: Optional[Dict[str, Any]]):
+        """绑定本次 reCAPTCHA token 对应的有头浏览器上下文。"""
+        self._request_browser_ctx.set(dict(browser_context) if browser_context else None)
+
+    def get_request_browser_context(self) -> Optional[Dict[str, Any]]:
+        browser_context = self._request_browser_ctx.get()
+        if not isinstance(browser_context, dict) or not browser_context:
+            return None
+        return dict(browser_context)
 
     def get_request_fingerprint(self) -> Optional[Dict[str, Any]]:
         """获取当前请求链路绑定的浏览器指纹快照。"""
@@ -144,6 +238,100 @@ class FlowClient:
     def clear_request_fingerprint(self):
         """清理请求链路绑定的浏览器指纹。"""
         self._set_request_fingerprint(None)
+        self._set_request_browser_context(None)
+
+    def _payload_has_recaptcha_token(self, value: Any) -> bool:
+        if isinstance(value, dict):
+            recaptcha_context = value.get("recaptchaContext")
+            if isinstance(recaptcha_context, dict) and recaptcha_context.get("token"):
+                return True
+            return any(self._payload_has_recaptcha_token(item) for item in value.values())
+        if isinstance(value, list):
+            return any(self._payload_has_recaptcha_token(item) for item in value)
+        return False
+
+    def _extract_project_id_from_payload(self, value: Any) -> Optional[str]:
+        if isinstance(value, dict):
+            project_id = value.get("projectId")
+            if isinstance(project_id, str) and project_id.strip():
+                return project_id.strip()
+            for item in value.values():
+                found = self._extract_project_id_from_payload(item)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for item in value:
+                found = self._extract_project_id_from_payload(item)
+                if found:
+                    return found
+        return None
+
+    def _should_submit_via_captcha_browser(
+        self,
+        method: str,
+        url: str,
+        json_data: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not config.flow_browser_submit_enabled:
+            return False
+        if method.upper() != "POST":
+            return False
+        if not isinstance(json_data, dict) or not self._payload_has_recaptcha_token(json_data):
+            return False
+        if not str(url or "").startswith(self.api_base_url):
+            return False
+        browser_context = self.get_request_browser_context()
+        return bool(browser_context and browser_context.get("method") in {"personal", "browser"})
+
+    async def _make_request_via_captcha_browser(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, Any],
+        json_data: Optional[Dict[str, Any]],
+        timeout: int,
+    ) -> Dict[str, Any]:
+        browser_context = self.get_request_browser_context()
+        if not browser_context:
+            raise RuntimeError("missing captcha browser context")
+
+        project_id = (
+            browser_context.get("project_id")
+            or self._extract_project_id_from_payload(json_data)
+            or ""
+        )
+        submit_method = browser_context.get("method")
+        debug_logger.log_info(
+            f"[BROWSER SUBMIT] 使用有头浏览器提交 Flow 请求: method={submit_method}, "
+            f"project_id={project_id}, url={url}"
+        )
+
+        if submit_method == "personal":
+            from .browser_captcha_personal import BrowserCaptchaService
+            service = await BrowserCaptchaService.get_instance(self.db)
+            return await service.submit_flow_request(
+                project_id=project_id,
+                method=method,
+                url=url,
+                headers=headers,
+                json_data=json_data,
+                timeout_seconds=timeout,
+            )
+
+        if submit_method == "browser":
+            from .browser_captcha import BrowserCaptchaService
+            service = await BrowserCaptchaService.get_instance(self.db)
+            return await service.submit_flow_request(
+                browser_ref=browser_context.get("browser_ref"),
+                project_id=project_id,
+                method=method,
+                url=url,
+                headers=headers,
+                json_data=json_data,
+                timeout_seconds=timeout,
+            )
+
+        raise RuntimeError(f"unsupported captcha browser submit method: {submit_method}")
 
     async def _make_request(
         self,
@@ -191,58 +379,27 @@ class FlowClient:
                 proxy_url = None
         request_timeout = timeout or self.timeout
 
-        if headers is None:
-            headers = {}
-        else:
-            headers = dict(headers)
-
-        # ST认证 - 使用Cookie
-        if use_st and st_token:
-            headers["Cookie"] = f"__Secure-next-auth.session-token={st_token}"
-
-        # AT认证 - 使用Bearer
-        if use_at and at_token:
-            headers["authorization"] = f"Bearer {at_token}"
-
-        # 确定账号标识（优先使用 token 的前16个字符作为标识）
-        account_id = None
-        if st_token:
-            account_id = st_token[:16]  # 使用 ST 的前16个字符
-        elif at_token:
-            account_id = at_token[:16]  # 使用 AT 的前16个字符
-
-        # 通用请求头 - 优先使用打码浏览器指纹中的 UA
-        fingerprint_user_agent = None
-        if isinstance(fingerprint, dict):
-            fingerprint_user_agent = fingerprint.get("user_agent")
-
-        headers.update({
-            "Content-Type": "application/json",
-            "User-Agent": fingerprint_user_agent or self._generate_user_agent(account_id)
-        })
-
-        # 若存在打码浏览器指纹，覆盖关键客户端提示头，保证提交请求与打码时一致。
-        if isinstance(fingerprint, dict):
-            if fingerprint.get("accept_language"):
-                headers.setdefault("Accept-Language", fingerprint["accept_language"])
-            if fingerprint.get("sec_ch_ua"):
-                headers["sec-ch-ua"] = fingerprint["sec_ch_ua"]
-            if fingerprint.get("sec_ch_ua_mobile"):
-                headers["sec-ch-ua-mobile"] = fingerprint["sec_ch_ua_mobile"]
-            if fingerprint.get("sec_ch_ua_platform"):
-                headers["sec-ch-ua-platform"] = fingerprint["sec_ch_ua_platform"]
-
-        # Add default Chromium/Android client headers (do not override explicitly provided values).
-        for key, value in self._default_client_headers.items():
-            headers.setdefault(key, value)
+        headers = self._build_request_headers(
+            headers=headers,
+            st_token=st_token,
+            at_token=at_token,
+            use_st=use_st,
+            use_at=use_at,
+            fingerprint=fingerprint,
+        )
+        impersonate = self._select_impersonate_for_headers(headers)
 
         # Log request
         if config.debug_enabled:
-            if isinstance(fingerprint, dict):
-                proxy_for_log = proxy_url if proxy_url else "direct"
-                debug_logger.log_info(
-                    f"[FINGERPRINT] 使用打码浏览器指纹提交请求: UA={headers.get('User-Agent', '')[:120]}, proxy={proxy_for_log}"
-                )
+            proxy_for_log = proxy_url if proxy_url else "direct"
+            debug_logger.log_info(
+                "[FINGERPRINT] "
+                f"present={bool(fingerprint)}, "
+                f"ua_family={self._get_user_agent_family(str(headers.get('User-Agent', '')))}, "
+                f"has_sec_ch_ua={bool(headers.get('sec-ch-ua'))}, "
+                f"proxy={proxy_for_log}, "
+                f"impersonate={impersonate or 'none'}"
+            )
             debug_logger.log_request(
                 method=method,
                 url=url,
@@ -254,23 +411,44 @@ class FlowClient:
         start_time = time.time()
 
         try:
+            if self._should_submit_via_captcha_browser(method, url, json_data):
+                try:
+                    return await self._make_request_via_captcha_browser(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        json_data=json_data,
+                        timeout=request_timeout,
+                    )
+                except Exception as browser_submit_error:
+                    debug_logger.log_warning(
+                        f"[BROWSER SUBMIT] 有头浏览器提交失败: {browser_submit_error}"
+                    )
+                    if not config.flow_browser_submit_fallback_enabled:
+                        raise
+                    debug_logger.log_warning(
+                        "[BROWSER SUBMIT] 已启用 fallback，回退到服务端 HTTP 客户端提交"
+                    )
+
             async with AsyncSession() as session:
+                request_kwargs = {
+                    "headers": headers,
+                    "proxy": proxy_url,
+                    "timeout": request_timeout,
+                }
+                if impersonate:
+                    request_kwargs["impersonate"] = impersonate
+
                 if method.upper() == "GET":
                     response = await session.get(
                         url,
-                        headers=headers,
-                        proxy=proxy_url,
-                        timeout=request_timeout,
-                        impersonate="chrome110"
+                        **request_kwargs
                     )
                 else:  # POST
                     response = await session.post(
                         url,
-                        headers=headers,
                         json=json_data,
-                        proxy=proxy_url,
-                        timeout=request_timeout,
-                        impersonate="chrome110"
+                        **request_kwargs
                     )
 
                 duration_ms = (time.time() - start_time) * 1000
@@ -307,7 +485,7 @@ class FlowClient:
                     
                     # 失败时输出请求体和错误内容到控制台
                     debug_logger.log_error(f"[API FAILED] URL: {url}")
-                    debug_logger.log_error(f"[API FAILED] Request Body: {json_data}")
+                    debug_logger.log_error(f"[API FAILED] Request Body: {debug_logger.format_data_for_log(json_data)}")
                     debug_logger.log_error(f"[API FAILED] Response: {response.text}")
                     
                     raise Exception(error_reason)
@@ -321,7 +499,7 @@ class FlowClient:
             # 如果不是我们自己抛出的异常，记录日志
             if "HTTP Error" not in error_msg and not any(x in error_msg for x in ["PUBLIC_ERROR", "INVALID_ARGUMENT"]):
                 debug_logger.log_error(f"[API FAILED] URL: {url}")
-                debug_logger.log_error(f"[API FAILED] Request Body: {json_data}")
+                debug_logger.log_error(f"[API FAILED] Request Body: {debug_logger.format_data_for_log(json_data)}")
                 debug_logger.log_error(f"[API FAILED] Exception: {error_msg}")
 
             if self._should_fallback_to_urllib(error_msg):
@@ -1058,6 +1236,7 @@ class FlowClient:
                 attempt_trace["duration_ms"] = int((time.time() - attempt_started_at) * 1000)
                 perf_trace["generation_attempts"].append(attempt_trace)
                 perf_trace["final_success_attempt"] = retry_attempt + 1
+                self._clear_captcha_rejection(project_id)
                 return result, session_id, perf_trace
             except Exception as e:
                 last_error = e
@@ -1160,6 +1339,7 @@ class FlowClient:
                 )
 
                 # 返回 base64 编码的图片
+                self._clear_captcha_rejection(project_id)
                 return result.get("encodedImage", "")
             except Exception as e:
                 last_error = e
@@ -1305,6 +1485,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -1435,6 +1616,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -1568,6 +1750,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -1697,6 +1880,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -1814,6 +1998,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -1941,6 +2126,7 @@ class FlowClient:
                     use_at=True,
                     at_token=at
                 )
+                self._clear_captcha_rejection(project_id)
                 return result
             except Exception as e:
                 last_error = e
@@ -2038,7 +2224,7 @@ class FlowClient:
 
     # ========== 任务轮询 (使用AT) ==========
 
-    async def check_video_status(self, at: str, operations: List[Dict]) -> dict:
+    async def check_video_status(self, at: str, operations: Union[List[Dict], Dict[str, Any]]) -> dict:
         """查询视频生成状态
 
         Args:
@@ -2058,9 +2244,16 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"
 
-        json_data = {
-            "operations": operations
-        }
+        if isinstance(operations, dict):
+            json_data = {}
+            if operations.get("operations"):
+                json_data["operations"] = operations["operations"]
+            if operations.get("media"):
+                json_data["media"] = operations["media"]
+        else:
+            json_data = {
+                "operations": operations
+            }
         max_retries = max(1, getattr(config, "flow_max_retries", 3))
         last_error: Optional[Exception] = None
 
@@ -2213,6 +2406,23 @@ class FlowClient:
             return "500/内部错误"
         return None
 
+    def _is_captcha_rejection_reason(
+        self,
+        error_reason: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> bool:
+        text = f"{error_reason or ''} {error_message or ''}".lower()
+        return any(
+            keyword in text
+            for keyword in [
+                "recaptcha",
+                "unusual_activity",
+                "unusual activity",
+                "403",
+                "captcha",
+            ]
+        )
+
     async def _notify_browser_captcha_error(
         self,
         browser_id: Optional[Union[int, str]] = None,
@@ -2228,6 +2438,9 @@ class FlowClient:
             error_reason: 已归类的错误原因
             error_message: 原始错误文本
         """
+        if project_id and self._is_captcha_rejection_reason(error_reason, error_message):
+            self._record_captcha_rejection(project_id)
+
         if config.captcha_method == "browser":
             try:
                 from .browser_captcha import BrowserCaptchaService
@@ -2541,6 +2754,7 @@ class FlowClient:
         """
         captcha_method = config.captcha_method
         debug_logger.log_info(f"[reCAPTCHA] 开始获取 token: method={captcha_method}, project_id={project_id}, action={action}")
+        await self._wait_for_captcha_cooldown(project_id, action)
 
         # 内置浏览器打码 (nodriver)
         if captcha_method == "personal":
@@ -2551,25 +2765,33 @@ class FlowClient:
                 service = await BrowserCaptchaService.get_instance(self.db)
                 debug_logger.log_info(f"[reCAPTCHA] 获取服务实例成功，准备调用 get_token")
                 token = await service.get_token(project_id, action)
-                debug_logger.log_info(f"[reCAPTCHA] get_token 返回: {token[:50] if token else None}...")
+                debug_logger.log_info(f"[reCAPTCHA] get_token 返回: present={bool(token)}, length={len(token) if token else 0}")
+                if isinstance(token, str) and 0 < len(token) < 100:
+                    debug_logger.log_error(
+                        f"[reCAPTCHA] personal 模式返回了疑似伪 token (len={len(token)}), 丢弃避免提交"
+                    )
+                    token = None
                 fingerprint = service.get_last_fingerprint() if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
+                self._set_request_browser_context(
+                    {"method": "personal", "project_id": project_id} if token else None
+                )
                 return token, None
             except RuntimeError as e:
                 # 捕获 Docker 环境或依赖缺失的明确错误
                 error_msg = str(e)
                 debug_logger.log_error(f"[reCAPTCHA Personal] {error_msg}")
                 print(f"[reCAPTCHA] ❌ 内置浏览器打码失败: {error_msg}")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
             except ImportError as e:
                 debug_logger.log_error(f"[reCAPTCHA Personal] 导入失败: {str(e)}")
                 print(f"[reCAPTCHA] ❌ nodriver 未安装，请运行: pip install nodriver")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Personal] 错误: {str(e)}")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
         # 有头浏览器打码 (playwright)
         elif captcha_method == "browser":
@@ -2577,24 +2799,36 @@ class FlowClient:
                 from .browser_captcha import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
                 token, browser_id = await service.get_token(project_id, action, token_id=token_id)
+                if isinstance(token, str) and 0 < len(token) < 100:
+                    debug_logger.log_error(
+                        f"[reCAPTCHA] browser 模式返回了疑似伪 token (len={len(token)}), 丢弃避免提交"
+                    )
+                    token = None
                 fingerprint = await service.get_fingerprint(browser_id) if token else None
                 self._set_request_fingerprint(fingerprint if token else None)
+                self._set_request_browser_context(
+                    {
+                        "method": "browser",
+                        "browser_ref": browser_id,
+                        "project_id": project_id,
+                    } if token else None
+                )
                 return token, browser_id
             except RuntimeError as e:
                 # 捕获 Docker 环境或依赖缺失的明确错误
                 error_msg = str(e)
                 debug_logger.log_error(f"[reCAPTCHA Browser] {error_msg}")
                 print(f"[reCAPTCHA] ❌ 有头浏览器打码失败: {error_msg}")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
             except ImportError as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] 导入失败: {str(e)}")
                 print(f"[reCAPTCHA] ❌ playwright 未安装，请运行: pip install playwright && python -m playwright install chromium")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA Browser] 错误: {str(e)}")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
         elif captcha_method == "remote_browser":
             try:
@@ -2611,23 +2845,34 @@ class FlowClient:
                 )
                 token = payload.get("token")
                 session_id = payload.get("session_id")
+                if isinstance(token, str) and 0 < len(token) < 100:
+                    debug_logger.log_error(
+                        f"[reCAPTCHA] remote_browser 返回了疑似伪 token (len={len(token)}), 丢弃避免提交"
+                    )
+                    token = None
                 fingerprint = payload.get("fingerprint") if isinstance(payload.get("fingerprint"), dict) else None
                 self._set_request_fingerprint(fingerprint if token else None)
+                self._set_request_browser_context(None)
                 if not token or not session_id:
                     raise RuntimeError(f"remote_browser 返回缺少 token/session_id: {payload}")
                 return token, str(session_id)
             except Exception as e:
                 debug_logger.log_error(f"[reCAPTCHA RemoteBrowser] 错误: {str(e)}")
-                self._set_request_fingerprint(None)
+                self.clear_request_fingerprint()
                 return None, None
         # API打码服务
         elif captcha_method in ["yescaptcha", "capmonster", "ezcaptcha", "capsolver"]:
-            self._set_request_fingerprint(None)
+            self.clear_request_fingerprint()
             token = await self._get_api_captcha_token(captcha_method, project_id, action)
+            if isinstance(token, str) and 0 < len(token) < 100:
+                debug_logger.log_error(
+                    f"[reCAPTCHA] {captcha_method} 返回了疑似伪 token (len={len(token)}), 丢弃避免提交"
+                )
+                token = None
             return token, None
         else:
             debug_logger.log_info(f"[reCAPTCHA] 未知的打码方式: {captcha_method}")
-            self._set_request_fingerprint(None)
+            self.clear_request_fingerprint()
             return None, None
 
     async def _get_api_captcha_token(self, method: str, project_id: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
@@ -2702,7 +2947,9 @@ class FlowClient:
                     result = await session.post(get_url, json=get_data)
                     result_json = result.json()
 
-                    debug_logger.log_info(f"[reCAPTCHA {method}] polling #{i+1}: {result_json}")
+                    debug_logger.log_info(
+                        f"[reCAPTCHA {method}] polling #{i+1}: {debug_logger.format_data_for_log(result_json)}"
+                    )
 
                     status = result_json.get('status')
                     if status == 'ready':

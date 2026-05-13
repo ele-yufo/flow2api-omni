@@ -51,6 +51,57 @@ class VeoLiteGenerationHandlerTests(unittest.TestCase):
         self.assertIn("ultra", message)
 
 
+class VideoResponseNormalizationTests(unittest.TestCase):
+    def test_old_operations_response_keeps_operation_polling(self):
+        handler = GenerationHandler.__new__(GenerationHandler)
+
+        refs = handler._normalize_video_submit_response(
+            {
+                "operations": [
+                    {
+                        "operation": {"name": "operation-id"},
+                        "sceneId": "scene-id",
+                        "status": "MEDIA_GENERATION_STATUS_ACTIVE",
+                    }
+                ],
+                "workflows": [{"name": "workflow-id"}],
+            },
+            project_id="project-id",
+        )
+
+        self.assertEqual(refs["operations"][0]["operation"]["name"], "operation-id")
+        self.assertEqual(refs["media"], [])
+        self.assertEqual(refs["workflow_id"], "workflow-id")
+        self.assertEqual(refs["task_id"], "operation-id")
+
+    def test_new_media_response_uses_media_polling_not_fake_operation(self):
+        handler = GenerationHandler.__new__(GenerationHandler)
+
+        refs = handler._normalize_video_submit_response(
+            {
+                "workflows": [{"name": "workflow-id"}],
+                "media": [
+                    {
+                        "name": "media-id",
+                        "projectId": "project-id",
+                        "workflowId": "workflow-id",
+                        "sceneId": "scene-id",
+                    }
+                ],
+            },
+            project_id="fallback-project-id",
+        )
+
+        self.assertEqual(refs["operations"], [])
+        self.assertEqual(
+            refs["media"],
+            [{"name": "media-id", "projectId": "project-id"}],
+        )
+        self.assertEqual(refs["workflow_id"], "workflow-id")
+        self.assertEqual(refs["scene_id"], "scene-id")
+        self.assertEqual(refs["task_id"], "media-id")
+
+
 class VeoLiteFlowClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.client = FlowClient(proxy_manager=None)
@@ -120,6 +171,28 @@ class VeoLiteFlowClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             request_data["textInput"]["structuredPrompt"]["parts"][0]["text"],
             "变身猫猫",
+        )
+
+    async def test_media_status_refs_are_sent_as_media_payload(self):
+        captured = {}
+
+        async def fake_make_request(**kwargs):
+            captured["json_data"] = kwargs["json_data"]
+            return {"media": []}
+
+        self.client._make_request = AsyncMock(side_effect=fake_make_request)
+
+        await self.client.check_video_status(
+            at="at-token",
+            operations={
+                "operations": [],
+                "media": [{"name": "media-id", "projectId": "project-id"}],
+            },
+        )
+
+        self.assertEqual(
+            captured["json_data"],
+            {"media": [{"name": "media-id", "projectId": "project-id"}]},
         )
 
 

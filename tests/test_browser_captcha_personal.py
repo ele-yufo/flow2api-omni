@@ -45,11 +45,23 @@ class BrowserCaptchaPersonalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"ok": True, "token": "token-123"})
 
     async def test_execute_recaptcha_on_tab_accepts_remote_object_success_result(self):
-        tab = _FakeTab(self._make_remote_object_result("token-xyz"))
+        # Real reCAPTCHA tokens are >200 chars; fixtures must clear the
+        # 100-char guard that drops suspected fake tokens (e.g. "undefined").
+        realistic_token = "0cAFcWeA7zzq_" + "A" * 200 + "_end"
+        tab = _FakeTab(self._make_remote_object_result(realistic_token))
 
         token = await self.service._execute_recaptcha_on_tab(tab, action="IMAGE_GENERATION")
 
-        self.assertEqual(token, "token-xyz")
+        self.assertEqual(token, realistic_token)
+
+    async def test_execute_recaptcha_on_tab_drops_short_fake_token(self):
+        # JS sometimes resolves with "undefined" (len 9) when grecaptcha
+        # isn't fully ready — we must drop these instead of submitting them.
+        tab = _FakeTab(self._make_remote_object_result("undefined"))
+
+        token = await self.service._execute_recaptcha_on_tab(tab, action="IMAGE_GENERATION")
+
+        self.assertIsNone(token)
 
     async def test_create_resident_tab_returns_none_when_browser_missing(self):
         self.service.browser = None

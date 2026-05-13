@@ -14,6 +14,7 @@ import time
 import re
 import random
 import uuid
+import json
 from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
 from urllib.parse import urlparse, unquote, parse_qs
@@ -1116,8 +1117,8 @@ class TokenBrowser:
             page = await context.new_page()
             await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
 
-            # 使用更简单的 API 地址，避免加载复杂页面
-            page_url = "https://labs.google/fx/api/auth/providers"
+            # 使用真实 Flow project 页面路径作为 reCAPTCHA 执行上下文。
+            page_url = self._flow_recaptcha_page_url(project_id)
             primary_host = "https://www.recaptcha.net" if self._browser_proxy_active else "https://www.google.com"
             secondary_host = "https://www.google.com" if primary_host == "https://www.recaptcha.net" else "https://www.recaptcha.net"
             debug_logger.log_info(
@@ -1420,6 +1421,155 @@ class TokenBrowser:
         if not self._last_fingerprint:
             return None
         return dict(self._last_fingerprint)
+
+    @staticmethod
+    def _flow_recaptcha_page_url(project_id: Optional[str]) -> str:
+        # 与 personal 一致：用轻量 JSON 端点，避免 SPA 主页在代理下加载超时。
+        _ = project_id
+        return "https://labs.google/fx/api/auth/providers"
+
+    @staticmethod
+    def _browser_fetch_headers(headers: Optional[Dict[str, Any]]) -> Dict[str, str]:
+        """保留浏览器 fetch 允许设置的业务头，UA/client hints 由浏览器真实发送。"""
+        forbidden = {
+            "accept-charset",
+            "accept-encoding",
+            "access-control-request-headers",
+            "access-control-request-method",
+            "connection",
+            "content-length",
+            "cookie",
+            "cookie2",
+            "date",
+            "dnt",
+            "expect",
+            "host",
+            "keep-alive",
+            "origin",
+            "referer",
+            "sec-ch-ua",
+            "sec-ch-ua-mobile",
+            "sec-ch-ua-platform",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "user-agent",
+            "via",
+        }
+        allowed = {
+            "accept",
+            "authorization",
+            "content-type",
+        }
+        result: Dict[str, str] = {}
+        for key, value in (headers or {}).items():
+            key_text = str(key)
+            key_lower = key_text.lower()
+            if key_lower not in allowed:
+                continue
+            if key_lower in forbidden or key_lower.startswith("proxy-"):
+                continue
+            if value is None:
+                continue
+            result[key_text] = str(value)
+        result.setdefault("Content-Type", "application/json")
+        return result
+
+    async def submit_flow_request(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, Any],
+        json_data: Optional[Dict[str, Any]],
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        """在 Playwright 有头浏览器上下文内提交 Flow 请求。"""
+        _, _, context = await self._get_or_create_shared_browser()
+        page = self._shared_keepalive_page
+        try:
+            if not page or page.is_closed():
+                page = await context.new_page()
+                self._shared_keepalive_page = page
+        except Exception:
+            page = await context.new_page()
+            self._shared_keepalive_page = page
+
+        fetch_headers = self._browser_fetch_headers(headers)
+        result = await page.evaluate(
+            """
+                async ({url, method, headers, body}) => {
+                    try {
+                        const response = await fetch(url, {
+                            method,
+                            headers,
+                            body: JSON.stringify(body || {}),
+                            credentials: "omit",
+                            mode: "cors",
+                        });
+                        const text = await response.text();
+                        let parsedBody = text;
+                        try {
+                            parsedBody = text ? JSON.parse(text) : {};
+                        } catch (e) {}
+                        const responseHeaders = {};
+                        try {
+                            response.headers.forEach((value, key) => {
+                                responseHeaders[key] = value;
+                            });
+                        } catch (e) {}
+                        return {
+                            ok: response.ok,
+                            status: response.status,
+                            statusText: response.statusText || "",
+                            headers: responseHeaders,
+                            body: parsedBody,
+                            text,
+                        };
+                    } catch (error) {
+                        const message = error && error.message ? error.message : String(error || "browser fetch failed");
+                        return {
+                            ok: false,
+                            status: 0,
+                            statusText: "FETCH_ERROR",
+                            headers: {},
+                            body: {error: message},
+                            text: message,
+                        };
+                    }
+                }
+            """,
+            {
+                "url": url,
+                "method": method.upper(),
+                "headers": fetch_headers,
+                "body": json_data or {},
+            },
+        )
+
+        if not isinstance(result, dict):
+            raise RuntimeError(f"browser submit returned invalid result: {type(result).__name__}")
+
+        status = int(result.get("status") or 0)
+        body = result.get("body")
+        if 200 <= status < 300:
+            if isinstance(body, dict):
+                return body
+            if isinstance(body, str) and body:
+                try:
+                    parsed = json.loads(body)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+            return {}
+
+        raise RuntimeError(
+            f"browser submit HTTP {status}: {debug_logger.format_data_for_log(body or result.get('text') or '')}"
+        )
     
     async def get_token(
         self,
@@ -2075,6 +2225,37 @@ class BrowserCaptchaService:
                 f"[BrowserCaptcha] browser {browser_id} request finished; keepalive_alive={keepalive_alive}"
             )
 
+    async def submit_flow_request(
+        self,
+        browser_ref: Optional[Union[int, str]],
+        project_id: str,
+        method: str,
+        url: str,
+        headers: Dict[str, Any],
+        json_data: Optional[Dict[str, Any]],
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        """使用本次 token 对应的有头浏览器上下文提交 Flow 请求。"""
+        _ = project_id
+        _ = timeout_seconds
+        browser_id, _request_ref = self._parse_browser_ref(browser_ref)
+        if browser_id is None:
+            raise RuntimeError("missing browser_ref for browser submit")
+
+        async with self._browsers_lock:
+            browser = self._browsers.get(browser_id)
+
+        if not browser:
+            raise RuntimeError(f"browser slot {browser_id} not found for submit")
+
+        return await browser.submit_flow_request(
+            method=method,
+            url=url,
+            headers=headers,
+            json_data=json_data,
+            timeout_seconds=timeout_seconds,
+        )
+
     async def remove_browser(self, browser_id: int):
         async with self._browsers_lock:
             if browser_id in self._browsers:
@@ -2118,4 +2299,3 @@ class BrowserCaptchaService:
             "browsers": []
         }
         return base_stats
-

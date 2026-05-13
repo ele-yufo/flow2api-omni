@@ -120,6 +120,21 @@ class Config:
         )
 
     @property
+    def flow_browser_submit_enabled(self) -> bool:
+        """是否优先在打码浏览器内提交带 reCAPTCHA token 的 Flow 请求。
+
+        默认关闭：实测中浏览器内 JS fetch 仍会被 Google 标记 UNUSUAL_ACTIVITY，
+        且额外引入 CORS / tab 生命周期 / JS eval 失败等不稳定因素。
+        现在统一走 HTTP 提交 + 真实浏览器指纹 + chrome110 impersonate 路径。
+        """
+        return bool(self._config.get("flow", {}).get("browser_submit_enabled", False))
+
+    @property
+    def flow_browser_submit_fallback_enabled(self) -> bool:
+        """浏览器内提交失败时是否回退到服务端 HTTP 客户端。"""
+        return bool(self._config.get("flow", {}).get("browser_submit_fallback_enabled", True))
+
+    @property
     def flow_image_slot_wait_timeout(self) -> float:
         """图片硬并发槽位等待超时(秒)。"""
         timeout = self._config.get("flow", {}).get("image_slot_wait_timeout", 120)
@@ -222,6 +237,22 @@ class Config:
     @property
     def debug_mask_token(self) -> bool:
         return self._config.get("debug", {}).get("mask_token", True)
+
+    @property
+    def debug_log_max_bytes(self) -> int:
+        value = self._config.get("debug", {}).get("log_max_bytes", 50 * 1024 * 1024)
+        try:
+            return max(1024 * 1024, int(value))
+        except Exception:
+            return 50 * 1024 * 1024
+
+    @property
+    def debug_log_backup_count(self) -> int:
+        value = self._config.get("debug", {}).get("log_backup_count", 5)
+        try:
+            return max(1, min(50, int(value)))
+        except Exception:
+            return 5
 
     # Mutable properties for runtime updates
     @property
