@@ -33,6 +33,7 @@ data/*.db
 # Logs
 *.log
 logs.txt
+logs.txt.*
 
 # IDE
 .vscode/

@@ -573,6 +573,8 @@ class BrowserCaptchaService:
         self._runtime_recover_lock = asyncio.Lock()  # 串行化浏览器级恢复，避免并发重启风暴
         self._tab_build_lock = asyncio.Lock()  # 串行化冷启动/重建，降低 nodriver 抖动
         self._legacy_lock = asyncio.Lock()  # 避免 legacy fallback 并发失控创建临时标签页
+        self._legacy_submit_tabs: Dict[str, Any] = {}  # project_id -> 最近一次 legacy 成功打码页，供同页提交
+        self._legacy_submit_lock = asyncio.Lock()
         self._max_resident_tabs = 5  # 最大常驻标签页数量（支持并发）
         self._idle_tab_ttl_seconds = 600  # 标签页空闲超时(秒)
         self._idle_reaper_task: Optional[asyncio.Task] = None  # 空闲回收任务
@@ -748,6 +750,17 @@ class BrowserCaptchaService:
     def _is_browser_runtime_error(self, error: Any) -> bool:
         """识别浏览器运行态已损坏/已关闭的典型异常。"""
         return _is_runtime_disconnect_error(error)
+
+    @staticmethod
+    def _flow_recaptcha_page_url(project_id: Optional[str]) -> str:
+        # 必须用轻量 JSON 端点而不是 SPA 主页。
+        # 上一版改成 /fx/tools/flow/project/{id} 后，未认证 SPA 在
+        # 代理环境下永远到不了 readyState=complete，warmup 全部 7s 超时，
+        # token 取不到走伪降级。auth/providers 是固定 JSON 返回，<1s 就 ready，
+        # reCAPTCHA Enterprise 评分只看 origin（labs.google）+ siteKey + action +
+        # 浏览器指纹 + IP，不在意页面正文。
+        _ = project_id
+        return "https://labs.google/fx/api/auth/providers"
 
     def _decode_nodriver_object_entries(self, value: Any) -> Optional[Dict[str, Any]]:
         if not isinstance(value, list):
@@ -1002,7 +1015,32 @@ class BrowserCaptchaService:
                 if tab:
                     reserved_tab_ids.add(id(tab))
 
+        async with self._legacy_submit_lock:
+            for tab in self._legacy_submit_tabs.values():
+                if tab:
+                    reserved_tab_ids.add(id(tab))
+
         return reserved_tab_ids
+
+    def _legacy_submit_key(self, project_id: Optional[str]) -> str:
+        normalized_project_id = str(project_id or "").strip()
+        return normalized_project_id or "_global"
+
+    async def _remember_legacy_submit_tab(self, project_id: Optional[str], tab):
+        if not tab:
+            return
+        key = self._legacy_submit_key(project_id)
+        old_tab = None
+        async with self._legacy_submit_lock:
+            old_tab = self._legacy_submit_tabs.pop(key, None)
+            self._legacy_submit_tabs[key] = tab
+        if old_tab and old_tab is not tab:
+            await self._close_tab_quietly(old_tab)
+
+    async def _pop_legacy_submit_tab(self, project_id: Optional[str]):
+        key = self._legacy_submit_key(project_id)
+        async with self._legacy_submit_lock:
+            return self._legacy_submit_tabs.pop(key, None)
 
     def _next_resident_slot_id(self) -> str:
         self._resident_slot_seq += 1
@@ -1286,6 +1324,9 @@ class BrowserCaptchaService:
 
         custom_items = list(self._custom_tabs.values())
         self._custom_tabs.clear()
+        async with self._legacy_submit_lock:
+            legacy_submit_tabs = list(self._legacy_submit_tabs.values())
+            self._legacy_submit_tabs.clear()
 
         closed_tabs = set()
 
@@ -1303,6 +1344,9 @@ class BrowserCaptchaService:
 
         for item in custom_items:
             tab = item.get("tab") if isinstance(item, dict) else None
+            await close_once(tab)
+
+        for tab in legacy_submit_tabs:
             await close_once(tab)
 
         if browser_instance:
@@ -2134,6 +2178,15 @@ class BrowserCaptchaService:
             if error:
                 debug_logger.log_error(f"[BrowserCaptcha] reCAPTCHA 错误: {error}")
 
+        # 真 reCAPTCHA Enterprise token 至少 200+ 字符；过短一律视为
+        # 浏览器/页面异常返回的伪 token（例如 "undefined" 长度恰好 9），
+        # 必须拒绝，避免污染上游打码评分并被拉入冷却。
+        if isinstance(token, str) and 0 < len(token) < 100:
+            debug_logger.log_error(
+                f"[BrowserCaptcha] 丢弃疑似伪 token: len={len(token)}, sample={token[:40]!r}"
+            )
+            token = None
+
         if token:
             debug_logger.log_info(f"[BrowserCaptcha] ✅ Token 获取成功 (长度: {len(token)})")
         else:
@@ -2350,8 +2403,14 @@ class BrowserCaptchaService:
     async def _extract_tab_fingerprint(self, tab) -> Optional[Dict[str, Any]]:
         """从 nodriver 标签页提取浏览器指纹信息。"""
         try:
+            # 必须 return_by_value=True，否则 nodriver 把 object 返回成 RemoteObject
+            # 而不是 dict，外层 isinstance(dict) 失败，整条指纹链路就丢了，HTTP 提交
+            # 退回到 fallback 随机 UA + Chrome 132 sec-ch-ua（实际浏览器是 Chrome 147），
+            # 直接破坏前期所有调优。
+            # 必须是 IIFE：nodriver 把 `() => {...}` 当成函数表达式直接返回 function object，
+            # 不会执行它。要执行必须 `(() => {...})()`。
             fingerprint = await self._tab_evaluate(tab, """
-                () => {
+                (() => {
                     const ua = navigator.userAgent || "";
                     const lang = navigator.language || "";
                     const uaData = navigator.userAgentData || null;
@@ -2378,9 +2437,14 @@ class BrowserCaptchaService:
                         sec_ch_ua_mobile: secChUaMobile,
                         sec_ch_ua_platform: secChUaPlatform,
                     };
-                }
-            """, label="extract_tab_fingerprint", timeout_seconds=8.0)
+                })()
+            """, label="extract_tab_fingerprint", timeout_seconds=8.0,
+                await_promise=False, return_by_value=True)
             if not isinstance(fingerprint, dict):
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] 指纹 evaluate 返回非 dict, type={type(fingerprint).__name__}, "
+                    f"value={str(fingerprint)[:200]}"
+                )
                 return None
 
             result: Dict[str, Any] = {"proxy_url": self._proxy_url}
@@ -2388,6 +2452,10 @@ class BrowserCaptchaService:
                 value = fingerprint.get(key)
                 if isinstance(value, str) and value:
                     result[key] = value
+            debug_logger.log_info(
+                f"[BrowserCaptcha] 已抽取浏览器指纹: ua={result.get('user_agent', '')[:80]!r}, "
+                f"sec_ch_ua={result.get('sec_ch_ua', '')[:80]!r}, keys={list(result.keys())}"
+            )
             return result
         except Exception as e:
             debug_logger.log_warning(f"[BrowserCaptcha] 提取 nodriver 指纹失败: {e}")
@@ -2643,8 +2711,10 @@ class BrowserCaptchaService:
             ResidentTabInfo 对象，或 None（创建失败）
         """
         try:
-            # 使用 Flow API 地址作为基础页面
-            website_url = "https://labs.google/fx/api/auth/providers"
+            # 使用真实 Flow project 页面作为 reCAPTCHA 执行上下文。
+            # Google 会把 v3 token 与页面上下文/IP/浏览器状态综合评估，
+            # 轻量 API 页面在 2026-05 已开始更容易触发 evaluation failed。
+            website_url = self._flow_recaptcha_page_url(project_id)
             debug_logger.log_info(f"[BrowserCaptcha] 创建共享常驻标签页 slot={slot_id}, seed_project={project_id}")
 
             async with self._resident_lock:
@@ -2784,7 +2854,7 @@ class BrowserCaptchaService:
                 tab = None
 
                 try:
-                    website_url = "https://labs.google/fx/api/auth/providers"
+                    website_url = self._flow_recaptcha_page_url(project_id)
                     debug_logger.log_info(
                         f"[BrowserCaptcha] [Legacy] 创建独立临时标签页执行验证，避免污染 resident/custom 页面: {website_url}"
                     )
@@ -2858,6 +2928,163 @@ class BrowserCaptchaService:
         if not self._last_fingerprint:
             return None
         return dict(self._last_fingerprint)
+
+    @staticmethod
+    def _browser_fetch_headers(headers: Optional[Dict[str, Any]]) -> Dict[str, str]:
+        """保留浏览器 fetch 允许设置的业务头，UA/client hints 由浏览器真实发送。"""
+        forbidden = {
+            "accept-charset",
+            "accept-encoding",
+            "access-control-request-headers",
+            "access-control-request-method",
+            "connection",
+            "content-length",
+            "cookie",
+            "cookie2",
+            "date",
+            "dnt",
+            "expect",
+            "host",
+            "keep-alive",
+            "origin",
+            "referer",
+            "sec-ch-ua",
+            "sec-ch-ua-mobile",
+            "sec-ch-ua-platform",
+            "sec-fetch-dest",
+            "sec-fetch-mode",
+            "sec-fetch-site",
+            "te",
+            "trailer",
+            "transfer-encoding",
+            "upgrade",
+            "user-agent",
+            "via",
+        }
+        allowed = {
+            "accept",
+            "authorization",
+            "content-type",
+        }
+        result: Dict[str, str] = {}
+        for key, value in (headers or {}).items():
+            key_text = str(key)
+            key_lower = key_text.lower()
+            if key_lower not in allowed:
+                continue
+            if key_lower in forbidden or key_lower.startswith("proxy-"):
+                continue
+            if value is None:
+                continue
+            result[key_text] = str(value)
+        result.setdefault("Content-Type", "application/json")
+        return result
+
+    async def submit_flow_request(
+        self,
+        project_id: str,
+        method: str,
+        url: str,
+        headers: Dict[str, Any],
+        json_data: Optional[Dict[str, Any]],
+        timeout_seconds: int,
+    ) -> Dict[str, Any]:
+        """在获取 reCAPTCHA token 的 nodriver 有头标签页内提交 Flow 请求。"""
+        await self.initialize()
+        normalized_project_id = str(project_id or "").strip()
+        slot_id, resident_info = await self._ensure_resident_tab(
+            normalized_project_id,
+            return_slot_key=True,
+        )
+        if not resident_info or not resident_info.tab or not slot_id:
+            raise RuntimeError("personal captcha browser has no resident tab for submit")
+
+        if not resident_info.recaptcha_ready:
+            slot_id, resident_info = await self._rebuild_resident_tab(
+                normalized_project_id,
+                slot_id=slot_id,
+                return_slot_key=True,
+            )
+        if not resident_info or not resident_info.tab:
+            raise RuntimeError("personal captcha browser submit tab rebuild failed")
+
+        fetch_headers = self._browser_fetch_headers(headers)
+        script = f"""
+            (async () => {{
+                try {{
+                    const response = await fetch({json.dumps(url)}, {{
+                        method: {json.dumps(method.upper())},
+                        headers: {json.dumps(fetch_headers)},
+                        body: {json.dumps(json.dumps(json_data or {}))},
+                        credentials: "omit",
+                        mode: "cors",
+                    }});
+                    const text = await response.text();
+                    let body = text;
+                    try {{
+                        body = text ? JSON.parse(text) : {{}};
+                    }} catch (e) {{}}
+                    const responseHeaders = {{}};
+                    try {{
+                        response.headers.forEach((value, key) => {{
+                            responseHeaders[key] = value;
+                        }});
+                    }} catch (e) {{}}
+                    return {{
+                        ok: response.ok,
+                        status: response.status,
+                        statusText: response.statusText || "",
+                        headers: responseHeaders,
+                        body,
+                        text,
+                    }};
+                }} catch (error) {{
+                    const message = error && error.message ? error.message : String(error || "browser fetch failed");
+                    return {{
+                        ok: false,
+                        status: 0,
+                        statusText: "FETCH_ERROR",
+                        headers: {{}},
+                        body: {{ error: message }},
+                        text: message,
+                    }};
+                }}
+            }})()
+        """
+
+        async with resident_info.solve_lock:
+            result = await self._tab_evaluate(
+                resident_info.tab,
+                script,
+                label=f"browser_submit:{normalized_project_id or 'unknown'}",
+                timeout_seconds=max(5.0, float(timeout_seconds or 0)),
+                await_promise=True,
+                return_by_value=True,
+            )
+
+        if not isinstance(result, dict):
+            raise RuntimeError(f"browser submit returned invalid result: {type(result).__name__}")
+
+        status = int(result.get("status") or 0)
+        body = result.get("body")
+        resident_info.last_used_at = time.time()
+        resident_info.use_count += 1
+        self._remember_project_affinity(normalized_project_id, slot_id, resident_info)
+        if 200 <= status < 300:
+            if isinstance(body, dict):
+                return body
+            if isinstance(body, str) and body:
+                try:
+                    parsed = json.loads(body)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+            return {}
+
+        raise RuntimeError(
+            f"browser submit HTTP {status}: {debug_logger.format_data_for_log(body or result.get('text') or '')}"
+        )
 
     async def _clear_browser_cache(self):
         """清理浏览器全部缓存"""

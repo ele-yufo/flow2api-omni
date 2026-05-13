@@ -13,6 +13,12 @@ image_timeout_retry_count = 1
 image_timeout_retry_delay = 0.8
 image_timeout_use_media_proxy_fallback = true
 image_prefer_media_proxy = false
+# 在打码浏览器内 JS fetch 提交 Flow 请求。
+# 实测中 Google 仍会以 UNUSUAL_ACTIVITY 拒绝，且引入 CORS / tab 生命周期等不稳定因素，
+# 默认关闭；统一使用 HTTP 客户端 + 真实浏览器指纹 + chrome110 impersonate 提交。
+browser_submit_enabled = false
+# 浏览器内提交失败时是否回退到 HTTP 客户端（开启 browser_submit_enabled 时建议保持 true）。
+browser_submit_fallback_enabled = true
 image_slot_wait_timeout = 480
 image_launch_soft_limit = 20
 image_launch_wait_timeout = 480
@@ -33,6 +39,8 @@ enabled = false
 log_requests = true
 log_responses = true
 mask_token = true
+log_max_bytes = 52428800
+log_backup_count = 5
 
 [proxy]
 proxy_enabled = false

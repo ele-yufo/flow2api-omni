@@ -1272,8 +1272,18 @@ class GenerationHandler:
         if not operations:
             return
 
-        operation = operations[0] if operations else {}
-        task_id = (operation.get("operation") or {}).get("name")
+        if isinstance(operations, dict):
+            task_id = operations.get("task_id")
+            if not task_id:
+                operation_items = operations.get("operations") or []
+                media_items = operations.get("media") or []
+                if operation_items:
+                    task_id = ((operation_items[0].get("operation") or {}).get("name"))
+                elif media_items:
+                    task_id = media_items[0].get("name")
+        else:
+            operation = operations[0] if operations else {}
+            task_id = (operation.get("operation") or {}).get("name")
         if not task_id:
             return
 
@@ -1286,6 +1296,108 @@ class GenerationHandler:
             )
         except Exception as exc:
             debug_logger.log_error(f"[VIDEO] 更新任务失败状态失败: {exc}")
+
+    def _normalize_video_submit_response(
+        self,
+        result: Dict[str, Any],
+        project_id: str,
+    ) -> Dict[str, Any]:
+        """Normalize old operation responses and new media/workflow responses."""
+        operations = [
+            operation for operation in (result.get("operations") or [])
+            if isinstance(operation, dict)
+            and (operation.get("operation") or {}).get("name")
+        ]
+
+        workflow_items = result.get("workflows") or []
+        if not workflow_items and isinstance(result.get("workflow"), dict):
+            workflow_items = [result["workflow"]]
+        workflow_id = None
+        if workflow_items and isinstance(workflow_items[0], dict):
+            workflow_id = workflow_items[0].get("name")
+
+        raw_media = result.get("media") or []
+        if isinstance(raw_media, dict):
+            raw_media = [raw_media]
+
+        media_refs: List[Dict[str, Any]] = []
+        scene_id = None
+        for media in raw_media:
+            if not isinstance(media, dict):
+                continue
+            media_name = media.get("name")
+            if not media_name:
+                continue
+            media_project_id = media.get("projectId") or project_id
+            media_refs.append({"name": media_name, "projectId": media_project_id})
+            scene_id = scene_id or media.get("sceneId")
+            workflow_id = workflow_id or media.get("workflowId")
+
+        task_id = None
+        if operations:
+            first_operation = operations[0]
+            task_id = (first_operation.get("operation") or {}).get("name")
+            scene_id = first_operation.get("sceneId") or scene_id
+        elif media_refs:
+            task_id = media_refs[0].get("name")
+
+        return {
+            "operations": operations,
+            "media": media_refs if not operations else [],
+            "workflow_id": workflow_id,
+            "scene_id": scene_id,
+            "task_id": task_id,
+        }
+
+    def _coerce_media_status_to_operations(
+        self,
+        result: Dict[str, Any],
+        status_refs: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Convert media-format status responses into the operation shape used downstream."""
+        media_items = result.get("media") or []
+        if isinstance(media_items, dict):
+            media_items = [media_items]
+        if not media_items:
+            return []
+
+        operations: List[Dict[str, Any]] = []
+        media_refs = status_refs.get("media") or []
+        fallback_scene_id = status_refs.get("scene_id")
+        if media_refs and isinstance(media_refs[0], dict):
+            fallback_scene_id = fallback_scene_id or media_refs[0].get("sceneId")
+
+        for media in media_items:
+            if not isinstance(media, dict):
+                continue
+            media_name = media.get("name")
+            if not media_name:
+                continue
+
+            metadata = media.get("mediaMetadata") or {}
+            media_status = metadata.get("mediaStatus") or {}
+            status = media_status.get("mediaGenerationStatus")
+            video_wrapper = media.get("video") or {}
+            video_info = video_wrapper.get("generatedVideo") or video_wrapper
+            if not status and video_info.get("fifeUrl"):
+                status = "MEDIA_GENERATION_STATUS_SUCCESSFUL"
+
+            operation_metadata = {"video": dict(video_info)} if isinstance(video_info, dict) else {}
+            if "mediaGenerationId" not in operation_metadata.get("video", {}):
+                operation_metadata.setdefault("video", {})["mediaGenerationId"] = media_name
+
+            operations.append({
+                "operation": {
+                    "name": media_name,
+                    "metadata": operation_metadata,
+                    "error": media.get("error") or media_status.get("error") or {},
+                },
+                "sceneId": media.get("sceneId") or fallback_scene_id,
+                "mediaGenerationId": media_name,
+                "status": status or "MEDIA_GENERATION_STATUS_ACTIVE",
+            })
+
+        return operations
 
     async def check_token_availability(self, is_image: bool, is_video: bool) -> bool:
         """检查Token可用性
@@ -2142,20 +2254,22 @@ class GenerationHandler:
             if video_trace is not None:
                 video_trace["submit_generation_ms"] = int((time.time() - submit_started_at) * 1000)
 
-            # 获取task_id和operations
-            operations = result.get("operations", [])
-            if not operations:
-                self._mark_generation_failed(generation_result, "\u751f\u6210\u4efb\u52a1\u521b\u5efa\u5931\u8d25")
+            status_refs = self._normalize_video_submit_response(result, project_id)
+            generation_workflow_id = status_refs.get("workflow_id")
+            if not status_refs.get("operations") and not status_refs.get("media"):
+                debug_logger.log_error(
+                    f"[VIDEO] 生成任务创建响应缺少 operations/media: keys={list(result.keys())}"
+                )
+                self._mark_generation_failed(generation_result, "生成任务创建失败")
                 yield self._create_error_response("生成任务创建失败", status_code=502)
                 return
 
-            operation = operations[0]
-            task_id = operation["operation"]["name"]
-            scene_id = operation.get("sceneId")
-
-            # Extract workflow_id from generation response for extend flow
-            workflows = result.get("workflows", [])
-            generation_workflow_id = workflows[0]["name"] if workflows else None
+            task_id = status_refs.get("task_id")
+            scene_id = status_refs.get("scene_id")
+            if not task_id:
+                self._mark_generation_failed(generation_result, "生成任务创建失败")
+                yield self._create_error_response("生成任务创建失败", status_code=502)
+                return
 
             # 保存Task到数据库
             task = Task(
@@ -2186,7 +2300,7 @@ class GenerationHandler:
             async for chunk in self._poll_video_result(
                 token,
                 project_id,
-                operations,
+                status_refs,
                 stream,
                 upsample_config,
                 extend_config,
@@ -2204,7 +2318,7 @@ class GenerationHandler:
         self,
         token,
         project_id: str,
-        operations: List[Dict],
+        operations: Any,
         stream: bool,
         upsample_config: Optional[Dict] = None,
         extend_config: Optional[Dict] = None,
@@ -2242,6 +2356,8 @@ class GenerationHandler:
             try:
                 result = await self.flow_client.check_video_status(token.at, operations)
                 checked_operations = result.get("operations", [])
+                if not checked_operations and isinstance(operations, dict):
+                    checked_operations = self._coerce_media_status_to_operations(result, operations)
                 consecutive_poll_errors = 0
                 last_poll_error = None
 
@@ -2296,8 +2412,11 @@ class GenerationHandler:
                                 token_video_concurrency=token.video_concurrency,
                             )
 
-                            upsample_operations = upsample_result.get("operations", [])
-                            if upsample_operations:
+                            upsample_operations = self._normalize_video_submit_response(
+                                upsample_result,
+                                project_id,
+                            )
+                            if upsample_operations.get("operations") or upsample_operations.get("media"):
                                 if stream:
                                     yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")
 
@@ -2311,6 +2430,8 @@ class GenerationHandler:
                                         try:
                                             ups_result = await self.flow_client.check_video_status(token.at, upsample_operations)
                                             ups_ops = ups_result.get("operations", [])
+                                            if not ups_ops:
+                                                ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
                                             ups_consecutive_errors = 0
                                             if ups_ops:
                                                 ups_op = ups_ops[0]
@@ -2404,8 +2525,11 @@ class GenerationHandler:
                                 token_video_concurrency=token.video_concurrency,
                             )
 
-                            extend_operations = extend_result.get("operations", [])
-                            if not extend_operations:
+                            extend_operations = self._normalize_video_submit_response(
+                                extend_result,
+                                project_id,
+                            )
+                            if not extend_operations.get("operations") and not extend_operations.get("media"):
                                 if stream:
                                     yield self._create_stream_chunk("⚠️ 延长任务创建失败，返回原始视频\n")
                             else:
@@ -2422,6 +2546,8 @@ class GenerationHandler:
                                     try:
                                         ext_result = await self.flow_client.check_video_status(token.at, extend_operations)
                                         ext_ops = ext_result.get("operations", [])
+                                        if not ext_ops:
+                                            ext_ops = self._coerce_media_status_to_operations(ext_result, extend_operations)
                                         ext_consecutive_errors = 0
                                         if ext_ops:
                                             ext_op = ext_ops[0]

@@ -1,6 +1,7 @@
 """Debug logger module for detailed API request/response logging"""
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -22,10 +23,12 @@ class DebugLogger:
         # Remove existing handlers
         self.logger.handlers.clear()
 
-        # Create file handler
-        file_handler = logging.FileHandler(
+        # Create rotating file handler. Debug logs can include full upstream
+        # request/response samples, so keep bounded files by default.
+        file_handler = RotatingFileHandler(
             self.log_file,
-            mode='a',
+            maxBytes=config.debug_log_max_bytes,
+            backupCount=config.debug_log_backup_count,
             encoding='utf-8'
         )
         file_handler.setLevel(logging.DEBUG)
@@ -57,31 +60,122 @@ class DebugLogger:
         """Write separator line"""
         self.logger.info(char * length)
 
-    def _truncate_large_fields(self, data: Any, max_length: int = 200) -> Any:
-        """对大字段进行截断处理，特别是 base64 编码的图片数据
-        
-        Args:
-            data: 要处理的数据
-            max_length: 字符串字段的最大长度
-        
-        Returns:
-            截断后的数据副本
-        """
+    def _mask_cookie_header(self, cookie_value: str) -> str:
+        """Mask auth cookies inside a Cookie/Set-Cookie header."""
+        if not isinstance(cookie_value, str):
+            return cookie_value
+        result = cookie_value
+        for marker in (
+            "__Secure-next-auth.session-token=",
+            "__Host-next-auth.csrf-token=",
+            "__Secure-next-auth.callback-url=",
+        ):
+            if marker in result:
+                prefix, rest = result.split(marker, 1)
+                token, sep, suffix = rest.partition(";")
+                result = f"{prefix}{marker}{self._mask_token(token)}{sep}{suffix}"
+        return result
+
+    def _sanitize_for_log(self, data: Any, max_length: int = 200, key_name: str = "") -> Any:
+        """Mask secrets and truncate large payload fields before writing logs."""
+        key_lower = (key_name or "").lower()
+        sensitive_keys = {
+            "authorization",
+            "access_token",
+            "refresh_token",
+            "id_token",
+            "st",
+            "at",
+            "cookie",
+            "set-cookie",
+        }
+        token_keys = {
+            "token",
+            "recaptchatoken",
+            "recaptcha_token",
+            "recaptcharesponse",
+            "grecaptcharesponse",
+            "sessiontoken",
+            "session_token",
+        }
+        large_keys = {
+            "encodedimage",
+            "encodedvideo",
+            "base64",
+            "imagedata",
+            "imagebytes",
+            "rawimagebytes",
+            "data",
+        }
+
         if isinstance(data, dict):
             result = {}
             for key, value in data.items():
-                # 对特定的大字段进行截断
-                if key in ("encodedImage", "base64", "imageData", "data") and isinstance(value, str) and len(value) > max_length:
-                    result[key] = f"{value[:100]}... (truncated, total {len(value)} chars)"
-                else:
-                    result[key] = self._truncate_large_fields(value, max_length)
+                result[key] = self._sanitize_for_log(value, max_length=max_length, key_name=str(key))
             return result
-        elif isinstance(data, list):
-            return [self._truncate_large_fields(item, max_length) for item in data]
-        elif isinstance(data, str) and len(data) > 10000:
-            # 对超长字符串进行截断（可能是未知的 base64 字段）
-            return f"{data[:100]}... (truncated, total {len(data)} chars)"
+
+        if isinstance(data, list):
+            return [self._sanitize_for_log(item, max_length=max_length, key_name=key_name) for item in data]
+
+        if isinstance(data, str):
+            compact_key = key_lower.replace("-", "").replace("_", "")
+            if key_lower in sensitive_keys or compact_key in token_keys:
+                if key_lower in ("cookie", "set-cookie"):
+                    return self._mask_cookie_header(data)
+                if data.startswith("Bearer "):
+                    return f"Bearer {self._mask_token(data[7:])}"
+                return self._mask_token(data)
+
+            if compact_key in large_keys and len(data) > max_length:
+                return f"{data[:100]}... (truncated, total {len(data)} chars)"
+
+            if len(data) > 10000:
+                return f"{data[:100]}... (truncated, total {len(data)} chars)"
+
         return data
+
+    def _truncate_large_fields(self, data: Any, max_length: int = 200) -> Any:
+        """Backward-compatible wrapper for log sanitization."""
+        return self._sanitize_for_log(data, max_length=max_length)
+
+    def format_data_for_log(self, data: Any) -> str:
+        """Return a sanitized string representation for ad-hoc log messages."""
+        try:
+            sanitized = self._sanitize_for_log(data)
+            if isinstance(sanitized, (dict, list)):
+                return json.dumps(sanitized, ensure_ascii=False)
+            return str(sanitized)
+        except Exception:
+            return "<unserializable>"
+
+    def _sanitize_text_for_log(self, text: str) -> str:
+        """Best-effort masking for already formatted text messages."""
+        if not isinstance(text, str):
+            return str(text)
+        sanitized = text
+        for marker in ("Bearer ", "access_token': '", '"access_token": "', "token': '", '"token": "'):
+            start = 0
+            while marker in sanitized[start:]:
+                idx = sanitized.find(marker, start)
+                value_start = idx + len(marker)
+                end_candidates = [
+                    pos for pos in (
+                        sanitized.find("'", value_start),
+                        sanitized.find('"', value_start),
+                        sanitized.find(",", value_start),
+                        sanitized.find("}", value_start),
+                        sanitized.find(" ", value_start),
+                    )
+                    if pos != -1
+                ]
+                value_end = min(end_candidates) if end_candidates else min(len(sanitized), value_start + 120)
+                value = sanitized[value_start:value_end]
+                if len(value) > 12:
+                    sanitized = sanitized[:value_start] + self._mask_token(value) + sanitized[value_end:]
+                    start = value_start + 12
+                else:
+                    start = value_end
+        return sanitized
 
     def log_request(
         self,
@@ -108,22 +202,7 @@ class DebugLogger:
 
             # Headers
             self.logger.info("\n📋 Headers:")
-            masked_headers = dict(headers)
-            if "Authorization" in masked_headers or "authorization" in masked_headers:
-                auth_key = "Authorization" if "Authorization" in masked_headers else "authorization"
-                auth_value = masked_headers[auth_key]
-                if auth_value.startswith("Bearer "):
-                    token = auth_value[7:]
-                    masked_headers[auth_key] = f"Bearer {self._mask_token(token)}"
-
-            # Mask Cookie header (ST token)
-            if "Cookie" in masked_headers:
-                cookie_value = masked_headers["Cookie"]
-                if "__Secure-next-auth.session-token=" in cookie_value:
-                    parts = cookie_value.split("=", 1)
-                    if len(parts) == 2:
-                        st_token = parts[1].split(";")[0]
-                        masked_headers["Cookie"] = f"__Secure-next-auth.session-token={self._mask_token(st_token)}"
+            masked_headers = self._sanitize_for_log(dict(headers))
 
             for key, value in masked_headers.items():
                 self.logger.info(f"  {key}: {value}")
@@ -132,10 +211,11 @@ class DebugLogger:
             if body is not None:
                 self.logger.info("\n📦 Request Body:")
                 if isinstance(body, (dict, list)):
-                    body_str = json.dumps(body, indent=2, ensure_ascii=False)
+                    body_to_log = self._sanitize_for_log(body)
+                    body_str = json.dumps(body_to_log, indent=2, ensure_ascii=False)
                     self.logger.info(body_str)
                 else:
-                    self.logger.info(str(body))
+                    self.logger.info(self._sanitize_text_for_log(str(body)))
 
             # Files
             if files:
@@ -186,7 +266,8 @@ class DebugLogger:
 
             # Headers
             self.logger.info("\n📋 Response Headers:")
-            for key, value in headers.items():
+            masked_headers = self._sanitize_for_log(dict(headers))
+            for key, value in masked_headers.items():
                 self.logger.info(f"  {key}: {value}")
 
             # Body
@@ -238,21 +319,26 @@ class DebugLogger:
             if status_code:
                 self.logger.info(f"Status Code: {status_code}")
 
-            self.logger.info(f"Error Message: {error_message}")
+            # 任何时候都要打错误正文 —— 之前条件嵌在 status_code 分支内，
+            # 导致 captcha/浏览器层这种 status_code=None 的错误体被吞掉，
+            # 调试 warmup 崩溃时彻底失明。
+            if error_message:
+                self.logger.info(f"Error Message: {self._sanitize_text_for_log(error_message)}")
 
             if response_text:
                 self.logger.info("\n📦 Error Response:")
                 # Try to parse as JSON
                 try:
                     parsed = json.loads(response_text)
+                    parsed = self._sanitize_for_log(parsed)
                     body_str = json.dumps(parsed, indent=2, ensure_ascii=False)
                     self.logger.info(body_str)
                 except:
                     # Not JSON, log as text
                     if len(response_text) > 2000:
-                        self.logger.info(f"{response_text[:2000]}... (truncated)")
+                        self.logger.info(f"{self._sanitize_text_for_log(response_text[:2000])}... (truncated)")
                     else:
-                        self.logger.info(response_text)
+                        self.logger.info(self._sanitize_text_for_log(response_text))
 
             self._write_separator()
             self.logger.info("")  # Empty line
@@ -265,7 +351,7 @@ class DebugLogger:
         if not config.debug_enabled:
             return
         try:
-            self.logger.info(f"ℹ️  [{self._format_timestamp()}] {message}")
+            self.logger.info(f"ℹ️  [{self._format_timestamp()}] {self._sanitize_text_for_log(message)}")
         except Exception as e:
             self.logger.error(f"Error logging info: {e}")
 
@@ -274,7 +360,7 @@ class DebugLogger:
         if not config.debug_enabled:
             return
         try:
-            self.logger.warning(f"⚠️  [{self._format_timestamp()}] {message}")
+            self.logger.warning(f"⚠️  [{self._format_timestamp()}] {self._sanitize_text_for_log(message)}")
         except Exception as e:
             self.logger.error(f"Error logging warning: {e}")
 
