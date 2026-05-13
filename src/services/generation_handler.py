@@ -1878,8 +1878,21 @@ class GenerationHandler:
                 yield self._create_error_response("生成结果为空", status_code=502)
                 return
 
-            image_url = media[0]["image"]["generatedImage"]["fifeUrl"]
+            image_url = (
+                media[0].get("image", {}).get("generatedImage", {}).get("fifeUrl")
+                or ""
+            )
             media_id = media[0].get("name")  # 用于 upsample
+            # 2026-05 起上游不再返回 fifeUrl，必须用 media_id 换签名 CDN URL。
+            if not image_url and media_id:
+                image_url = await self.flow_client.get_media_url(
+                    st=token.st,
+                    media_name=media_id,
+                )
+            if not image_url:
+                self._mark_generation_failed(generation_result, "生成结果缺少下载 URL")
+                yield self._create_error_response("生成结果缺少下载 URL", status_code=502)
+                return
             response_state["generated_assets"] = {
                 "type": "image",
                 "origin_image_url": image_url
@@ -2383,6 +2396,14 @@ class GenerationHandler:
                     video_media_id = video_info.get("mediaGenerationId")
                     aspect_ratio = video_info.get("aspectRatio", "VIDEO_ASPECT_RATIO_LANDSCAPE")
 
+                    # 2026-05 起 Google 不再在 check 响应里返回 fifeUrl，必须
+                    # 用 media_id 单独换签名 CDN URL（trpc media.getMediaUrlRedirect）。
+                    if not video_url and video_media_id:
+                        video_url = await self.flow_client.get_media_url(
+                            st=token.st,
+                            media_name=video_media_id,
+                        )
+
                     if not video_url:
                         error_msg = "视频生成失败: 视频URL为空"
                         await self._fail_video_task(checked_operations, error_msg)
@@ -2447,6 +2468,11 @@ class GenerationHandler:
                                                         upsampled_media_id = str(uuid.UUID(ups_raw_media_id))
                                                     except ValueError:
                                                         upsampled_media_id = ups_raw_media_id
+                                                    if not upsampled_video_url and upsampled_media_id:
+                                                        upsampled_video_url = await self.flow_client.get_media_url(
+                                                            st=token.st,
+                                                            media_name=upsampled_media_id,
+                                                        )
                                                     up_ok = True
                                                     break
                                                 elif ups_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (ups_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
