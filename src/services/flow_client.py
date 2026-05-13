@@ -2298,6 +2298,81 @@ class FlowClient:
             debug_logger.log_error(f"[WORKFLOW_ID] Failed to get workflow_id for {media_name}: {e}")
         return None
 
+    async def get_media_url(
+        self,
+        st: str,
+        media_name: str,
+        thumbnail: bool = False,
+    ) -> Optional[str]:
+        """通过 labs.google trpc 接口换签名 CDN URL。
+
+        2026-05 起上游不再在 ``batchCheckAsyncVideoGenerationStatus`` 的
+        ``media[].video.generatedVideo`` 里返回 ``fifeUrl``。前端流程改成：
+        生成完成后 ``GET labs.google/fx/api/trpc/media.getMediaUrlRedirect
+        ?name={media_id}``，服务端用 ST cookie 鉴权后返回 ``307`` ，``Location``
+        头里的 ``https://flow-content.google/{video|image}/{name}?Expires=...
+        &KeyName=...&Signature=...`` 才是真正可下载的签名 URL（有效约 5 小时）。
+
+        Args:
+            st: 业务账号的 ``__Secure-next-auth.session-token`` (ST)。
+            media_name: ``media[0].name`` / ``primaryMediaId`` 这种 UUID。
+            thumbnail: 取缩略图（image）还是原视频；默认拿完整 media。
+        """
+        if not media_name or not st:
+            return None
+
+        url = f"{self.labs_base_url}/trpc/media.getMediaUrlRedirect"
+        params = {"name": media_name}
+        if thumbnail:
+            params["mediaUrlType"] = "MEDIA_URL_TYPE_THUMBNAIL"
+
+        proxy_url = None
+        if self.proxy_manager:
+            try:
+                proxy_url = await self.proxy_manager.get_proxy_url()
+            except Exception:
+                proxy_url = None
+
+        headers = self._build_request_headers(
+            st_token=st,
+            use_st=True,
+            fingerprint=self.get_request_fingerprint(),
+        )
+        impersonate = self._select_impersonate_for_headers(headers)
+
+        try:
+            async with AsyncSession() as session:
+                kwargs = {
+                    "headers": headers,
+                    "params": params,
+                    "proxy": proxy_url,
+                    "timeout": self.timeout,
+                    "allow_redirects": False,
+                }
+                if impersonate:
+                    kwargs["impersonate"] = impersonate
+                response = await session.get(url, **kwargs)
+        except Exception as e:
+            debug_logger.log_error(
+                f"[MEDIA URL] 调 getMediaUrlRedirect 失败 media={media_name}: {e}"
+            )
+            return None
+
+        status = getattr(response, "status_code", 0)
+        if status in (301, 302, 303, 307, 308):
+            location = response.headers.get("location") or response.headers.get("Location")
+            if location:
+                return location
+            debug_logger.log_error(
+                f"[MEDIA URL] {status} redirect 但缺 Location 头 media={media_name}"
+            )
+            return None
+
+        debug_logger.log_error(
+            f"[MEDIA URL] 期望 307 redirect 但拿到 HTTP {status} media={media_name}"
+        )
+        return None
+
     # ========== 媒体删除 (使用ST) ==========
 
     async def delete_media(self, st: str, media_names: List[str]):
