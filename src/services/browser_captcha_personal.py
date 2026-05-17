@@ -560,8 +560,13 @@ class BrowserCaptchaService:
         self._initialized = False
         self.website_key = "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV"
         self.db = db
-        # 使用 None 让 nodriver 自动创建临时目录，避免目录锁定问题
-        self.user_data_dir = None
+        # 持久化 profile：开启后 nodriver 复用固定 user-data-dir，带 Google 登录态 cookie
+        # 关闭时 user_data_dir=None → nodriver 自动用临时目录（匿名 profile，原有行为）
+        self._persistent_profile_enabled = bool(config.captcha_persistent_profile_enabled)
+        self._persistent_profile_path = (
+            config.captcha_persistent_profile_path if self._persistent_profile_enabled else None
+        )
+        self.user_data_dir = self._persistent_profile_path
 
         # 常驻模式相关属性：打码标签页是全局共享池，不再按 project_id 一对一绑定
         self._resident_tabs: dict[str, 'ResidentTabInfo'] = {}  # slot_id -> 常驻标签页信息
@@ -820,6 +825,48 @@ class BrowserCaptchaService:
 
         return value
 
+    def _validate_persistent_profile(self) -> None:
+        """启动前校验持久化 profile 状态。
+
+        - 目录不存在：尝试创建 + log 引导（用户没做过一次性 GUI 登录）
+        - SingletonLock 存在：profile 被 GUI Chrome 占用，nodriver 启动必失败，
+          抛 RuntimeError 提示用户先关闭 GUI Chrome
+        - Default/Cookies 不存在：log warning，仍允许启动（首次运行 nodriver
+          自身会初始化，但是匿名状态，等价于不开持久化）
+        - Default/Cookies 存在：log info 提示已检测到登录痕迹
+        """
+        if not self._persistent_profile_path:
+            return
+
+        profile_path = self._persistent_profile_path
+        singleton_lock = os.path.join(profile_path, "SingletonLock")
+        default_cookies = os.path.join(profile_path, "Default", "Cookies")
+
+        if os.path.exists(singleton_lock):
+            raise RuntimeError(
+                f"持久化 profile 被另一个 Chrome 进程占用 (SingletonLock={singleton_lock})。"
+                f" 通常是 GUI Chrome 没退出。请先关闭对应 GUI 窗口再重启 flow2api。"
+            )
+
+        if not os.path.isdir(profile_path):
+            debug_logger.log_warning(
+                f"[BrowserCaptcha] 持久化 profile 目录不存在 ({profile_path})，将创建空目录。"
+                f" 注意：空 profile 等同匿名访问，reCAPTCHA 评分不会改善。"
+                f" 请用 GUI: google-chrome --user-data-dir={profile_path} 登录目标账号一次。"
+            )
+            return
+
+        if os.path.exists(default_cookies):
+            debug_logger.log_info(
+                f"[BrowserCaptcha] ✅ 持久化 profile 已检测到登录痕迹 ({default_cookies})"
+            )
+        else:
+            debug_logger.log_warning(
+                f"[BrowserCaptcha] 持久化 profile 缺少 Default/Cookies ({profile_path})。"
+                f" 当前为未登录状态。请用 GUI: google-chrome --user-data-dir={profile_path}"
+                f" 登录 Google 账号一次后再启动服务。"
+            )
+
     async def _probe_browser_runtime(self) -> bool:
         """轻量探测当前 nodriver 连接是否仍可用。"""
         if not self.browser:
@@ -829,9 +876,14 @@ class BrowserCaptchaService:
             return True
 
         try:
+            connection = getattr(self.browser, "connection", None)
+            if connection is None or getattr(connection, "closed", True):
+                self._mark_browser_health(False)
+                return False
             _ = self.browser.tabs
+            from nodriver import cdp as nodriver_cdp
             await self._run_with_timeout(
-                self.browser.connection.send("Browser.getVersion"),
+                connection.send(nodriver_cdp.browser.get_version()),
                 timeout_seconds=3.0,
                 label="browser.health_probe",
             )
@@ -930,15 +982,20 @@ class BrowserCaptchaService:
 
     async def _browser_send_command(
         self,
-        method: str,
-        params: Optional[Dict[str, Any]] = None,
+        cdp_obj,
         label: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
     ):
+        """转发 CDP 命令到当前浏览器连接。
+
+        cdp_obj 必须是 `nodriver.cdp.<domain>.<method>(...)` 返回的 generator —
+        nodriver 的 connection.send 内部会 next() 这个 generator 取出 method/params，
+        传裸字符串会触发 'str' object is not an iterator。
+        """
         return await self._run_with_timeout(
-            self.browser.connection.send(method, params) if params else self.browser.connection.send(method),
+            self.browser.connection.send(cdp_obj),
             timeout_seconds or self._command_timeout_seconds,
-            label or method,
+            label or "browser.send",
         )
 
     async def _idle_tab_reaper_loop(self):
@@ -1440,7 +1497,11 @@ class BrowserCaptchaService:
 
             try:
                 if self.user_data_dir:
-                    debug_logger.log_info(f"[BrowserCaptcha] 正在启动 nodriver 浏览器 (用户数据目录: {self.user_data_dir})...")
+                    self._validate_persistent_profile()
+                    persisted_label = "持久化 profile" if self._persistent_profile_enabled else "用户数据目录"
+                    debug_logger.log_info(
+                        f"[BrowserCaptcha] 正在启动 nodriver 浏览器 ({persisted_label}: {self.user_data_dir})..."
+                    )
                     os.makedirs(self.user_data_dir, exist_ok=True)
                 else:
                     debug_logger.log_info(f"[BrowserCaptcha] 正在启动 nodriver 浏览器 (使用临时目录)...")
@@ -3094,26 +3155,23 @@ class BrowserCaptchaService:
         try:
             debug_logger.log_info("[BrowserCaptcha] 开始清理浏览器缓存...")
 
-            # 使用 Chrome DevTools Protocol 清理缓存
-            # 清理所有类型的缓存数据
+            from nodriver import cdp as nodriver_cdp
+
             await self._browser_send_command(
-                "Network.clearBrowserCache",
+                nodriver_cdp.network.clear_browser_cache(),
                 label="clear_browser_cache",
             )
 
-            # 清理 Cookies
             await self._browser_send_command(
-                "Network.clearBrowserCookies",
+                nodriver_cdp.network.clear_browser_cookies(),
                 label="clear_browser_cookies",
             )
 
-            # 清理存储数据（localStorage, sessionStorage, IndexedDB 等）
             await self._browser_send_command(
-                "Storage.clearDataForOrigin",
-                {
-                    "origin": "https://www.google.com",
-                    "storageTypes": "all"
-                },
+                nodriver_cdp.storage.clear_data_for_origin(
+                    origin="https://www.google.com",
+                    storage_types="all",
+                ),
                 label="clear_browser_origin_storage",
             )
 

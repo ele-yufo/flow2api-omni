@@ -413,6 +413,32 @@ class Config:
             return 3.0
 
     @property
+    def captcha_persistent_profile_enabled(self) -> bool:
+        """是否让 personal (nodriver) 打码使用持久化 Chrome profile。
+
+        开启后，每次启动 nodriver 都复用同一个 user-data-dir，profile 内的
+        Google 登录态 cookie 会让 reCAPTCHA Enterprise 把请求按"已登录账号"
+        评分，显著降低 PUBLIC_ERROR_UNUSUAL_ACTIVITY。
+
+        默认关闭：第一次启用前必须先用图形界面 chrome --user-data-dir=<path>
+        登录目标账号，否则 nodriver 启动后是匿名状态，等同于现有行为。
+        """
+        return bool(self._config.get("captcha", {}).get("persistent_profile_enabled", False))
+
+    @property
+    def captcha_persistent_profile_path(self) -> str:
+        """持久化 profile 的 user-data-dir 路径。
+
+        必须是 flow2api 进程有读写权限的固定目录。该目录会被 nodriver 和
+        GUI Chrome 共享（不可同时打开）。
+        """
+        return str(
+            self._config.get("captcha", {}).get(
+                "persistent_profile_path", "/opt/flow2api-profiles/ultra"
+            )
+        ).strip()
+
+    @property
     def browser_idle_ttl_seconds(self) -> int:
         value = self._config.get("captcha", {}).get("browser_idle_ttl_seconds", 600)
         try:
