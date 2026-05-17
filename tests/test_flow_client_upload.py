@@ -228,6 +228,69 @@ class BrowserCaptchaPersonalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await service._pop_legacy_submit_tab("project-1"))
 
 
+class PersistentProfileTests(unittest.TestCase):
+    """验证 captcha 持久化 profile 配置生效路径。
+
+    持久化 profile 把 nodriver 的 user-data-dir 固定到一个目录，让 Google
+    登录态 cookie 跨重启保留 — 这是降低 PUBLIC_ERROR_UNUSUAL_ACTIVITY 拒绝
+    率的关键路径。
+    """
+
+    def setUp(self):
+        self._original_captcha = dict(config._config.get("captcha", {}))
+
+    def tearDown(self):
+        config._config["captcha"] = self._original_captcha
+
+    def _new_service(self):
+        from src.services.browser_captcha_personal import BrowserCaptchaService
+        return BrowserCaptchaService(db=None)
+
+    def test_disabled_falls_back_to_temp_dir(self):
+        """未启用时 user_data_dir=None，nodriver 自动用临时目录（原有行为）。"""
+        config._config.setdefault("captcha", {})["persistent_profile_enabled"] = False
+        service = self._new_service()
+        self.assertIsNone(service.user_data_dir)
+        self.assertFalse(service._persistent_profile_enabled)
+
+    def test_enabled_uses_configured_path(self):
+        config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
+        config._config["captcha"]["persistent_profile_path"] = "/tmp/flow2api-test-profile"
+        service = self._new_service()
+        self.assertEqual(service.user_data_dir, "/tmp/flow2api-test-profile")
+        self.assertTrue(service._persistent_profile_enabled)
+
+    def test_singleton_lock_present_raises(self):
+        """profile 被 GUI Chrome 占用时启动应直接失败，而不是 nodriver 神秘 hang。"""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="flow2api-profile-test-") as tmp:
+            singleton = os.path.join(tmp, "SingletonLock")
+            with open(singleton, "w") as f:
+                f.write("dummy")
+            config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
+            config._config["captcha"]["persistent_profile_path"] = tmp
+            service = self._new_service()
+            with self.assertRaisesRegex(RuntimeError, "SingletonLock"):
+                service._validate_persistent_profile()
+
+    def test_missing_cookies_does_not_raise(self):
+        """空 profile 不应抛错，只 warning — 让 nodriver 自己初始化（等同匿名）。"""
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="flow2api-profile-test-") as tmp:
+            config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
+            config._config["captcha"]["persistent_profile_path"] = tmp
+            service = self._new_service()
+            service._validate_persistent_profile()  # 不抛即通过
+
+    def test_nonexistent_path_does_not_raise(self):
+        """目录不存在时只 warning 引导用户去 GUI 登录，不阻塞启动。"""
+        config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
+        config._config["captcha"]["persistent_profile_path"] = "/tmp/flow2api-not-exist-12345"
+        service = self._new_service()
+        service._validate_persistent_profile()
+
+
 class DebugLoggerSanitizationTests(unittest.TestCase):
     def test_sanitizes_tokens_cookies_and_large_payloads(self):
         sanitized = debug_logger._sanitize_for_log(
