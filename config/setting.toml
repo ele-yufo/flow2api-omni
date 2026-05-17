@@ -68,7 +68,7 @@ personal_project_pool_size = 4  # personal 模式下单个 Token 默认维护的
 #   # 在弹出的 Chrome 里登录 Google 账号 → 访问 labs.google/fx/tools/flow → 关闭
 #   sudo systemctl start flow2api
 # 换账号同流程：停服 → GUI 登出旧账号登入新账号 → 启服。
-persistent_profile_enabled = false
+persistent_profile_enabled = true
 persistent_profile_path = "/opt/flow2api-profiles/ultra"
 
 # 内置浏览器打码 (personal) 配置
