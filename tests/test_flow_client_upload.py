@@ -291,6 +291,68 @@ class PersistentProfileTests(unittest.TestCase):
         service._validate_persistent_profile()
 
 
+class GeminiOmniModelRegistryTests(unittest.TestCase):
+    """验证 Gemini Omni Flash (abra) 模型注册项的字段一致性。
+
+    上游 model key 形如 abra_{t2v|r2v}_{4|6|8|10}s；32 个 OpenAI 命名变体覆盖
+    T2V/R2V × landscape/portrait × 4 时长 × {原版, 1080p 上采样}。
+    """
+
+    def setUp(self):
+        from src.services.generation_handler import MODEL_CONFIG
+        self.cfg = MODEL_CONFIG
+
+    def test_thirty_two_omni_entries_registered(self):
+        omni = [k for k in self.cfg if k.startswith("gemini_omni_")]
+        self.assertEqual(len(omni), 32, f"expected 32 entries, found {len(omni)}: {omni}")
+
+    def test_t2v_entries_have_no_image_support(self):
+        for name, cfg in self.cfg.items():
+            if not name.startswith("gemini_omni_t2v_"):
+                continue
+            self.assertEqual(cfg["video_type"], "t2v", name)
+            self.assertFalse(cfg["supports_images"], name)
+            self.assertTrue(cfg.get("use_v2_model_config"), name)
+
+    def test_r2v_entries_carry_image_constraints(self):
+        for name, cfg in self.cfg.items():
+            if not name.startswith("gemini_omni_r2v_"):
+                continue
+            self.assertEqual(cfg["video_type"], "r2v", name)
+            self.assertTrue(cfg["supports_images"], name)
+            self.assertEqual(cfg["min_images"], 0, name)
+            self.assertEqual(cfg["max_images"], 3, name)
+            self.assertTrue(cfg.get("use_v2_model_config"), name)
+
+    def test_model_key_matches_duration_suffix(self):
+        """gemini_omni_t2v_6s 必须映射到上游 abra_t2v_6s（时长后缀准确）。"""
+        for duration in ("4s", "6s", "8s", "10s"):
+            for kind in ("t2v", "r2v"):
+                upstream = f"abra_{kind}_{duration}"
+                for tail in ("", "_1080p"):
+                    for orientation, aspect in (
+                        ("", "VIDEO_ASPECT_RATIO_LANDSCAPE"),
+                        ("_portrait", "VIDEO_ASPECT_RATIO_PORTRAIT"),
+                    ):
+                        name = f"gemini_omni_{kind}{orientation}_{duration}{tail}"
+                        cfg = self.cfg.get(name)
+                        self.assertIsNotNone(cfg, f"missing entry: {name}")
+                        self.assertEqual(cfg["model_key"], upstream, name)
+                        self.assertEqual(cfg["aspect_ratio"], aspect, name)
+
+    def test_1080p_variants_use_existing_veo_upsampler(self):
+        """1080p 变体上采样必须复用现有的 veo_3_1_upsampler_1080p（HAR 抓包验证）。"""
+        for name, cfg in self.cfg.items():
+            if not name.startswith("gemini_omni_"):
+                continue
+            if not name.endswith("_1080p"):
+                self.assertNotIn("upsample", cfg, f"{name} should not have upsample")
+                continue
+            up = cfg["upsample"]
+            self.assertEqual(up["resolution"], "VIDEO_RESOLUTION_1080P", name)
+            self.assertEqual(up["model_key"], "veo_3_1_upsampler_1080p", name)
+
+
 class DebugLoggerSanitizationTests(unittest.TestCase):
     def test_sanitizes_tokens_cookies_and_large_payloads(self):
         sanitized = debug_logger._sanitize_for_log(
