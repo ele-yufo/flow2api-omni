@@ -741,6 +741,332 @@ MODEL_CONFIG = {
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
 
+    # ========== Gemini Omni Flash (abra) ==========
+    # 上游模型代号 abra_t2v_{4|6|8|10}s / abra_r2v_{4|6|8|10}s
+    # 时长 4 个档位由 model_key 后缀控制；portrait/landscape 共用同一个 model_key，
+    # 仅 aspect_ratio 不同（假设需上线测试验证，若 portrait 上游名不同需修正）。
+    # 1080P 上采样复用 Veo 3.1 的 veo_3_1_upsampler_1080p；4K 抓包未覆盖，先不集成。
+
+    # --- T2V landscape 原版（4 个时长） ---
+    "gemini_omni_t2v_4s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_6s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_8s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_10s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+
+    # --- T2V portrait 原版（4 个时长） ---
+    "gemini_omni_t2v_portrait_4s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_portrait_6s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_portrait_8s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_t2v_portrait_10s": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True
+    },
+
+    # --- T2V landscape 1080P 上采样（4 个时长） ---
+    "gemini_omni_t2v_4s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_6s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_8s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_10s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # --- T2V portrait 1080P 上采样（4 个时长） ---
+    "gemini_omni_t2v_portrait_4s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_portrait_6s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_portrait_8s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_t2v_portrait_10s_1080p": {
+        "type": "video",
+        "video_type": "t2v",
+        "model_key": "abra_t2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # --- R2V landscape 原版（4 个时长） ---
+    "gemini_omni_r2v_4s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_6s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_8s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_10s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+
+    # --- R2V portrait 原版（4 个时长） ---
+    "gemini_omni_r2v_portrait_4s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_portrait_6s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_portrait_8s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+    "gemini_omni_r2v_portrait_10s": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True
+    },
+
+    # --- R2V landscape 1080P 上采样（4 个时长） ---
+    "gemini_omni_r2v_4s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_6s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_8s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_10s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
+    # --- R2V portrait 1080P 上采样（4 个时长） ---
+    "gemini_omni_r2v_portrait_4s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_4s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_portrait_6s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_6s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_portrait_8s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_8s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+    "gemini_omni_r2v_portrait_10s_1080p": {
+        "type": "video",
+        "video_type": "r2v",
+        "model_key": "abra_r2v_10s",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
+        "supports_images": True,
+        "min_images": 0,
+        "max_images": 3,
+        "use_v2_model_config": True,
+        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
+    },
+
     # ========== 视频延长 (Video Extend 15s) ==========
 
     # T2V 延长版
