@@ -754,7 +754,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_4s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_6s": {
         "type": "video",
@@ -762,7 +763,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_6s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_8s": {
         "type": "video",
@@ -770,7 +772,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_8s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_10s": {
         "type": "video",
@@ -778,7 +781,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_10s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
 
     # --- T2V portrait 原版（4 个时长） ---
@@ -788,7 +792,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_4s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_portrait_6s": {
         "type": "video",
@@ -796,7 +801,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_6s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_portrait_8s": {
         "type": "video",
@@ -804,7 +810,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_8s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_t2v_portrait_10s": {
         "type": "video",
@@ -812,7 +819,8 @@ MODEL_CONFIG = {
         "model_key": "abra_t2v_10s",
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
 
     # --- T2V landscape 1080P 上采样（4 个时长） ---
@@ -823,6 +831,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_6s_1080p": {
@@ -832,6 +841,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_8s_1080p": {
@@ -841,6 +851,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_10s_1080p": {
@@ -850,6 +861,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
 
@@ -861,6 +873,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_portrait_6s_1080p": {
@@ -870,6 +883,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_portrait_8s_1080p": {
@@ -879,6 +893,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_t2v_portrait_10s_1080p": {
@@ -888,6 +903,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": False,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
 
@@ -900,7 +916,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_6s": {
         "type": "video",
@@ -910,7 +927,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_8s": {
         "type": "video",
@@ -920,7 +938,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_10s": {
         "type": "video",
@@ -930,7 +949,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
 
     # --- R2V portrait 原版（4 个时长） ---
@@ -942,7 +962,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_portrait_6s": {
         "type": "video",
@@ -952,7 +973,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_portrait_8s": {
         "type": "video",
@@ -962,7 +984,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
     "gemini_omni_r2v_portrait_10s": {
         "type": "video",
@@ -972,7 +995,8 @@ MODEL_CONFIG = {
         "supports_images": True,
         "min_images": 0,
         "max_images": 3,
-        "use_v2_model_config": True
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False
     },
 
     # --- R2V landscape 1080P 上采样（4 个时长） ---
@@ -985,6 +1009,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_6s_1080p": {
@@ -996,6 +1021,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_8s_1080p": {
@@ -1007,6 +1033,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_10s_1080p": {
@@ -1018,6 +1045,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
 
@@ -1031,6 +1059,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_portrait_6s_1080p": {
@@ -1042,6 +1071,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_portrait_8s_1080p": {
@@ -1053,6 +1083,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
     "gemini_omni_r2v_portrait_10s_1080p": {
@@ -1064,6 +1095,7 @@ MODEL_CONFIG = {
         "min_images": 0,
         "max_images": 3,
         "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
     },
 

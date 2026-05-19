@@ -314,6 +314,17 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
             self.assertFalse(cfg["supports_images"], name)
             self.assertTrue(cfg.get("use_v2_model_config"), name)
 
+    def test_omni_disables_tier_upgrade(self):
+        """abra 系列没有 _ultra 变体，TIER_TWO 自动升级会变成不存在的 model_key
+        (e.g. abra_t2v_4s_ultra)，上游返回 HTTP 500。必须 allow_tier_upgrade=False。"""
+        for name, cfg in self.cfg.items():
+            if not name.startswith("gemini_omni_"):
+                continue
+            self.assertFalse(
+                cfg.get("allow_tier_upgrade", True),
+                f"{name} must set allow_tier_upgrade=False to prevent _ultra suffix injection",
+            )
+
     def test_r2v_entries_carry_image_constraints(self):
         for name, cfg in self.cfg.items():
             if not name.startswith("gemini_omni_r2v_"):
