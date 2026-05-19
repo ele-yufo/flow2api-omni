@@ -18,6 +18,8 @@
 - **首尾帧视频**
 - **视频放大** (1080P / 4K)
 - **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
+- **Gemini Omni Flash (abra)** — 新一代视频模型，T2V/R2V × 4 个时长档位（4/6/8/10s）× 横竖屏 × 原版/1080P 上采样，共 32 个变体
+- **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
 - **AT/ST自动刷新** - AT 过期自动刷新，ST 过期时自动通过浏览器更新（personal 模式）
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制
@@ -124,6 +126,58 @@ python main.py
 - 输入提示词一键测试，流式显示生成进度
 - 图生图 / 图生视频场景支持上传图片
 - 生成完成后直接预览图片或视频
+
+## 配置进阶
+
+### 持久化登录态打码（推荐 `personal` 模式启用）
+
+匿名态向 Google reCAPTCHA Enterprise 提交时拒绝率较高（频繁触发 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`）。开启后，nodriver 浏览器复用固定的 `user-data-dir`，里面保留用户一次性手动登录的 Google 账号 cookie，reCAPTCHA 按"已登录账号"评分，token 长度从 ~2200 跳到 ~2300+，拒绝率显著下降。
+
+#### 配置项（`config/setting.toml`）
+
+```toml
+[captcha]
+captcha_method = "personal"
+persistent_profile_enabled = true
+persistent_profile_path = "/opt/flow2api-profiles/ultra"
+```
+
+#### 一次性登录步骤
+
+```bash
+# 1) 停服释放 profile
+sudo systemctl stop flow2api
+
+# 2) 用 GUI Chrome 打开同一个 profile 路径登录
+google-chrome --user-data-dir=/opt/flow2api-profiles/ultra
+# 在打开的 Chrome 里：登录 Google 账号 → 访问 https://labs.google/fx/tools/flow 确认能进 → 关闭
+
+# 3) 启服，nodriver 自动复用此 profile
+sudo systemctl start flow2api
+```
+
+启动日志看到下面这行即为生效：
+
+```
+[BrowserCaptcha] ✅ 持久化 profile 已检测到登录痕迹 (.../Default/Cookies)
+```
+
+#### 更换账号
+
+同上流程：停服 → GUI Chrome 登出旧账号登入新账号 → 启服。
+
+> ⚠️ GUI Chrome 没退出就启服会触发 `SingletonLock` 硬错误，启动日志里有清晰报错。
+
+#### 工作机制（健康度判定）
+
+`personal` 打码完成后，reCAPTCHA token 长度是登录态生效与否的物理信号：
+
+| 状态 | Token 长度 |
+|---|---|
+| 匿名 / 未登录 | ≤ 2240 |
+| 持久化登录态生效 | ≥ 2295（实测分布 2297-2425） |
+
+在 logs.txt 里搜 `Token 获取成功 (长度: NNNN)` 即可判断。如果开启了持久化但长度仍 ≤ 2240，说明 cookie 没生效或 profile 缺关键 token（SID/HSID/SAPISID/__Secure-1PSID 等），需要重新 GUI 登录。
 
 ## 支持的模型
 
@@ -338,6 +392,41 @@ python main.py
 | `veo_3_1_r2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
 | `veo_3_1_r2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
 
+### Gemini Omni Flash (T2V / R2V)
+
+Google Flow 的新一代视频模型，上游代号 `abra`。每个时长档位是独立模型（4/6/8/10s 各一），与 Veo 系列固定时长不同。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。1080P 上采样链路复用 Veo 3.1 的 upsampler。4K 上采样暂未集成。
+
+调用方式与现有模型完全一致 —— OpenAI `chat.completions` 输入或 Gemini 官方格式。
+
+#### 文生视频 (T2V)
+
+| 模型名称 | 时长 | 尺寸 |
+|---------|------|------|
+| `gemini_omni_t2v_4s` / `gemini_omni_t2v_portrait_4s` | 4s | 横/竖屏 |
+| `gemini_omni_t2v_6s` / `gemini_omni_t2v_portrait_6s` | 6s | 横/竖屏 |
+| `gemini_omni_t2v_8s` / `gemini_omni_t2v_portrait_8s` | 8s | 横/竖屏 |
+| `gemini_omni_t2v_10s` / `gemini_omni_t2v_portrait_10s` | 10s | 横/竖屏 |
+
+#### 多图视频 (R2V，最多 3 张参考图)
+
+| 模型名称 | 时长 | 尺寸 |
+|---------|------|------|
+| `gemini_omni_r2v_4s` / `gemini_omni_r2v_portrait_4s` | 4s | 横/竖屏 |
+| `gemini_omni_r2v_6s` / `gemini_omni_r2v_portrait_6s` | 6s | 横/竖屏 |
+| `gemini_omni_r2v_8s` / `gemini_omni_r2v_portrait_8s` | 8s | 横/竖屏 |
+| `gemini_omni_r2v_10s` / `gemini_omni_r2v_portrait_10s` | 10s | 横/竖屏 |
+
+#### 1080P 上采样版（在上面任一基础名后加 `_1080p`）
+
+| 模型名称 | 输出 | 尺寸 |
+|---------|------|------|
+| `gemini_omni_t2v_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 横屏 |
+| `gemini_omni_t2v_portrait_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 竖屏 |
+| `gemini_omni_r2v_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 横屏 |
+| `gemini_omni_r2v_portrait_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 竖屏 |
+
+> 实测耗时（持久化登录态 + 住宅 IP 代理）：T2V 4s ≈ 45s、T2V 10s ≈ 50s、R2V 4s ≈ 60s、T2V 4s + 1080P 上采样 ≈ 80s。
+
 ## API 使用示例（需要使用流式）
 
 > 除了下方 `OpenAI-compatible` 示例，服务也支持 Gemini 官方格式：
@@ -511,6 +600,37 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
         ]
       }
     ],
+    "stream": true
+  }'
+```
+
+### Gemini Omni Flash
+
+模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V 与 1080P 上采样同步支持。
+
+```bash
+# T2V 10 秒，横屏
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Authorization: Bearer han1234" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_t2v_10s",
+    "messages": [
+      {
+        "role": "user",
+        "content": "一只小猫在草地上追逐蝴蝶，柔和阳光"
+      }
+    ],
+    "stream": true
+  }'
+
+# T2V 4 秒 + 1080P 上采样
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Authorization: Bearer han1234" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_t2v_4s_1080p",
+    "messages": [{"role":"user","content":"a glowing jellyfish in deep ocean"}],
     "stream": true
   }'
 ```
