@@ -915,7 +915,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -926,7 +926,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -937,7 +937,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -948,7 +948,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -961,7 +961,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -972,7 +972,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -983,7 +983,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -994,7 +994,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False
     },
@@ -1007,7 +1007,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1019,7 +1019,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1031,7 +1031,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1043,7 +1043,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1057,7 +1057,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1069,7 +1069,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1081,7 +1081,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
@@ -1093,7 +1093,7 @@ MODEL_CONFIG = {
         "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
         "supports_images": True,
         "min_images": 0,
-        "max_images": 3,
+        "max_images": 7,
         "use_v2_model_config": True,
         "allow_tier_upgrade": False,
         "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
