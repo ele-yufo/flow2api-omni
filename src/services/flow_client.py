@@ -345,7 +345,8 @@ class FlowClient:
         at_token: Optional[str] = None,
         timeout: Optional[int] = None,
         use_media_proxy: bool = False,
-        respect_fingerprint_proxy: bool = True
+        respect_fingerprint_proxy: bool = True,
+        force_urllib: bool = False,
     ) -> Dict[str, Any]:
         """统一HTTP请求处理
 
@@ -411,6 +412,21 @@ class FlowClient:
         start_time = time.time()
 
         try:
+            # 大 body 上传场景（如 uploadImage）跳过 curl_cffi，直接 urllib。
+            # curl_cffi 的 Chrome impersonate 在 ~500KB+ base64 body 上有
+            # HTTP/2 framing hang ~2min 的 bug；这条路径不需要 reCAPTCHA token，
+            # 不依赖 chrome 指纹，走 urllib 干净利落。
+            if force_urllib:
+                return await asyncio.to_thread(
+                    self._sync_json_request_via_urllib,
+                    method.upper(),
+                    url,
+                    headers,
+                    json_data,
+                    proxy_url,
+                    request_timeout,
+                )
+
             if self._should_submit_via_captcha_browser(method, url, json_data):
                 try:
                     return await self._make_request_via_captcha_browser(
@@ -1030,7 +1046,8 @@ class FlowClient:
                     json_data=new_json_data,
                     use_at=True,
                     at_token=at,
-                    use_media_proxy=True
+                    use_media_proxy=True,
+                    force_urllib=True,
                 )
                 media_id = (
                     new_result.get("media", {}).get("name")
@@ -1069,7 +1086,8 @@ class FlowClient:
                     json_data=legacy_json_data,
                     use_at=True,
                     at_token=at,
-                    use_media_proxy=True
+                    use_media_proxy=True,
+                    force_urllib=True,
                 )
 
                 media_id = (
