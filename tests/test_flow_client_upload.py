@@ -326,13 +326,14 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
             )
 
     def test_r2v_entries_carry_image_constraints(self):
+        """abra R2V 上游官网最多接受 7 张 reference；3 张已实测通过。"""
         for name, cfg in self.cfg.items():
             if not name.startswith("gemini_omni_r2v_"):
                 continue
             self.assertEqual(cfg["video_type"], "r2v", name)
             self.assertTrue(cfg["supports_images"], name)
             self.assertEqual(cfg["min_images"], 0, name)
-            self.assertEqual(cfg["max_images"], 3, name)
+            self.assertEqual(cfg["max_images"], 7, name)
             self.assertTrue(cfg.get("use_v2_model_config"), name)
 
     def test_model_key_matches_duration_suffix(self):
