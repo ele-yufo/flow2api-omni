@@ -577,7 +577,11 @@ class BrowserCaptchaService:
         self._browser_lock = asyncio.Lock()  # 保护浏览器初始化/关闭/重启，避免重复拉起实例
         self._runtime_recover_lock = asyncio.Lock()  # 串行化浏览器级恢复，避免并发重启风暴
         self._tab_build_lock = asyncio.Lock()  # 串行化冷启动/重建，降低 nodriver 抖动
-        self._legacy_lock = asyncio.Lock()  # 避免 legacy fallback 并发失控创建临时标签页
+        # 用信号量限流（最多 2 并发）代替全程互斥锁。
+        # 原因：legacy fallback 单次最长 ~82s（页面加载 + reCAPTCHA + solve），全程持 Lock
+        # 会导致 N 个 fallback 请求串行排队，等价于全局停服。Semaphore(2) 既阻止"无限新标签页"
+        # 又允许有限并发，N=3+ 的并发请求最多多等 1 个 slot 而非 N-1 个 slot。
+        self._legacy_semaphore = asyncio.Semaphore(2)
         self._legacy_submit_tabs: Dict[str, Any] = {}  # project_id -> 最近一次 legacy 成功打码页，供同页提交
         self._legacy_submit_lock = asyncio.Lock()
         self._max_resident_tabs = 5  # 最大常驻标签页数量（支持并发）
@@ -747,7 +751,11 @@ class BrowserCaptchaService:
     def _mark_runtime_restart(self):
         self._last_runtime_restart_at = time.time()
 
-    def _was_runtime_restarted_recently(self, window_seconds: float = 5.0) -> bool:
+    def _was_runtime_restarted_recently(self, window_seconds: float = 60.0) -> bool:
+        # 默认窗口从 5s 改为 60s：单次 _restart_browser_for_project 实际耗时
+        # 10~30s（shutdown + initialize + warmup_resident_tabs），5s 窗口意味着
+        # 第一次重启完成前，并发等待的协程认为"没刚重启过"→ 串行又触发完整重启。
+        # 60s 覆盖一轮重启 + 缓冲，并发协程能短路重用已恢复的浏览器。
         if self._last_runtime_restart_at <= 0.0:
             return False
         return (time.time() - self._last_runtime_restart_at) <= max(0.0, window_seconds)
@@ -1943,7 +1951,10 @@ class BrowserCaptchaService:
                 if resident_info.recaptcha_ready:
                     resident_info.last_used_at = time.time()
                     self._remember_project_affinity(project_id, slot_id, resident_info)
-                    self._resident_error_streaks.pop(slot_id, None)
+                    # 不清零 streak：reload 只代表页面恢复，不代表 token 恢复。
+                    # 真正的清零信号是 _solve_with_resident_tab 拿到 token (line ~2579)。
+                    # 否则连续 reload 永远到不了 restart_threshold，每次 403 都做 30s+ reload
+                    # 而不是切浏览器换指纹（参见 review 报告 T1-4）。
                     debug_logger.log_warning(f"[BrowserCaptcha] project_id={project_id}, slot={slot_id} 清理后已恢复 reCAPTCHA")
                     return True
 
@@ -2043,10 +2054,28 @@ class BrowserCaptchaService:
         if not self._initialized or not self.browser:
             return
 
-        # 403 错误：先清理缓存再重建
+        # 403 / reCAPTCHA：分级升级（reload → recreate → restart）。
+        # 之前直接 reload 不看 streak，永远做昂贵的 30s+ reload；现在按 streak 升级
+        # 到换指纹的浏览器重启，能跳出连续被 Google 拉黑的窗口。
         if "403" in error_text or "forbidden" in error_lower or "recaptcha" in error_lower:
+            recreate_threshold = max(2, int(getattr(config, "browser_personal_recreate_threshold", 2) or 2))
+            restart_threshold = max(3, int(getattr(config, "browser_personal_restart_threshold", 3) or 3))
+
+            if streak >= restart_threshold:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] project_id={project_id} 403/reCAPTCHA 连续 {streak} 次，重启浏览器换指纹"
+                )
+                await self._restart_browser_for_project(project_id)
+                return
+            if streak >= recreate_threshold:
+                debug_logger.log_warning(
+                    f"[BrowserCaptcha] project_id={project_id} 403/reCAPTCHA 连续 {streak} 次，重建标签页"
+                )
+                await self._recreate_resident_tab(project_id)
+                return
+
             debug_logger.log_warning(
-                f"[BrowserCaptcha] project_id={project_id} 检测到 403/reCAPTCHA 错误，清理缓存并重建"
+                f"[BrowserCaptcha] project_id={project_id} 检测到 403/reCAPTCHA 错误，清理缓存并重载 (streak={streak})"
             )
             healed = await self._clear_resident_storage_and_reload(project_id)
             if not healed:
@@ -2906,7 +2935,7 @@ class BrowserCaptchaService:
             reCAPTCHA token字符串，如果获取失败返回None
         """
         max_attempts = 2
-        async with self._legacy_lock:
+        async with self._legacy_semaphore:
             for attempt in range(max_attempts):
                 if not self._initialized or not self.browser:
                     await self.initialize()
