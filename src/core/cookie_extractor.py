@@ -41,7 +41,11 @@ def _from_netscape(text: str) -> Optional[str]:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
+        # Netscape 标准是 TAB 分隔，但很多粘贴/复制会把 TAB 变成空格。
+        # 先按 TAB 切；不足 7 段则按任意空白再切（cookie 各字段本身不含空格，安全）。
         parts = line.split("\t")
+        if len(parts) < 7:
+            parts = line.split()
         if len(parts) >= 7 and parts[5].strip() == SESSION_TOKEN_KEY:
             found = parts[6].strip()  # 命中多条时保留最后一条（最新）
     return found

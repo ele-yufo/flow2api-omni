@@ -17,6 +17,14 @@ class CookieExtractorTests(unittest.TestCase):
         )
         self.assertEqual(extract_session_token(raw), VALID)
 
+    def test_netscape_space_separated(self):
+        # 有些粘贴会把 TAB 变成空格；必须照样能解析
+        raw = (
+            "# Netscape HTTP Cookie File\n"
+            f"labs.google    FALSE    /    TRUE    1784225752    {KEY}    {VALID}\n"
+        )
+        self.assertEqual(extract_session_token(raw), VALID)
+
     def test_cookie_header(self):
         raw = f"_ga=GA1.1.x; {KEY}={VALID}; email=ruby%40gmail.com"
         self.assertEqual(extract_session_token(raw), VALID)
