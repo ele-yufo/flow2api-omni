@@ -24,6 +24,20 @@ try:
 except ImportError:
     httpx = None
 
+
+def _validate_browser_proxy_url(proxy_url: str) -> tuple[bool, Optional[str]]:
+    """校验浏览器代理 URL 格式（独立实现，避免依赖已废弃的 browser_captcha 模块）。
+    支持 http/https/socks5/socks5h，可选 user:pass@ 形式。"""
+    if not proxy_url:
+        return True, None
+    candidate = proxy_url.strip()
+    if not re.match(r'^(http|https|socks5h?|socks5)://', candidate):
+        candidate = f"http://{candidate}"
+    pattern = r'^(socks5h?|socks5|http|https)://(?:[^:]+:[^@]+@)?[^:]+:\d+$'
+    if not re.match(pattern, candidate):
+        return False, "代理格式错误"
+    return True, None
+
 router = APIRouter()
 
 # Dependency injection
@@ -1515,8 +1529,6 @@ async def update_captcha_config(
     token: str = Depends(verify_admin_token)
 ):
     """Update captcha configuration"""
-    from ..services.browser_captcha import validate_browser_proxy_url
-
     captcha_method = request.get("captcha_method")
     yescaptcha_api_key = request.get("yescaptcha_api_key")
     yescaptcha_base_url = request.get("yescaptcha_base_url")
@@ -1538,7 +1550,7 @@ async def update_captcha_config(
 
     # 验证浏览器代理URL格式
     if browser_proxy_enabled and browser_proxy_url:
-        is_valid, error_msg = validate_browser_proxy_url(browser_proxy_url)
+        is_valid, error_msg = _validate_browser_proxy_url(browser_proxy_url)
         if not is_valid:
             return {"success": False, "message": error_msg}
 
@@ -1586,14 +1598,8 @@ async def update_captcha_config(
     # 🔥 Hot reload: sync database config to memory
     await db.reload_config_to_memory()
 
-    # 如果使用 browser 打码，热重载浏览器数量配置
-    if captcha_method == "browser":
-        try:
-            from ..services.browser_captcha import BrowserCaptchaService
-            service = await BrowserCaptchaService.get_instance(db)
-            await service.reload_browser_count()
-        except Exception:
-            pass
+    # browser (playwright) 模式已废弃且 captcha_method=="browser" 在 line 1556 已被拒，
+    # 故无需再处理 browser 热重载分支。
 
     # 如果使用 personal 打码，热重载配置
     if captcha_method == "personal":

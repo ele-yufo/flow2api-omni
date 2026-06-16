@@ -99,11 +99,7 @@ async def lifespan(app: FastAPI):
             # 没有任何可用 token 时，打开登录窗口供用户手动操作
             await browser_service.open_login_window()
             print("⚠ No active token found, opened login window for manual setup")
-    elif captcha_config.captcha_method == "browser":
-        from .services.browser_captcha import BrowserCaptchaService
-        browser_service = await BrowserCaptchaService.get_instance(db)
-        await browser_service.warmup_browser_slots()
-        print("? Browser captcha service initialized (headed mode)")
+    # browser (playwright) 模式已废弃，上方 line 54 已强制改写为 personal，此 elif 不可达。
 
     # Initialize concurrency manager
     await concurrency_manager.initialize(tokens)
