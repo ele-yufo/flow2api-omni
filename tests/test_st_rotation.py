@@ -49,3 +49,16 @@ class StToAtRotationTests(unittest.IsolatedAsyncioTestCase):
         result = await client.st_to_at("old-st-value")
         self.assertEqual(result["access_token"], "AT")
         self.assertEqual(result["rotated_st"], LONG_ST)
+
+    async def test_st_to_at_no_rotated_st_when_same(self):
+        client = FlowClient(proxy_manager=None)
+
+        async def fake_make_request(**kwargs):
+            cap = kwargs.get("capture_set_cookie")
+            if cap is not None:
+                cap.append(f"__Secure-next-auth.session-token={LONG_ST}; Path=/")
+            return {"access_token": "AT", "expires": "2026-07-16T00:00:00.000Z", "user": {}}
+
+        client._make_request = AsyncMock(side_effect=fake_make_request)
+        result = await client.st_to_at(LONG_ST)  # 入参 ST 与回发 ST 相同 → 不附 rotated_st
+        self.assertNotIn("rotated_st", result)
