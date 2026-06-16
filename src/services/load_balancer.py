@@ -25,6 +25,7 @@ class LoadBalancer:
         self._pending_lock = asyncio.Lock()
         self._round_robin_state: Dict[str, Optional[int]] = {"image": None, "video": None, "default": None}
         self._rr_lock = asyncio.Lock()
+        self.min_credits_to_select = config.min_credits_to_select
 
     async def _get_pending_count(self, token_id: int, for_image_generation: bool, for_video_generation: bool) -> int:
         async with self._pending_lock:
@@ -165,6 +166,9 @@ class LoadBalancer:
             normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
             if model and not supports_model_for_tier(model, normalized_tier):
                 filtered_reasons[token.id] = '账号等级不足，需要 ' + get_paygate_tier_label(required_tier)
+                continue
+            if token.credits is not None and token.credits <= self.min_credits_to_select:
+                filtered_reasons[token.id] = f"额度不足 (credits={token.credits})"
                 continue
             if for_image_generation:
                 if not token.image_enabled:
