@@ -389,5 +389,117 @@ class DebugLoggerSanitizationTests(unittest.TestCase):
         self.assertIn("truncated", sanitized["imageBytes"])
 
 
+class FlowClientRetryClassificationTests(unittest.TestCase):
+    """钉住可重试错误识别 — 防止 urllib 措辞回归被漏识别。"""
+
+    def setUp(self):
+        self.client = FlowClient(proxy_manager=None)
+
+    def test_curl_cffi_network_errors_are_retryable(self):
+        for msg in [
+            "Failed to perform, curl: (16) ",  # HTTP/2 framing — 2026-06-03 生产首次命中
+            "Failed to perform, curl: (16) Error in the HTTP2 framing layer",
+            "Failed to perform, curl: (35) BoringSSL SSL_connect: SSL_ERROR_SYSCALL in connection to aisandbox-pa.googleapis.com:443",
+            "Failed to perform, curl: (52) Empty reply from server",
+            "Failed to perform, curl: (56) Recv failure: Connection reset by peer",
+            "Remote host closed connection",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertTrue(self.client._is_retryable_network_error(msg))
+
+    def test_curl_16_should_fallback_to_urllib(self):
+        # 同时应该触发 fallback 到 urllib（curl_cffi HTTP/2 框架 bug 是它的特产）
+        self.assertTrue(self.client._should_fallback_to_urllib(
+            "Failed to perform, curl: (16) ..."
+        ))
+
+    def test_urllib_network_errors_are_retryable(self):
+        # force_urllib 路径上 http.client / urllib3 抛的真实异常 message
+        for msg in [
+            "Remote end closed connection without response",
+            "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1028)>",
+            "IncompleteRead(0 bytes read, 1024 more expected)",
+            "BadStatusLine: ''",
+            "ChunkedEncodingError: Connection broken",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertTrue(self.client._is_retryable_network_error(msg))
+
+    def test_non_network_errors_are_not_retryable(self):
+        for msg in [
+            "HTTP Error 400: invalid argument",
+            "PUBLIC_ERROR_UNSAFE_GENERATION",
+            "Invalid JSON response",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertFalse(self.client._is_retryable_network_error(msg))
+
+    def test_5xx_upstream_errors_get_retry_reason(self):
+        # 同昨天的 keyword 漏洞：之前 502/503/504 不会被分类为可重试，导致瞬断直接失败
+        for msg in [
+            "HTTP Error 502: Bad Gateway",
+            "HTTP Error 503: Service Unavailable",
+            "HTTP Error 504: Gateway Timeout",
+            "Flow API request failed: HTTP Error 502: <html>...</html>",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertIsNotNone(self.client._get_retry_reason(msg))
+
+
+class ContentPolicyClassificationTests(unittest.TestCase):
+    """钉住「内容策略 / 风控拒绝」不计入 token 错误计数 (T1-1)。
+
+    背景：用户只有 1 个 Ultra 账号，绝不能因 prompt 被 Google 拒绝
+    而被本项目的自动禁用机制误禁。
+    """
+
+    def test_unsafe_generation_is_content_policy(self):
+        from src.services.generation_handler import _is_content_policy_error
+        for msg in [
+            "视频生成失败: PUBLIC_ERROR_UNSAFE_GENERATION，请重试",
+            "PUBLIC_ERROR_UNSAFE_GENERATION",
+            "Generation rejected: UNSAFE_GENERATION output filtered",
+            "FINISH_REASON_OUTPUT_DANGEROUS",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertTrue(_is_content_policy_error(msg))
+
+    def test_unusual_activity_is_content_policy(self):
+        from src.services.generation_handler import _is_content_policy_error
+        # 账号风控（Google 端怀疑异常活动），不是本端 token 故障
+        for msg in [
+            "Flow API request failed: PUBLIC_ERROR_UNUSUAL_ACTIVITY: reCAPTCHA evaluation failed",
+            "PUBLIC_ERROR_UNUSUAL_ACTIVITY",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertTrue(_is_content_policy_error(msg))
+
+    def test_visibility_filtered_is_content_policy(self):
+        from src.services.generation_handler import _is_content_policy_error
+        # 上游返回 visibility=FILTERED 表示内容被审核屏蔽
+        self.assertTrue(_is_content_policy_error("visibility: FILTERED"))
+
+    def test_real_token_failures_are_NOT_content_policy(self):
+        from src.services.generation_handler import _is_content_policy_error
+        # 这些是真的 token / 系统故障，应该继续累加 error_count
+        for msg in [
+            "HTTP Error 401: Unauthorized",
+            "HTTP Error 403: project access denied",
+            "HTTP Error 500: Internal server error",
+            "Failed to perform, curl: (35) BoringSSL SSL_ERROR_SYSCALL",
+            "Remote end closed connection without response",
+            "Invalid JSON response",
+            "Project-scoped image upload failed",
+            "Failed to obtain reCAPTCHA token",
+        ]:
+            with self.subTest(msg=msg):
+                self.assertFalse(_is_content_policy_error(msg))
+
+    def test_empty_or_none_message_is_not_content_policy(self):
+        from src.services.generation_handler import _is_content_policy_error
+        self.assertFalse(_is_content_policy_error(None))
+        self.assertFalse(_is_content_policy_error(""))
+
+
 if __name__ == "__main__":
     unittest.main()

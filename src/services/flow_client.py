@@ -318,19 +318,8 @@ class FlowClient:
                 timeout_seconds=timeout,
             )
 
-        if submit_method == "browser":
-            from .browser_captcha import BrowserCaptchaService
-            service = await BrowserCaptchaService.get_instance(self.db)
-            return await service.submit_flow_request(
-                browser_ref=browser_context.get("browser_ref"),
-                project_id=project_id,
-                method=method,
-                url=url,
-                headers=headers,
-                json_data=json_data,
-                timeout_seconds=timeout,
-            )
-
+        # browser (playwright) 模式已废弃；main.py:54 强制把 captcha_method=="browser"
+        # 改写为 personal，所以 submit_method=="browser" 不可达。删除避免维护成本。
         raise RuntimeError(f"unsupported captcha browser submit method: {submit_method}")
 
     async def _make_request(
@@ -536,9 +525,12 @@ class FlowClient:
                     debug_logger.log_error(
                         f"[HTTP FALLBACK] urllib 回退也失败: {fallback_error}"
                     )
-                    raise Exception(
-                        f"Flow API request failed: curl={error_msg}; urllib={fallback_error}"
-                    )
+                    # 不要把 curl=...; urllib=... 双 prefix 拼起来——这会破坏外层
+                    # _is_retryable_network_error / _get_retry_reason 的 substring 匹配
+                    # （curl 的措辞被 urllib= 段稀释），导致同类瞬断不被识别为可重试。
+                    # 选 urllib 的错误作为 final message：urllib 是最后实际尝试的客户端，
+                    # 它的错误措辞更接近真实网络层状态。
+                    raise Exception(str(fallback_error)) from fallback_error
 
             raise Exception(f"Flow API request failed: {error_msg}")
 
@@ -550,10 +542,12 @@ class FlowClient:
             for keyword in [
                 "curl: (6)",
                 "curl: (7)",
+                "curl: (16)",   # HTTP/2 framing error (large body / proxy 抖动)
                 "curl: (28)",
                 "curl: (35)",
                 "curl: (52)",
                 "curl: (56)",
+                "http/2 framing",
                 "connection timed out",
                 "could not connect",
                 "failed to connect",
@@ -636,9 +630,11 @@ class FlowClient:
         """识别可重试的 TLS/连接类网络错误。"""
         error_lower = (error_str or "").lower()
         return any(keyword in error_lower for keyword in [
+            "curl: (16)",   # HTTP/2 framing error (curl_cffi 大 body bug，需要重试)
             "curl: (35)",
             "curl: (52)",
             "curl: (56)",
+            "http/2 framing",
             "ssl_error_syscall",
             "tls connect error",
             "ssl connect error",
@@ -646,12 +642,18 @@ class FlowClient:
             "connection aborted",
             "connection was reset",
             "unexpected eof",
+            "unexpected_eof",       # ssl._ssl.SSLError "UNEXPECTED_EOF_WHILE_READING"
             "empty reply from server",
             "recv failure",
             "send failure",
             "connection refused",
             "network is unreachable",
             "remote host closed connection",
+            # urllib / http.client 措辞（force_urllib 路径上的网络抖动）
+            "remote end closed connection",
+            "incompleteread",
+            "badstatusline",
+            "chunkedencodingerror",
         ])
 
     def _get_control_plane_timeout(self) -> int:
@@ -1099,7 +1101,7 @@ class FlowClient:
                 raise Exception(f"Legacy upload response missing media id: keys={list(legacy_result.keys())}")
             except Exception as legacy_upload_error:
                 last_error = legacy_upload_error
-                retry_reason = self._get_retry_reason(str(legacy_upload_error))
+                retry_reason = "网络超时" if self._is_timeout_error(legacy_upload_error) else self._get_retry_reason(str(legacy_upload_error))
                 if retry_reason and retry_attempt < max_retries - 1:
                     debug_logger.log_warning(
                         f"[UPLOAD] 上传遇到{retry_reason}，准备重试 ({retry_attempt + 2}/{max_retries})..."
@@ -1278,7 +1280,9 @@ class FlowClient:
         
         # 所有重试都失败
         perf_trace["final_success_attempt"] = None
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("图片生成请求失败")
 
     async def upsample_image(
         self,
@@ -1375,7 +1379,9 @@ class FlowClient:
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
 
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("图片放大请求失败")
 
     # ========== 视频生成 (使用AT) - 异步返回 ==========
 
@@ -1520,9 +1526,11 @@ class FlowClient:
                 raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
-        
+
         # 所有重试都失败
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频生成请求失败 (T2V)")
 
     async def generate_video_reference_images(
         self,
@@ -1651,9 +1659,11 @@ class FlowClient:
                 raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
-        
+
         # 所有重试都失败
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频生成请求失败 (R2V - reference images)")
 
     async def generate_video_start_end(
         self,
@@ -1785,9 +1795,11 @@ class FlowClient:
                 raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
-        
+
         # 所有重试都失败
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频生成请求失败 (start-end frames)")
 
     async def generate_video_start_image(
         self,
@@ -1915,9 +1927,11 @@ class FlowClient:
                 raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
-        
+
         # 所有重试都失败
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频生成请求失败 (I2V - start image)")
 
     # ========== 视频放大 (Video Upsampler) ==========
 
@@ -2000,6 +2014,8 @@ class FlowClient:
                     }
                 }],
                 "clientContext": {
+                    "projectId": project_id,
+                    "tool": "PINHOLE",
                     "recaptchaContext": {
                         "token": recaptcha_token,
                         "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
@@ -2033,8 +2049,10 @@ class FlowClient:
                 raise
             finally:
                 await self._notify_browser_captcha_request_finished(browser_id)
-        
-        raise last_error
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频放大请求失败")
 
     # ========== 视频延长 (使用AT) ==========
 
@@ -2163,7 +2181,9 @@ class FlowClient:
                 await self._notify_browser_captcha_request_finished(browser_id)
 
         # 所有重试都失败
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频延长请求失败")
 
     async def concatenate_videos(
         self,
@@ -2286,7 +2306,7 @@ class FlowClient:
                 )
             except Exception as e:
                 last_error = e
-                retry_reason = self._get_retry_reason(str(e))
+                retry_reason = "网络超时" if self._is_timeout_error(e) else self._get_retry_reason(str(e))
                 if retry_reason and retry_attempt < max_retries - 1:
                     debug_logger.log_warning(
                         f"[VIDEO POLL] 状态查询遇到{retry_reason}，准备重试 ({retry_attempt + 2}/{max_retries})..."
@@ -2488,6 +2508,9 @@ class FlowClient:
             return "reCAPTCHA 错误"
         if any(keyword in error_lower for keyword in [
             "http error 500",
+            "http error 502",
+            "http error 503",
+            "http error 504",
             "public_error",
             "internal error",
             "reason=internal",
@@ -2495,8 +2518,11 @@ class FlowClient:
             "\"reason\":\"internal\"",
             "server error",
             "upstream error",
+            "bad gateway",
+            "service unavailable",
+            "gateway timeout",
         ]):
-            return "500/内部错误"
+            return "5xx/上游瞬断"
         return None
 
     def _is_captcha_rejection_reason(
@@ -2504,6 +2530,9 @@ class FlowClient:
         error_reason: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> bool:
+        # 不要把 "403" 算作 captcha rejection 信号：
+        # AT/ST 过期或 project 失效都会返回 403，被错误归类后会触发指数 backoff 冷却
+        # 最高 120s，反而掩盖真实的 token 失效信号。这里只看明确的 captcha/风控关键字。
         text = f"{error_reason or ''} {error_message or ''}".lower()
         return any(
             keyword in text
@@ -2511,7 +2540,6 @@ class FlowClient:
                 "recaptcha",
                 "unusual_activity",
                 "unusual activity",
-                "403",
                 "captcha",
             ]
         )
@@ -2534,17 +2562,8 @@ class FlowClient:
         if project_id and self._is_captcha_rejection_reason(error_reason, error_message):
             self._record_captcha_rejection(project_id)
 
-        if config.captcha_method == "browser":
-            try:
-                from .browser_captcha import BrowserCaptchaService
-                service = await BrowserCaptchaService.get_instance(self.db)
-                await service.report_error(
-                    browser_id,
-                    error_reason=error_reason or error_message or "upstream_error"
-                )
-            except Exception as e:
-                debug_logger.log_warning(f"[reCAPTCHA] 通知 browser 打码服务失败: {e}")
-        elif config.captcha_method == "personal" and project_id:
+        # browser (playwright) 模式已废弃 — main.py:54 强制改写为 personal
+        if config.captcha_method == "personal" and project_id:
             try:
                 from .browser_captcha_personal import BrowserCaptchaService
                 service = await BrowserCaptchaService.get_instance(self.db)
@@ -2569,14 +2588,8 @@ class FlowClient:
 
     async def _notify_browser_captcha_request_finished(self, browser_id: Optional[Union[int, str]] = None):
         """通知有头浏览器：上游图片/视频请求已结束，可关闭对应打码浏览器。"""
-        if config.captcha_method == "browser":
-            try:
-                from .browser_captcha import BrowserCaptchaService
-                service = await BrowserCaptchaService.get_instance(self.db)
-                await service.report_request_finished(browser_id)
-            except Exception as e:
-                debug_logger.log_warning(f"[reCAPTCHA] 通知 browser request_finished 失败: {e}")
-        elif config.captcha_method == "remote_browser" and browser_id:
+        # browser (playwright) 模式已废弃；personal/resident 模式无需 finish 信号（标签页常驻）
+        if config.captcha_method == "remote_browser" and browser_id:
             try:
                 session_id = quote(str(browser_id), safe="")
                 await self._call_remote_browser_service(
@@ -2886,43 +2899,7 @@ class FlowClient:
                 debug_logger.log_error(f"[reCAPTCHA Personal] 错误: {str(e)}")
                 self.clear_request_fingerprint()
                 return None, None
-        # 有头浏览器打码 (playwright)
-        elif captcha_method == "browser":
-            try:
-                from .browser_captcha import BrowserCaptchaService
-                service = await BrowserCaptchaService.get_instance(self.db)
-                token, browser_id = await service.get_token(project_id, action, token_id=token_id)
-                if isinstance(token, str) and 0 < len(token) < 100:
-                    debug_logger.log_error(
-                        f"[reCAPTCHA] browser 模式返回了疑似伪 token (len={len(token)}), 丢弃避免提交"
-                    )
-                    token = None
-                fingerprint = await service.get_fingerprint(browser_id) if token else None
-                self._set_request_fingerprint(fingerprint if token else None)
-                self._set_request_browser_context(
-                    {
-                        "method": "browser",
-                        "browser_ref": browser_id,
-                        "project_id": project_id,
-                    } if token else None
-                )
-                return token, browser_id
-            except RuntimeError as e:
-                # 捕获 Docker 环境或依赖缺失的明确错误
-                error_msg = str(e)
-                debug_logger.log_error(f"[reCAPTCHA Browser] {error_msg}")
-                print(f"[reCAPTCHA] ❌ 有头浏览器打码失败: {error_msg}")
-                self.clear_request_fingerprint()
-                return None, None
-            except ImportError as e:
-                debug_logger.log_error(f"[reCAPTCHA Browser] 导入失败: {str(e)}")
-                print(f"[reCAPTCHA] ❌ playwright 未安装，请运行: pip install playwright && python -m playwright install chromium")
-                self.clear_request_fingerprint()
-                return None, None
-            except Exception as e:
-                debug_logger.log_error(f"[reCAPTCHA Browser] 错误: {str(e)}")
-                self.clear_request_fingerprint()
-                return None, None
+        # captcha_method == "browser" (playwright) 已废弃 — 见 main.py:54 自动改写。
         elif captcha_method == "remote_browser":
             try:
                 solve_timeout = self._resolve_remote_browser_solve_timeout(action)
@@ -3051,6 +3028,18 @@ class FlowClient:
                         if response:
                             debug_logger.log_info(f"[reCAPTCHA {method}] Token获取成功")
                             return response
+
+                    # 快速失败：识别 failed/error 状态，不要傻等 120 秒
+                    if status == 'failed' or result_json.get('errorId') or result_json.get('errorCode'):
+                        err_desc = result_json.get('errorDescription') or result_json.get('errorCode') or 'unknown'
+                        debug_logger.log_error(f"[reCAPTCHA {method}] Task failed early: {err_desc}")
+                        return None
+                    # HTTP 状态异常时也快速退出
+                    if result.status_code >= 400:
+                        debug_logger.log_error(
+                            f"[reCAPTCHA {method}] poll HTTP {result.status_code}, abort"
+                        )
+                        return None
 
                     await asyncio.sleep(3)
 
