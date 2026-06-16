@@ -640,6 +640,34 @@ class Config:
             normalized = 60
         self._config["captcha"]["remote_browser_timeout"] = normalized
 
+    # ========== ST 自我续命 / 保活 ==========
+    @property
+    def st_keepalive_enabled(self) -> bool:
+        return bool(self._config.get("token", {}).get("st_keepalive_enabled", True))
+
+    @property
+    def st_keepalive_interval_hours(self) -> int:
+        try:
+            return int(self._config.get("token", {}).get("st_keepalive_interval_hours", 24))
+        except (TypeError, ValueError):
+            return 24
+
+    @property
+    def st_browser_refresh_enabled(self) -> bool:
+        # 默认 False：多账号池下浏览器只登录一个号，用它刷新会把别的号 ST 写错
+        return bool(self._config.get("token", {}).get("st_browser_refresh_enabled", False))
+
+    @property
+    def min_credits_to_select(self) -> int:
+        try:
+            return int(self._config.get("call_logic", {}).get("min_credits_to_select", 1))
+        except (TypeError, ValueError):
+            return 1
+
+    @property
+    def st_alert_webhook_url(self) -> str:
+        return str(self._config.get("admin", {}).get("st_alert_webhook_url", "") or "")
+
 
 # Global config instance
 config = Config()

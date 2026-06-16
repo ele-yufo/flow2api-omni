@@ -44,9 +44,13 @@ video_timeout = 1500
 
 [call_logic]
 call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
+# 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
+min_credits_to_select = 1
 
 [admin]
 error_ban_threshold = 3
+# ST 被 Google 撤销时的告警 webhook（POST JSON）。留空则只记日志
+st_alert_webhook_url = ""
 
 [cache]
 enabled = false
@@ -93,3 +97,10 @@ yescaptcha_base_url = "https://api.yescaptcha.com"
 remote_browser_base_url = "http://127.0.0.1:8060"  # 本地 token 池服务地址
 remote_browser_api_key = ""   # 本地 token 池服务 API Key
 remote_browser_timeout = 35   # 远程有头打码请求超时(秒)
+
+[token]
+# ST 每日保活巡检：即使账号闲置也定时滚动续期 __Secure-next-auth.session-token
+st_keepalive_enabled = true
+st_keepalive_interval_hours = 24
+# 浏览器 ST 刷新（旧机制）。多账号池下会写错号，默认关闭；单 Ultra 老部署可临时开
+st_browser_refresh_enabled = false
