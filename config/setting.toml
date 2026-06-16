@@ -53,6 +53,12 @@ enabled = false
 timeout = 7200  # 缓存超时时间(秒), 默认2小时
 base_url = ""   # 缓存文件访问的基础URL, 留空则使用服务器地址
 
+[watermark]
+# Pro(TIER_ONE) 视频去水印: 调本机常驻 ProPainter 服务(见 dewatermark/)
+enabled = false                          # 开关; 需先起 dewatermark 服务再设 true
+service_url = "http://127.0.0.1:18290"   # 去水印服务地址(仅本机)
+timeout_seconds = 120                    # 单条视频去水印超时(秒); 超时/失败则回退原视频
+
 [captcha]
 captcha_method = "personal"  # 打码方式: yescaptcha/browser/personal/remote_browser
 browser_recaptcha_settle_seconds = 1.0  # 打码完成额外稳态等待，速度优先可设 1.0
