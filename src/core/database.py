@@ -974,6 +974,18 @@ class Database:
                 await db.execute(query, params)
                 await db.commit()
 
+    async def clear_token_ban(self, token_id: int):
+        """显式把 ban_reason / banned_at 置 NULL。
+
+        update_token 会跳过 None 值（无法把列清空），故清除禁用原因需走此专用方法。
+        """
+        async with self._connect(write=True) as db:
+            await db.execute(
+                "UPDATE tokens SET ban_reason = NULL, banned_at = NULL WHERE id = ?",
+                (token_id,),
+            )
+            await db.commit()
+
     async def delete_token(self, token_id: int):
         """Delete token and related data"""
         async with self._connect(write=True) as db:

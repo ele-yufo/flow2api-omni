@@ -72,6 +72,7 @@ class FakeDB:
     def __init__(self, token):
         self._token = token
         self.updates = []
+        self.ban_cleared = 0
 
     async def get_token(self, token_id):
         return self._token
@@ -80,6 +81,11 @@ class FakeDB:
         self.updates.append(kwargs)
         for k, v in kwargs.items():
             setattr(self._token, k, v)
+
+    async def clear_token_ban(self, token_id):
+        self.ban_cleared += 1
+        self._token.ban_reason = None
+        self._token.banned_at = None
 
 
 class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
@@ -109,6 +115,57 @@ class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
         tm, db = self._make_manager("old-st")  # 与当前相同
         await tm._do_refresh_at(7, "old-st")
         self.assertFalse(any("st" in u for u in db.updates))
+
+    async def test_do_refresh_at_clears_stale_revoked_on_success(self):
+        # 历史遗留 ST_REVOKED 的账号，一旦刷新成功应被自动清除标记
+        tm, db = self._make_manager("eyJ" + "E" * 1100)
+        db._token.ban_reason = "ST_REVOKED"
+        ok = await tm._do_refresh_at(7, "old-st")
+        self.assertTrue(ok)
+        self.assertEqual(db.ban_cleared, 1)
+        self.assertIsNone(db._token.ban_reason)
+
+    async def test_do_refresh_at_does_not_touch_429_ban_on_success(self):
+        # 仅清 ST_REVOKED；429 等其它禁用原因不应被后台 AT 刷新误清
+        tm, db = self._make_manager("eyJ" + "F" * 1100)
+        db._token.ban_reason = "429_rate_limit"
+        ok = await tm._do_refresh_at(7, "old-st")
+        self.assertTrue(ok)
+        self.assertEqual(db.ban_cleared, 0)
+        self.assertEqual(db._token.ban_reason, "429_rate_limit")
+
+
+class RefreshFailureHandlerTests(unittest.IsolatedAsyncioTestCase):
+    def _tm(self, ban_reason=None):
+        token = Token(id=7, st="s", email="r@x.com", is_active=True, ban_reason=ban_reason)
+        tm = TokenManager(db=FakeDB(token), flow_client=AsyncMock())
+        tm.disable_token = AsyncMock()
+        tm._send_st_alert = AsyncMock()
+        return tm
+
+    async def test_newly_revoked_disables_and_alerts(self):
+        tm = self._tm(ban_reason="ST_REVOKED")  # 本次刷新刚标记
+        await tm._handle_refresh_failure(7, was_revoked_before=False)
+        tm.disable_token.assert_called_once()
+        tm._send_st_alert.assert_called_once()
+
+    async def test_stale_revoked_not_disabled(self):
+        tm = self._tm(ban_reason="ST_REVOKED")  # 历史遗留
+        await tm._handle_refresh_failure(7, was_revoked_before=True)
+        tm.disable_token.assert_not_called()
+        tm._send_st_alert.assert_not_called()
+
+    async def test_transient_not_disabled(self):
+        tm = self._tm(ban_reason=None)  # 瞬时错误，未标记撤销
+        await tm._handle_refresh_failure(7, was_revoked_before=False)
+        tm.disable_token.assert_not_called()
+        tm._send_st_alert.assert_not_called()
+
+    async def test_send_st_alert_no_url_is_log_only(self):
+        # 默认无 webhook URL：仅记日志，不抛异常
+        token = Token(id=7, st="s", email="r@x.com")
+        tm = TokenManager(db=FakeDB(token), flow_client=AsyncMock())
+        await tm._send_st_alert(7)
 
 
 class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):

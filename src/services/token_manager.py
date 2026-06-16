@@ -439,6 +439,7 @@ class TokenManager:
             token = await self.db.get_token(token_id)
             if not token:
                 return False
+            was_revoked_before = token.ban_reason == "ST_REVOKED"
 
             result = await self._do_refresh_at(token_id, token.st)
             if result:
@@ -452,9 +453,27 @@ class TokenManager:
                 if result:
                     return True
 
-            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: all refresh attempts failed, disabling token")
-            await self.disable_token(token_id)
+            # 仅在"本次确认 ST 被撤销"时禁用+告警；瞬时网络错误保留账号待重试，
+            # 避免一次抖动就把健康账号下线（与每日保活保守策略一致）。
+            await self._handle_refresh_failure(token_id, was_revoked_before)
             return False
+
+    async def _handle_refresh_failure(self, token_id: int, was_revoked_before: bool) -> None:
+        """刷新失败后的统一处置（on-use 与每日保活共用）：
+        仅在"本次新确认 ST_REVOKED"时禁用+告警；否则视为瞬时错误，保留账号待下次重试。
+        was_revoked_before 用于排除历史遗留的 ST_REVOKED 造成的误杀。"""
+        refreshed = await self.db.get_token(token_id)
+        newly_revoked = (
+            refreshed is not None
+            and refreshed.ban_reason == "ST_REVOKED"
+            and not was_revoked_before
+        )
+        if newly_revoked:
+            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: ST 已被撤销，禁用并告警")
+            await self._send_st_alert(token_id)
+            await self.disable_token(token_id)
+        else:
+            debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: 刷新失败(疑似瞬时)，保留账号待重试")
 
     async def _refresh_at(self, token_id: int) -> bool:
         """Coalesce concurrent AT refresh calls for the same token."""
@@ -493,8 +512,9 @@ class TokenManager:
             expires = result.get("expires")
 
             # 捕获并回写轮换后的新 ST（滚动续期 ~30 天的关键）
+            from ..core.cookie_extractor import MIN_ST_LEN
             rotated_st = result.get("rotated_st")
-            if rotated_st and rotated_st != st and len(rotated_st) >= 200:
+            if rotated_st and rotated_st != st and len(rotated_st) >= MIN_ST_LEN:
                 await self.db.update_token(token_id, st=rotated_st)
                 debug_logger.log_info(f"[ST_ROTATE] Token {token_id}: ST 已滚动续期并回写库")
 
@@ -524,6 +544,11 @@ class TokenManager:
                     credits=credits_result.get("credits", 0),
                     user_paygate_tier=credits_result.get("userPaygateTier"),
                 )
+                # ST 证明仍健康：清除可能遗留的 ST_REVOKED（仅清这一种，勿动 429 等其它原因）
+                token_now = await self.db.get_token(token_id)
+                if token_now and token_now.ban_reason == "ST_REVOKED":
+                    await self.db.clear_token_ban(token_id)
+                    debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 健康恢复，已清除 ST_REVOKED 标记")
                 debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {credits_result.get('credits', 0)}）")
                 return True
             except Exception as verify_err:
@@ -641,24 +666,12 @@ class TokenManager:
         token = await self.db.get_token(token_id)
         if not token or not token.is_active:
             return False
-        # 快照刷新前的 ban_reason：只有"本次刷新新标记"的 ST_REVOKED 才算确认撤销，
-        # 避免历史遗留的 ST_REVOKED（账号被重新启用但未清原因）在一次瞬时失败时误杀。
+        # 快照刷新前的 ban_reason，交给共用的失败处置逻辑判定是否"本次新确认撤销"。
         was_revoked_before = token.ban_reason == "ST_REVOKED"
         ok = await self._do_refresh_at(token_id, token.st)
         if ok:
             return True
-        refreshed = await self.db.get_token(token_id)
-        newly_revoked = (
-            refreshed is not None
-            and refreshed.ban_reason == "ST_REVOKED"
-            and not was_revoked_before
-        )
-        if newly_revoked:
-            debug_logger.log_error(f"[ST_KEEPALIVE] Token {token_id}: ST 已被撤销，禁用并告警")
-            await self._send_st_alert(token_id)
-            await self.disable_token(token_id)
-        else:
-            debug_logger.log_warning(f"[ST_KEEPALIVE] Token {token_id}: 瞬时刷新失败，保留账号待下轮")
+        await self._handle_refresh_failure(token_id, was_revoked_before)
         return False
 
     async def ensure_project_exists(self, token_id: int) -> str:
