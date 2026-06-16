@@ -20,6 +20,26 @@ from ..core.account_tiers import (
 from .file_cache import FileCache
 
 
+# Google 端策略性拒绝（非 token 故障），这些不应计入 token 错误计数 —
+# 用户只有 1 个账号时，任何把策略错误算到账号头上的逻辑都可能误禁。
+_CONTENT_POLICY_ERROR_KEYWORDS = (
+    "unsafe_generation",
+    "content_policy",
+    "unusual_activity",
+    "policy_violation",
+    "output_dangerous",
+    "filtered",
+)
+
+
+def _is_content_policy_error(error_message: Optional[str]) -> bool:
+    """识别"内容策略 / 风控拒绝"类错误（不是 token 故障，不应累加 error_count）。"""
+    if not error_message:
+        return False
+    msg = error_message.lower()
+    return any(keyword in msg for keyword in _CONTENT_POLICY_ERROR_KEYWORDS)
+
+
 # Model configuration
 MODEL_CONFIG = {
     # 图片生成 - GEM_PIX (Gemini 2.5 Flash)
@@ -742,362 +762,10 @@ MODEL_CONFIG = {
     },
 
     # ========== Gemini Omni Flash (abra) ==========
-    # 上游模型代号 abra_t2v_{4|6|8|10}s / abra_r2v_{4|6|8|10}s
-    # 时长 4 个档位由 model_key 后缀控制；portrait/landscape 共用同一个 model_key，
-    # 仅 aspect_ratio 不同（假设需上线测试验证，若 portrait 上游名不同需修正）。
-    # 1080P 上采样复用 Veo 3.1 的 veo_3_1_upsampler_1080p；4K 抓包未覆盖，先不集成。
-
-    # --- T2V landscape 原版（4 个时长） ---
-    "gemini_omni_t2v_4s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_6s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_8s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_10s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-
-    # --- T2V portrait 原版（4 个时长） ---
-    "gemini_omni_t2v_portrait_4s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_portrait_6s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_portrait_8s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_t2v_portrait_10s": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-
-    # --- T2V landscape 1080P 上采样（4 个时长） ---
-    "gemini_omni_t2v_4s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_6s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_8s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_10s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-
-    # --- T2V portrait 1080P 上采样（4 个时长） ---
-    "gemini_omni_t2v_portrait_4s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_portrait_6s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_portrait_8s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_t2v_portrait_10s_1080p": {
-        "type": "video",
-        "video_type": "t2v",
-        "model_key": "abra_t2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": False,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-
-    # --- R2V landscape 原版（4 个时长） ---
-    "gemini_omni_r2v_4s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_6s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_8s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_10s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-
-    # --- R2V portrait 原版（4 个时长） ---
-    "gemini_omni_r2v_portrait_4s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_portrait_6s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_portrait_8s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-    "gemini_omni_r2v_portrait_10s": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False
-    },
-
-    # --- R2V landscape 1080P 上采样（4 个时长） ---
-    "gemini_omni_r2v_4s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_6s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_8s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_10s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-
-    # --- R2V portrait 1080P 上采样（4 个时长） ---
-    "gemini_omni_r2v_portrait_4s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_4s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_portrait_6s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_6s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_portrait_8s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_8s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
-    "gemini_omni_r2v_portrait_10s_1080p": {
-        "type": "video",
-        "video_type": "r2v",
-        "model_key": "abra_r2v_10s",
-        "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-        "supports_images": True,
-        "min_images": 0,
-        "max_images": 7,
-        "use_v2_model_config": True,
-        "allow_tier_upgrade": False,
-        "upsample": {"resolution": "VIDEO_RESOLUTION_1080P", "model_key": "veo_3_1_upsampler_1080p"}
-    },
+    # 32 个 entry 在 dict 闭合后由 _build_gemini_omni_entries() 注入 (见 line ~1230)。
+    # 调整 max_images / upsample / allow_tier_upgrade 等参数只改 factory 一处。
+    # 4 维 cartesian: video_type{t2v,r2v} × orientation{landscape,portrait}
+    #                × duration{4,6,8,10} × upsample{base,1080p} = 32
 
     # ========== 视频延长 (Video Extend 15s) ==========
 
@@ -1555,6 +1223,51 @@ MODEL_CONFIG = {
 }
 
 
+# ========== Gemini Omni Flash (abra) 模型注册工厂 ==========
+# 32 个 entry = 2 video_type × 2 orientation × 4 duration × 2 (base/1080p upsample)
+# 之前是 32 段重复 dict literal（~350 行）；改一个 max_images 需要 sed 16 处，
+# 很容易漏改。提到 factory 后改一处即可。
+_OMNI_DURATIONS = (4, 6, 8, 10)
+_OMNI_UPSAMPLE_1080P = {
+    "resolution": "VIDEO_RESOLUTION_1080P",
+    "model_key": "veo_3_1_upsampler_1080p",
+}
+_OMNI_R2V_MAX_IMAGES = 7  # 上游 Flow R2V 单次最多 7 张参考图
+
+
+def _build_gemini_omni_entries() -> Dict[str, Dict[str, Any]]:
+    """生成 32 个 gemini_omni_* MODEL_CONFIG entry。改参数只改这里。"""
+    entries: Dict[str, Dict[str, Any]] = {}
+    for video_type in ("t2v", "r2v"):
+        for orientation_suffix, aspect_ratio in (
+            ("", "VIDEO_ASPECT_RATIO_LANDSCAPE"),
+            ("_portrait", "VIDEO_ASPECT_RATIO_PORTRAIT"),
+        ):
+            for duration in _OMNI_DURATIONS:
+                for upsample_suffix in ("", "_1080p"):
+                    key = f"gemini_omni_{video_type}{orientation_suffix}_{duration}s{upsample_suffix}"
+                    entry: Dict[str, Any] = {
+                        "type": "video",
+                        "video_type": video_type,
+                        "model_key": f"abra_{video_type}_{duration}s",
+                        "aspect_ratio": aspect_ratio,
+                        "supports_images": (video_type == "r2v"),
+                        "use_v2_model_config": True,
+                        # TIER_TWO 不能升级到 _ultra（abra 没 _ultra 变体）。
+                        "allow_tier_upgrade": False,
+                    }
+                    if video_type == "r2v":
+                        entry["min_images"] = 0
+                        entry["max_images"] = _OMNI_R2V_MAX_IMAGES
+                    if upsample_suffix == "_1080p":
+                        entry["upsample"] = _OMNI_UPSAMPLE_1080P
+                    entries[key] = entry
+    return entries
+
+
+MODEL_CONFIG.update(_build_gemini_omni_entries())
+
+
 class GenerationHandler:
     """统一生成处理器"""
 
@@ -1894,6 +1607,9 @@ class GenerationHandler:
 
         debug_logger.log_info(f"[GENERATION] 已选择Token: {token.id} ({token.email})")
         pending_token_state["active"] = True
+        # 保存 token_id 副本：后续 ensure_valid_token() 可能把 token 重赋为 None，
+        # 但已占用的 pending slot 必须用这个 id 在 finally 中归还，避免 slot 泄漏。
+        pending_token_state["token_id"] = token.id
         await self._update_request_log_progress(
             request_log_state,
             token_id=token.id,
@@ -1986,7 +1702,12 @@ class GenerationHandler:
                 error_msg = generation_result.get("error_message") or "生成未成功完成"
                 debug_logger.log_warning(f"[GENERATION] 生成未成功，不扣次数: {error_msg}")
                 if token:
-                    await self.token_manager.record_error(token.id)
+                    if _is_content_policy_error(error_msg):
+                        debug_logger.log_info(
+                            f"[GENERATION] 内容策略/风控拒绝 — 不计入 token 错误计数 (token_id={token.id})"
+                        )
+                    else:
+                        await self.token_manager.record_error(token.id)
                 duration = time.time() - start_time
                 perf_trace["status"] = "failed"
                 perf_trace["total_ms"] = int(duration * 1000)
@@ -2111,9 +1832,13 @@ class GenerationHandler:
                 yield self._create_stream_chunk(f"❌ {error_msg}\n")
             yield self._create_error_response(error_msg, status_code=500)
         finally:
-            if pending_token_state.get("active") and token and self.load_balancer:
+            # 用 pending_token_state["token_id"] 而不是 token.id —— 后者在
+            # ensure_valid_token() 返回 None 时变成 None，导致 finally 里的 `and token`
+            # 短路，slot 永久泄漏。
+            pending_token_id = pending_token_state.get("token_id")
+            if pending_token_state.get("active") and pending_token_id and self.load_balancer:
                 await self.load_balancer.release_pending(
-                    token.id,
+                    pending_token_id,
                     for_image_generation=(generation_type == "image"),
                     for_video_generation=(generation_type == "video"),
                 )
@@ -2710,12 +2435,16 @@ class GenerationHandler:
 
         max_attempts = config.max_poll_attempts
         poll_interval = config.poll_interval
-        
-        # 如果需要放大，轮询次数加倍（放大可能需要 30 分钟）
-        if upsample_config:
-            max_attempts = max_attempts * 3  # 放大需要更长时间
-        if extend_config:
-            max_attempts = max_attempts * 2  # 延长+拼接也需要额外时间
+
+        # 主循环只负责"等初始生成"。upsample/extend 各自有内部循环（line ~2958, 3017）。
+        # 所以这里最多取 max(3, 2) = 3 倍上限，不能累乘到 6 倍（否则 upsample+extend
+        # 模型在异常情况下主循环最长 60 分钟，coroutine + slot 长期占用拖垮并发）。
+        if upsample_config and extend_config:
+            max_attempts = max_attempts * 3
+        elif upsample_config:
+            max_attempts = max_attempts * 3
+        elif extend_config:
+            max_attempts = max_attempts * 2
 
         consecutive_poll_errors = 0
         last_poll_error: Optional[Exception] = None
@@ -3021,8 +2750,9 @@ class GenerationHandler:
                                             unique_id = str(uuid.uuid4())
                                             concat_filename = f"{unique_id}_15s.mp4"
                                             concat_path = self.file_cache.cache_dir / concat_filename
-                                            with open(concat_path, 'wb') as f:
-                                                f.write(video_data)
+                                            # 几十 MB 视频写盘必须出 event loop，否则阻塞所有
+                                            # 并发请求的 progress 回调、SSE writes 和轮询。
+                                            await asyncio.to_thread(concat_path.write_bytes, video_data)
                                             local_url = f"{self._get_base_url(response_state)}/tmp/{concat_filename}"
 
                                             if stream:
@@ -3140,8 +2870,9 @@ class GenerationHandler:
                     yield self._create_error_response(friendly_error, status_code=502)
                     return
 
-                elif status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
-                    # ??????
+                elif status and status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                    # status 可能为 None（上游响应缺字段）；不加 guard 会抛 AttributeError
+                    # 进入外层 except，浪费 consecutive_poll_errors 直到 3 次后才判失败。
                     error_msg = f"视频生成失败: {status}"
                     await self._fail_video_task(checked_operations, error_msg)
                     self._mark_generation_failed(generation_result, error_msg)
