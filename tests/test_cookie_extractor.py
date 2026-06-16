@@ -54,3 +54,19 @@ class CookieExtractorTests(unittest.TestCase):
             f'{{"name":"{KEY}","value":"{VALID}"}}]'
         )
         self.assertEqual(extract_session_token(raw), VALID)
+
+
+class ResolveStFromRequestTests(unittest.TestCase):
+    def test_resolve_prefers_raw(self):
+        from src.api.admin import resolve_st_from_request
+        raw = f"x=1; {KEY}={VALID}"
+        self.assertEqual(resolve_st_from_request(st=None, raw=raw), VALID)
+
+    def test_resolve_uses_st_when_no_raw(self):
+        from src.api.admin import resolve_st_from_request
+        self.assertEqual(resolve_st_from_request(st=VALID, raw=None), VALID)
+
+    def test_resolve_none_raises(self):
+        from src.api.admin import resolve_st_from_request
+        with self.assertRaises(ValueError):
+            resolve_st_from_request(st=None, raw=None)
