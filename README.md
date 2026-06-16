@@ -20,7 +20,9 @@
 - **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
 - **Gemini Omni Flash (abra)** — 新一代视频模型，T2V/R2V × 4 个时长档位（4/6/8/10s）× 横竖屏 × 原版/1080P 上采样，共 32 个变体
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
-- **AT/ST自动刷新** - AT 过期自动刷新，ST 过期时自动通过浏览器更新（personal 模式）
+- **ST 纯 HTTP 自更新** — 每次刷新 AT 时 labs.google 自动下发轮转后的 ST，服务器即时写回 DB；每账号 ST 只需注入一次，此后无限自续期，无需常驻浏览器
+- **每日保活巡检** — 后台定时任务（默认 24h）对全部活跃 Token 主动续期，确保空闲账号也不过期；仅 401 确认失效才标记 `ST_REVOKED` 并可选 Webhook 告警
+- **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 1）的账号，多账号池耗尽账号自动退出轮询
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制
 - **代理支持** - 支持 HTTP/SOCKS5 代理
@@ -41,7 +43,7 @@
 - 默认 `docker-compose.yml` 建议搭配第三方打码（yescaptcha/capmonster/ezcaptcha/capsolver）。
 如需 Docker 内有头打码（browser/personal），请使用下方 `docker-compose.headed.yml`。
 
-- 自动更新st浏览器拓展：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater)
+- Chrome 扩展（**可选 / 一次性**）：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater) — 现在服务端已支持 ST 自更新，扩展仅在首次注入 ST 时可按需辅助使用，不再需要持续运行
 
 ### 方式一：Docker 部署（推荐）
 
@@ -178,6 +180,48 @@ sudo systemctl start flow2api
 | 持久化登录态生效 | ≥ 2295（实测分布 2297-2425） |
 
 在 logs.txt 里搜 `Token 获取成功 (长度: NNNN)` 即可判断。如果开启了持久化但长度仍 ≤ 2240，说明 cookie 没生效或 profile 缺关键 token（SID/HSID/SAPISID/__Secure-1PSID 等），需要重新 GUI 登录。
+
+### ST 自更新与多账号 Token 管理
+
+#### 工作原理
+
+服务每次通过 `st_to_at` 刷新 Google Access Token 时，labs.google 会在响应里下发一个轮转后的 `__Secure-next-auth.session-token`（有效期约 30 天）。服务器自动捕获并写回数据库——因此**每个账号的 ST 只需注入一次，此后在纯 HTTP 请求中无限续期，无需为每账号保持任何浏览器进程**。
+
+> **注意：** 若服务连续停机超过 30 天，所有 ST 将自然过期，需重新登录并注入。正常运行不会触发此情况。
+
+#### 添加 Token（智能粘贴）
+
+进入管理后台 → Token 管理 → 添加 Token。粘贴框支持以下任意格式，服务端自动提取 `__Secure-next-auth.session-token`：
+
+| 格式 | 示例 |
+|------|------|
+| 浏览器 `cookies.txt` 全文（含换行或空格分隔） | 直接复制 `cookies.txt` 内容粘贴 |
+| Cookie 请求头 | `Cookie: __Secure-next-auth.session-token=eyJ...` |
+| DevTools JSON 导出 | `[{"name":"__Secure-next-auth.session-token","value":"eyJ..."}]` |
+| 裸 ST 值 | `eyJ...`（仅 token 值本身） |
+
+登录地址：`https://labs.google/fx/tools/flow`（管理界面添加 Token 表单内有直达链接和一键复制按钮）。粘贴内容无效时返回 400 错误，不会静默失败。
+
+原有 Chrome 扩展（[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater)）现为**可选 / 一次性**工具，仅在首次注入时按需使用，不再需要为 keep-alive 持续运行。
+
+#### 每日保活巡检
+
+后台任务以固定间隔对全部活跃账号主动触发一次 AT 刷新，从而让 labs.google 下发新 ST——即使账号长期空闲也不会过期。失败策略保守：瞬时网络错误不影响账号状态；只有收到 401 明确失效响应时才将账号标记 `ST_REVOKED`、关闭并可选发送 Webhook 告警。
+
+相关配置项（`config/setting.toml`）：
+
+```toml
+[token]
+st_keepalive_enabled = true          # 开启每日保活巡检（默认 true）
+st_keepalive_interval_hours = 24     # 巡检间隔，单位小时（默认 24）
+st_browser_refresh_enabled = false   # 浏览器端 ST 刷新（默认关闭；共享浏览器只登录一个账号，开启会覆盖其他账号）
+
+[admin]
+st_alert_webhook_url = ""            # ST 失效告警 Webhook URL（留空则不发送）
+
+[call_logic]
+min_credits_to_select = 1            # 账号可被选中所需最低剩余额度（默认 1，≤ 此值时跳过）
+```
 
 ## 支持的模型
 
