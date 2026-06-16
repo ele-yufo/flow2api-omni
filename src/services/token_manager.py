@@ -567,8 +567,6 @@ class TokenManager:
             return None
 
         try:
-            from ..core.config import config
-
             # 仅在 personal 模式下支持 ST 自动刷新
             if config.captcha_method != "personal":
                 debug_logger.log_info(f"[ST_REFRESH] 非 personal 模式，跳过 ST 自动刷新")
@@ -643,11 +641,19 @@ class TokenManager:
         token = await self.db.get_token(token_id)
         if not token or not token.is_active:
             return False
+        # 快照刷新前的 ban_reason：只有"本次刷新新标记"的 ST_REVOKED 才算确认撤销，
+        # 避免历史遗留的 ST_REVOKED（账号被重新启用但未清原因）在一次瞬时失败时误杀。
+        was_revoked_before = token.ban_reason == "ST_REVOKED"
         ok = await self._do_refresh_at(token_id, token.st)
         if ok:
             return True
         refreshed = await self.db.get_token(token_id)
-        if refreshed and refreshed.ban_reason == "ST_REVOKED":
+        newly_revoked = (
+            refreshed is not None
+            and refreshed.ban_reason == "ST_REVOKED"
+            and not was_revoked_before
+        )
+        if newly_revoked:
             debug_logger.log_error(f"[ST_KEEPALIVE] Token {token_id}: ST 已被撤销，禁用并告警")
             await self._send_st_alert(token_id)
             await self.disable_token(token_id)

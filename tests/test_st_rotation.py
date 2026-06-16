@@ -140,3 +140,17 @@ class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         tm.disable_token.assert_called_once()
         tm._send_st_alert.assert_called_once()
+
+    async def test_stale_revoked_not_refalse_disabled_on_transient(self):
+        # 账号历史上被标过 ST_REVOKED（但仍 active）；本次只是瞬时失败、未重新标记。
+        # 不应因历史遗留原因误杀。
+        token = Token(id=7, st="old-st", email="r@x.com", is_active=True, ban_reason="ST_REVOKED")
+        db = FakeDB(token)
+        tm = TokenManager(db=db, flow_client=AsyncMock())
+        tm._do_refresh_at = AsyncMock(return_value=False)  # 瞬时失败，ban_reason 未变
+        tm.disable_token = AsyncMock()
+        tm._send_st_alert = AsyncMock()
+        ok = await tm.keepalive_rotate_st(7)
+        self.assertFalse(ok)
+        tm.disable_token.assert_not_called()
+        tm._send_st_alert.assert_not_called()
