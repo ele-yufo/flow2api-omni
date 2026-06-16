@@ -70,3 +70,22 @@ class ResolveStFromRequestTests(unittest.TestCase):
         from src.api.admin import resolve_st_from_request
         with self.assertRaises(ValueError):
             resolve_st_from_request(st=None, raw=None)
+
+
+class AddTokenRouteErrorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_raw_returns_400_not_500(self):
+        # 回归测试：抽取失败必须是干净的 400，不能被外层 except Exception 吞成 500
+        from fastapi import HTTPException
+        from src.api import admin
+        req = admin.AddTokenRequest(raw="cookie1=abc; cookie2=def")  # 不含 ST
+        with self.assertRaises(HTTPException) as ctx:
+            await admin.add_token(req, token="dummy")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    async def test_missing_both_returns_400(self):
+        from fastapi import HTTPException
+        from src.api import admin
+        req = admin.AddTokenRequest()  # st 与 raw 都为空
+        with self.assertRaises(HTTPException) as ctx:
+            await admin.add_token(req, token="dummy")
+        self.assertEqual(ctx.exception.status_code, 400)

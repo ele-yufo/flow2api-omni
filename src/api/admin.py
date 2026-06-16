@@ -699,10 +699,9 @@ async def add_token(
 ):
     """Add a new token"""
     try:
-        try:
-            resolved_st = resolve_st_from_request(request.st, request.raw)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # ValueError（缺 st/raw 或抽取失败）由下方 except ValueError 统一返回 400；
+        # 不要在此内层 try 里抛 HTTPException —— 会被外层 except Exception 误吞成 500。
+        resolved_st = resolve_st_from_request(request.st, request.raw)
         new_token = await token_manager.add_token(
             st=resolved_st,
             project_id=request.project_id,  # 🆕 支持用户指定project_id
