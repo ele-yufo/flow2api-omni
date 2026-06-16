@@ -803,11 +803,11 @@ class FlowClient:
         labs.google /auth/session 每次会回发一个滚动续期 ~30 天的新 ST。
         长度护栏 >= 200，防止把异常短值当成有效 ST。
         """
-        key = "__Secure-next-auth.session-token"
+        from ..core.cookie_extractor import SESSION_TOKEN_KEY, MIN_ST_LEN
         for raw in set_cookie_headers or []:
-            if isinstance(raw, str) and raw.startswith(key + "="):
+            if isinstance(raw, str) and raw.startswith(SESSION_TOKEN_KEY + "="):
                 value = raw.split("=", 1)[1].split(";", 1)[0].strip()
-                if len(value) >= 200:
+                if len(value) >= MIN_ST_LEN:
                     return value
         return None
 
