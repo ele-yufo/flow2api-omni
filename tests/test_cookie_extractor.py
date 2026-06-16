@@ -47,3 +47,10 @@ class CookieExtractorTests(unittest.TestCase):
             f"labs.google\tFALSE\t/\tTRUE\t0\t{KEY}\t{VALID}\n"
         )
         self.assertEqual(extract_session_token(raw), VALID)
+
+    def test_json_picks_last_when_duplicated(self):
+        raw = (
+            f'[{{"name":"{KEY}","value":"{"eyJ" + "B" * 1100}"}},'
+            f'{{"name":"{KEY}","value":"{VALID}"}}]'
+        )
+        self.assertEqual(extract_session_token(raw), VALID)

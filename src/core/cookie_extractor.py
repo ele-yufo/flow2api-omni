@@ -26,12 +26,13 @@ def _from_json(text: str) -> Optional[str]:
     cookies = data if isinstance(data, list) else data.get("cookies", [])
     if not isinstance(cookies, list):
         return None
+    found: Optional[str] = None
     for item in cookies:
         if isinstance(item, dict) and item.get("name") == SESSION_TOKEN_KEY:
             value = item.get("value")
             if isinstance(value, str):
-                return value.strip()
-    return None
+                found = value.strip()  # 命中多条时取最后一条（与 cookies.txt 一致）
+    return found
 
 
 def _from_netscape(text: str) -> Optional[str]:

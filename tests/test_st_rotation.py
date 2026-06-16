@@ -6,8 +6,8 @@ from src.core.config import config
 
 class ConfigDefaultsTests(unittest.TestCase):
     def test_st_keepalive_defaults(self):
-        self.assertIsInstance(config.st_keepalive_enabled, bool)
-        self.assertGreaterEqual(config.st_keepalive_interval_hours, 1)
+        self.assertTrue(config.st_keepalive_enabled)
+        self.assertEqual(config.st_keepalive_interval_hours, 24)
 
     def test_st_browser_refresh_disabled_by_default(self):
         # 多账号下浏览器 ST 刷新会写错号，必须默认关闭
