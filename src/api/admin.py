@@ -18,6 +18,7 @@ from ..core.config import config
 from ..services.token_manager import TokenManager
 from ..services.proxy_manager import ProxyManager
 from ..services.concurrency_manager import ConcurrencyManager
+from ..core.cookie_extractor import extract_session_token
 
 try:
     import httpx
@@ -477,7 +478,8 @@ class LoginRequest(BaseModel):
 
 
 class AddTokenRequest(BaseModel):
-    st: str
+    st: Optional[str] = None
+    raw: Optional[str] = None  # 粘贴 cookies.txt 全文 / Cookie 头 / JSON，自动抽取 ST
     project_id: Optional[str] = None  # 用户可选输入project_id
     project_name: Optional[str] = None
     remark: Optional[str] = None
@@ -486,6 +488,15 @@ class AddTokenRequest(BaseModel):
     video_enabled: bool = True
     image_concurrency: int = -1
     video_concurrency: int = -1
+
+
+def resolve_st_from_request(st: Optional[str], raw: Optional[str]) -> str:
+    """优先用 raw 粘贴内容抽取 ST；否则用直接传入的 st。两者皆空抛 ValueError。"""
+    if raw and raw.strip():
+        return extract_session_token(raw)
+    if st and st.strip():
+        return st.strip()
+    raise ValueError("必须提供 st 或 raw（cookies.txt/Cookie头/JSON）之一")
 
 
 class UpdateTokenRequest(BaseModel):
@@ -688,8 +699,12 @@ async def add_token(
 ):
     """Add a new token"""
     try:
+        try:
+            resolved_st = resolve_st_from_request(request.st, request.raw)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         new_token = await token_manager.add_token(
-            st=request.st,
+            st=resolved_st,
             project_id=request.project_id,  # 🆕 支持用户指定project_id
             project_name=request.project_name,
             remark=request.remark,
