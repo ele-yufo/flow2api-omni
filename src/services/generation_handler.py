@@ -12,12 +12,14 @@ from ..core.config import config
 from ..core.models import Task, RequestLog
 from ..core.account_tiers import (
     PAYGATE_TIER_NOT_PAID,
+    PAYGATE_TIER_ONE,
     get_paygate_tier_label,
     get_required_paygate_tier_for_model,
     normalize_user_paygate_tier,
     supports_model_for_tier,
 )
 from .file_cache import FileCache
+from .watermark_client import dewatermark_video
 
 
 # Google 端策略性拒绝（非 token 故障），这些不应计入 token 错误计数 —
@@ -2817,6 +2819,19 @@ class GenerationHandler:
                     else:
                         if stream:
                             yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
+
+                    # Pro(TIER_ONE) 视频去水印: 调本机常驻 ProPainter 服务; 失败回退原 URL,
+                    # 绝不让生成失败。Ultra(TIER_TWO)/Free 无水印, 直接透传。
+                    if config.watermark_enabled and normalize_user_paygate_tier(token.user_paygate_tier) == PAYGATE_TIER_ONE:
+                        if stream:
+                            yield self._create_stream_chunk("正在去除 Pro 水印...\n")
+                        dewm_url = await dewatermark_video(video_url, self.file_cache, self._get_base_url(response_state))
+                        if dewm_url:
+                            local_url = dewm_url
+                            if stream:
+                                yield self._create_stream_chunk("✅ 水印已去除\n")
+                        elif stream:
+                            yield self._create_stream_chunk("⚠️ 去水印未成功, 返回原视频\n")
 
                     # 更新数据库
                     task_id = operation["operation"]["name"]

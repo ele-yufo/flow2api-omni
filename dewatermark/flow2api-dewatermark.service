@@ -1,0 +1,19 @@
+[Unit]
+Description=flow2api Pro-video watermark removal service (ProPainter, resident)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust paths to your install:
+Environment=PROPAINTER_DIR=/opt/propainter
+Environment=WM_PORT=18290
+Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# Run with the torch+CUDA Python (ComfyUI venv here):
+ExecStart=/opt/ComfyUI/.venv/bin/python /opt/Projects/flow2api/dewatermark/server.py
+WorkingDirectory=/opt/Projects/flow2api/dewatermark
+Restart=on-failure
+RestartSec=5
+User=yufo
+
+[Install]
+WantedBy=multi-user.target

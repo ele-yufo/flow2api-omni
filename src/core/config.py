@@ -380,6 +380,26 @@ class Config:
             self._config["cache"] = {}
         self._config["cache"]["base_url"] = base_url
 
+    # Watermark removal (Pro video de-watermark via resident ProPainter service)
+    @property
+    def watermark_enabled(self) -> bool:
+        """Whether to de-watermark Pro (TIER_ONE) videos via the resident service."""
+        return bool(self._config.get("watermark", {}).get("enabled", False))
+
+    @property
+    def watermark_service_url(self) -> str:
+        """Base URL of the local de-watermark service (no trailing slash)."""
+        return self._config.get("watermark", {}).get("service_url", "http://127.0.0.1:18290").rstrip("/")
+
+    @property
+    def watermark_timeout_seconds(self) -> int:
+        """Max seconds to wait for the de-watermark service per video."""
+        value = self._config.get("watermark", {}).get("timeout_seconds", 120)
+        try:
+            return max(10, min(600, int(value)))
+        except Exception:
+            return 120
+
     # Captcha configuration
     @property
     def captcha_method(self) -> str:
