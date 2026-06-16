@@ -336,6 +336,7 @@ class FlowClient:
         use_media_proxy: bool = False,
         respect_fingerprint_proxy: bool = True,
         force_urllib: bool = False,
+        capture_set_cookie: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """统一HTTP请求处理
 
@@ -494,6 +495,14 @@ class FlowClient:
                     debug_logger.log_error(f"[API FAILED] Response: {response.text}")
                     
                     raise Exception(error_reason)
+
+                if capture_set_cookie is not None:
+                    try:
+                        capture_set_cookie.extend(response.headers.get_list("set-cookie"))
+                    except Exception:
+                        single = response.headers.get("set-cookie")
+                        if single:
+                            capture_set_cookie.append(single)
 
                 return response.json()
 
@@ -787,27 +796,45 @@ class FlowClient:
 
     # ========== 认证相关 (使用ST) ==========
 
-    async def st_to_at(self, st: str) -> dict:
-        """ST转AT
+    @staticmethod
+    def _extract_rotated_st_from_set_cookie(set_cookie_headers) -> Optional[str]:
+        """从响应的 Set-Cookie 头里解析轮换后的 __Secure-next-auth.session-token。
 
-        Args:
-            st: Session Token
+        labs.google /auth/session 每次会回发一个滚动续期 ~30 天的新 ST。
+        长度护栏 >= 200，防止把异常短值当成有效 ST。
+        """
+        key = "__Secure-next-auth.session-token"
+        for raw in set_cookie_headers or []:
+            if isinstance(raw, str) and raw.startswith(key + "="):
+                value = raw.split("=", 1)[1].split(";", 1)[0].strip()
+                if len(value) >= 200:
+                    return value
+        return None
+
+    async def st_to_at(self, st: str) -> dict:
+        """ST转AT；并捕获 labs.google 回发的轮换新 ST (rotated_st)。
 
         Returns:
             {
                 "access_token": "AT",
                 "expires": "2025-11-15T04:46:04.000Z",
-                "user": {...}
+                "user": {...},
+                "rotated_st": "<新 ST 或不存在该键>"
             }
         """
         url = f"{self.labs_base_url}/auth/session"
+        set_cookies: List[str] = []
         result = await self._make_request(
             method="GET",
             url=url,
             use_st=True,
             st_token=st,
             timeout=self._get_control_plane_timeout(),
+            capture_set_cookie=set_cookies,
         )
+        rotated_st = self._extract_rotated_st_from_set_cookie(set_cookies)
+        if rotated_st and rotated_st != st:
+            result["rotated_st"] = rotated_st
         return result
 
     # ========== 项目管理 (使用ST) ==========
