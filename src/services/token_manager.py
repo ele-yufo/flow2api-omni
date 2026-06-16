@@ -492,6 +492,12 @@ class TokenManager:
             new_at = result["access_token"]
             expires = result.get("expires")
 
+            # 捕获并回写轮换后的新 ST（滚动续期 ~30 天的关键）
+            rotated_st = result.get("rotated_st")
+            if rotated_st and rotated_st != st and len(rotated_st) >= 200:
+                await self.db.update_token(token_id, st=rotated_st)
+                debug_logger.log_info(f"[ST_ROTATE] Token {token_id}: ST 已滚动续期并回写库")
+
             # 解析过期时间
             new_at_expires = None
             if expires:
@@ -525,6 +531,7 @@ class TokenManager:
                 error_msg = str(verify_err)
                 if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
                     debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: AT 验证失败 (401)，ST 可能已过期")
+                    await self.db.update_token(token_id, ban_reason="ST_REVOKED")
                     return False
                 else:
                     # 其他错误（如网络问题），仍视为成功
@@ -532,7 +539,10 @@ class TokenManager:
                     return True
 
         except Exception as e:
-            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: AT刷新失败 - {str(e)}")
+            error_msg = str(e)
+            if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
+                await self.db.update_token(token_id, ban_reason="ST_REVOKED")
+            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: AT刷新失败 - {error_msg}")
             return False
 
     async def _try_refresh_st(self, token_id: int, token) -> Optional[str]:
@@ -547,6 +557,15 @@ class TokenManager:
         Returns:
             新的 ST 字符串，如果失败返回 None
         """
+        from ..core.config import config
+
+        if not config.st_browser_refresh_enabled:
+            debug_logger.log_info(
+                f"[ST_REFRESH] Token {token_id}: 浏览器 ST 刷新已禁用 "
+                f"(st_browser_refresh_enabled=false，多账号下会写错号)，跳过"
+            )
+            return None
+
         try:
             from ..core.config import config
 
@@ -590,6 +609,51 @@ class TokenManager:
         except Exception as e:
             debug_logger.log_error(f"[ST_REFRESH] Token {token_id}: 刷新 ST 失败 - {str(e)}")
             return None
+
+    async def _send_st_alert(self, token_id: int) -> None:
+        """ST 被撤销时尽力发一条 webhook 告警；无 URL 则只记日志。"""
+        from ..core.config import config
+        try:
+            token = await self.db.get_token(token_id)
+            email = token.email if token else str(token_id)
+        except Exception:
+            email = str(token_id)
+        url = config.st_alert_webhook_url
+        if not url:
+            debug_logger.log_warning(f"[ST_ALERT] Token {token_id} ({email}) ST 已失效，需重新注入")
+            return
+        try:
+            from curl_cffi.requests import AsyncSession
+            async with AsyncSession() as session:
+                await session.post(
+                    url,
+                    json={"event": "ST_REVOKED", "token_id": token_id, "email": email},
+                    timeout=10,
+                )
+        except Exception as e:
+            debug_logger.log_warning(f"[ST_ALERT] webhook 发送失败: {e}")
+
+    async def keepalive_rotate_st(self, token_id: int) -> bool:
+        """每日保活：滚动 ST 续期。直接走 _do_refresh_at（它会捕获并回写 rotated ST、
+        并仅在确认 401 时标记 ST_REVOKED），**不经过会“失败即 disable”的 _refresh_at_inner**。
+
+        只有当刷新失败且确认是 ST 被撤销 (ban_reason=ST_REVOKED) 时才 disable+告警；
+        瞬时网络错误保留账号，待下一轮重试。Returns True 表示该号仍健康。
+        """
+        token = await self.db.get_token(token_id)
+        if not token or not token.is_active:
+            return False
+        ok = await self._do_refresh_at(token_id, token.st)
+        if ok:
+            return True
+        refreshed = await self.db.get_token(token_id)
+        if refreshed and refreshed.ban_reason == "ST_REVOKED":
+            debug_logger.log_error(f"[ST_KEEPALIVE] Token {token_id}: ST 已被撤销，禁用并告警")
+            await self._send_st_alert(token_id)
+            await self.disable_token(token_id)
+        else:
+            debug_logger.log_warning(f"[ST_KEEPALIVE] Token {token_id}: 瞬时刷新失败，保留账号待下轮")
+        return False
 
     async def ensure_project_exists(self, token_id: int) -> str:
         """Ensure a token has a pooled set of projects and return one in round-robin order."""

@@ -62,3 +62,81 @@ class StToAtRotationTests(unittest.IsolatedAsyncioTestCase):
         client._make_request = AsyncMock(side_effect=fake_make_request)
         result = await client.st_to_at(LONG_ST)  # 入参 ST 与回发 ST 相同 → 不附 rotated_st
         self.assertNotIn("rotated_st", result)
+
+
+from src.services.token_manager import TokenManager
+from src.core.models import Token
+
+
+class FakeDB:
+    def __init__(self, token):
+        self._token = token
+        self.updates = []
+
+    async def get_token(self, token_id):
+        return self._token
+
+    async def update_token(self, token_id, **kwargs):
+        self.updates.append(kwargs)
+        for k, v in kwargs.items():
+            setattr(self._token, k, v)
+
+
+class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
+    def _make_manager(self, rotated_st):
+        token = Token(id=7, st="old-st", email="ruby@gmail.com", at="old-at", credits=1000)
+        db = FakeDB(token)
+        tm = TokenManager(db=db, flow_client=None)
+        fake_flow = AsyncMock()
+        fake_flow.st_to_at = AsyncMock(return_value={
+            "access_token": "new-at",
+            "expires": "2026-07-16T00:00:00.000Z",
+            "user": {"email": "ruby@gmail.com"},
+            "rotated_st": rotated_st,
+        })
+        fake_flow.get_credits = AsyncMock(return_value={"credits": 1000, "userPaygateTier": "PAYGATE_TIER_ONE"})
+        tm.flow_client = fake_flow
+        return tm, db
+
+    async def test_do_refresh_at_persists_rotated_st(self):
+        new_st = "eyJ" + "D" * 1100
+        tm, db = self._make_manager(new_st)
+        ok = await tm._do_refresh_at(7, "old-st")
+        self.assertTrue(ok)
+        self.assertTrue(any(u.get("st") == new_st for u in db.updates))
+
+    async def test_do_refresh_at_skips_when_rotated_equals_current(self):
+        tm, db = self._make_manager("old-st")  # 与当前相同
+        await tm._do_refresh_at(7, "old-st")
+        self.assertFalse(any("st" in u for u in db.updates))
+
+
+class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transient_failure_does_not_disable(self):
+        token = Token(id=7, st="old-st", email="r@x.com", is_active=True)
+        db = FakeDB(token)
+        tm = TokenManager(db=db, flow_client=AsyncMock())
+        tm._do_refresh_at = AsyncMock(return_value=False)  # 刷新失败，但 ban_reason 未变
+        tm.disable_token = AsyncMock()
+        tm._send_st_alert = AsyncMock()
+        ok = await tm.keepalive_rotate_st(7)
+        self.assertFalse(ok)
+        tm.disable_token.assert_not_called()  # 瞬时错误不禁用
+        tm._send_st_alert.assert_not_called()
+
+    async def test_revoked_disables_and_alerts(self):
+        token = Token(id=7, st="old-st", email="r@x.com", is_active=True)
+        db = FakeDB(token)
+        tm = TokenManager(db=db, flow_client=AsyncMock())
+
+        async def fake_refresh(tid, st):
+            token.ban_reason = "ST_REVOKED"  # 模拟 _do_refresh_at 在确认 401 时标记
+            return False
+
+        tm._do_refresh_at = AsyncMock(side_effect=fake_refresh)
+        tm.disable_token = AsyncMock()
+        tm._send_st_alert = AsyncMock()
+        ok = await tm.keepalive_rotate_st(7)
+        self.assertFalse(ok)
+        tm.disable_token.assert_called_once()
+        tm._send_st_alert.assert_called_once()
