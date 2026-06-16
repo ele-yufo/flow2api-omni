@@ -124,6 +124,27 @@ async def lifespan(app: FastAPI):
 
     auto_unban_task_handle = asyncio.create_task(auto_unban_task())
 
+    async def st_keepalive_task():
+        """定时任务：滚动续期所有活跃 token 的 ST（纯 HTTP，无浏览器）"""
+        interval = max(1, config.st_keepalive_interval_hours) * 3600
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                if not config.st_keepalive_enabled:
+                    continue
+                tokens = await db.get_active_tokens()
+                for token in tokens:
+                    try:
+                        await token_manager.keepalive_rotate_st(token.id)
+                    except Exception as e:
+                        print(f"⚠ ST keepalive failed for token {token.id}: {e}")
+            except Exception as e:
+                print(f"❌ ST keepalive task error: {e}")
+
+    st_keepalive_handle = None
+    if config.st_keepalive_enabled:
+        st_keepalive_handle = asyncio.create_task(st_keepalive_task())
+
     print(f"✓ Database initialized")
     print(f"✓ Total tokens: {len(tokens)}")
     print(f"✓ Cache: {'Enabled' if config.cache_enabled else 'Disabled'} (timeout: {config.cache_timeout}s)")
@@ -132,6 +153,7 @@ async def lifespan(app: FastAPI):
     else:
         print("✓ File cache cleanup task disabled (timeout <= 0)")
     print(f"✓ 429 auto-unban task started (runs every hour)")
+    print(f"✓ ST keepalive task: {'started' if config.st_keepalive_enabled else 'disabled'} (every {config.st_keepalive_interval_hours}h)")
     print(f"✓ Server running on http://{config.server_host}:{config.server_port}")
     print("=" * 60)
 
@@ -147,6 +169,13 @@ async def lifespan(app: FastAPI):
         await auto_unban_task_handle
     except asyncio.CancelledError:
         pass
+    # Stop ST keepalive task
+    if st_keepalive_handle is not None:
+        st_keepalive_handle.cancel()
+        try:
+            await st_keepalive_handle
+        except asyncio.CancelledError:
+            pass
     # Close browser if initialized
     if browser_service:
         await browser_service.close()
