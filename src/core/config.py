@@ -1,4 +1,5 @@
 """Configuration management for Flow2API"""
+import os
 import tomli
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -665,8 +666,19 @@ class Config:
             return 1
 
     @property
-    def st_alert_webhook_url(self) -> str:
-        return str(self._config.get("admin", {}).get("st_alert_webhook_url", "") or "")
+    def alert_webhook_url(self) -> str:
+        # 优先环境变量（密钥不进 git），回退 toml [admin] alert_webhook_url
+        env = os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")
+        if env:
+            return env.strip()
+        return str(self._config.get("admin", {}).get("alert_webhook_url", "") or "")
+
+    @property
+    def alert_pool_low_threshold(self) -> int:
+        try:
+            return int(self._config.get("admin", {}).get("alert_pool_low_threshold", 2))
+        except (TypeError, ValueError):
+            return 2
 
 
 # Global config instance

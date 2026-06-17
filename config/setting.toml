@@ -49,8 +49,10 @@ min_credits_to_select = 1
 
 [admin]
 error_ban_threshold = 3
-# ST 被 Google 撤销时的告警 webhook（POST JSON）。留空则只记日志
-st_alert_webhook_url = ""
+# Discord 运维告警 webhook URL。优先读环境变量 FLOW2API_ALERT_WEBHOOK_URL（密钥不进 git），留空则只记日志
+alert_webhook_url = ""
+# 可用账号池低水位阈值：活跃账号数 <= 此值时触发 Discord 告警
+alert_pool_low_threshold = 2
 
 [cache]
 enabled = false
