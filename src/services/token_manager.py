@@ -590,14 +590,19 @@ class TokenManager:
                 from ..core.config import config as _cfg
                 floor = _cfg.min_credits_to_select
                 if prev_credits is not None and prev_credits > floor >= new_credits:
-                    email = before.email if before else str(token_id)
-                    await self._alert(
-                        title="单账号额度耗尽",
-                        description=f"账号 {email} 剩余额度已降至 {new_credits}（阈值 {floor}），将不再被调度。",
-                        fields=[("账号", email, True), ("剩余额度", str(new_credits), True),
-                                ("建议操作", "为该账号充值或更换新号", False)],
-                        severity="warning",
-                    )
+                    # 额外包一层 try：让"刷新成功/失败"的返回判定与告警彻底解耦，
+                    # 即使将来 _alert 的内部保护被改动也绝不会把成功误判（防御性冗余）。
+                    try:
+                        email = before.email if before else str(token_id)
+                        await self._alert(
+                            title="单账号额度耗尽",
+                            description=f"账号 {email} 剩余额度已降至 {new_credits}（阈值 {floor}），将不再被调度。",
+                            fields=[("账号", email, True), ("剩余额度", str(new_credits), True),
+                                    ("建议操作", "为该账号充值或更换新号", False)],
+                            severity="warning",
+                        )
+                    except Exception as alert_err:
+                        debug_logger.log_warning(f"[ALERT] 额度耗尽告警异常被忽略: {alert_err}")
                 debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {new_credits}）")
                 return True
             except Exception as verify_err:
