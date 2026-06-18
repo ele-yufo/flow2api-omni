@@ -39,15 +39,33 @@ class NotifierTests(unittest.IsolatedAsyncioTestCase):
     async def test_posts_discord_body(self):
         n = AlertNotifier("https://discord.test/webhook")
         sent = {}
+        class FakeResp:
+            status_code = 204
+            text = ""
         class FakeSession:
             async def __aenter__(self): return self
             async def __aexit__(self, *a): return False
-            async def post(self, url, **kw): sent["url"] = url; sent["json"] = kw.get("json")
+            async def post(self, url, **kw):
+                sent["url"] = url; sent["json"] = kw.get("json"); return FakeResp()
         with patch("src.services.alert_notifier.AsyncSession", return_value=FakeSession()):
             ok = await n.send_alert("账号失效", "desc", fields=[("账号", "a@b.com", True)], severity="critical")
         self.assertTrue(ok)
         self.assertEqual(sent["url"], "https://discord.test/webhook")
         self.assertIn("embeds", sent["json"])
+
+    async def test_http_4xx_returns_false(self):
+        # Discord 拒绝（如 embed 格式错）应被识别为失败，而非误报成功
+        n = AlertNotifier("https://discord.test/webhook")
+        class FakeResp:
+            status_code = 400
+            text = "Bad Request"
+        class FakeSession:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k): return FakeResp()
+        with patch("src.services.alert_notifier.AsyncSession", return_value=FakeSession()):
+            ok = await n.send_alert("t", "d")
+        self.assertFalse(ok)
 
     async def test_post_exception_returns_false(self):
         n = AlertNotifier("https://discord.test/webhook")
