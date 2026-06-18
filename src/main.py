@@ -125,19 +125,21 @@ async def lifespan(app: FastAPI):
     auto_unban_task_handle = asyncio.create_task(auto_unban_task())
 
     async def st_keepalive_task():
-        """定时任务：滚动续期所有活跃 token 的 ST（纯 HTTP，无浏览器）"""
+        """定时任务：滚动续期所有活跃 token 的 ST（纯 HTTP，无浏览器）。
+
+        启动后先短暂延迟就跑一次，之后按 interval 循环——避免"先睡满 interval 再扫"
+        导致频繁重启（每次重启清零计时器）时扫描永不触发、死号/闲置号无法被发现告警。
+        """
         interval = max(1, config.st_keepalive_interval_hours) * 3600
+        initial_delay = 120  # 留时间给启动预热（打码浏览器等），随后尽快首扫
+        first = True
         while True:
             try:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(initial_delay if first else interval)
+                first = False
                 if not config.st_keepalive_enabled:
                     continue
-                tokens = await db.get_active_tokens()
-                for token in tokens:
-                    try:
-                        await token_manager.keepalive_rotate_st(token.id)
-                    except Exception as e:
-                        print(f"⚠ ST keepalive failed for token {token.id}: {e}")
+                await token_manager.keepalive_sweep()
             except Exception as e:
                 print(f"❌ ST keepalive task error: {e}")
 

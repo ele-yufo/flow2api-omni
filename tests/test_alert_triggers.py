@@ -24,6 +24,24 @@ def _tm(db):
     return tm
 
 
+class KeepaliveSweepTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sweep_tries_all_active_and_survives_errors(self):
+        # 保活扫描必须遍历所有活跃号，且单个号失败不中断其余
+        toks = [Token(id=i, st=f"s{i}", email=f"{i}@x.com", is_active=True) for i in (1, 2, 3)]
+        toks.append(Token(id=4, st="s4", email="4@x.com", is_active=False))  # 禁用号应被跳过
+        db = FakeDB(toks)
+        tm = TokenManager(db=db, flow_client=AsyncMock())
+        seen = []
+        async def fake_rotate(tid):
+            seen.append(tid)
+            if tid == 2:
+                raise RuntimeError("boom")  # 中间一个炸
+            return True
+        tm.keepalive_rotate_st = fake_rotate
+        await tm.keepalive_sweep()
+        self.assertEqual(sorted(seen), [1, 2, 3])  # 1/2/3 都被尝试，4(禁用)跳过
+
+
 class PoolLowAlertTests(unittest.IsolatedAsyncioTestCase):
     async def test_disable_below_threshold_alerts_once(self):
         toks = [Token(id=i, st=f"s{i}", email=f"{i}@x.com", is_active=True) for i in (1, 2, 3)]
