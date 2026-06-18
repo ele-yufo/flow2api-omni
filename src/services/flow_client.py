@@ -60,7 +60,7 @@ class FlowClient:
             "x-client-data": "CJS2yQEIpLbJAQipncoBCNj9ygEIlKHLAQiFoM0BGP6lzwE="
         }
         self._fallback_chromium_client_hints = {
-            "sec-ch-ua": '"Google Chrome";v="132", "Chromium";v="132", "Not_A Brand";v="24"',
+            "sec-ch-ua": '"Google Chrome";v="124", "Chromium";v="124", "Not_A Brand";v="99"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": "\"Windows\"",
         }
@@ -91,7 +91,9 @@ class FlowClient:
         
         # Fallback 必须和底层 curl_cffi Chrome impersonation 保持同一浏览器族。
         # 有头浏览器成功取到 token 时会优先使用真实指纹，这里只处理缺失指纹的兜底。
-        chrome_versions = ["130.0.0.0", "131.0.0.0", "132.0.0.0", "129.0.0.0"]
+        # 必须与 _select_impersonate_for_headers 的 JA3 版本一致(chrome124),
+        # 否则 UA 报新版、TLS 指纹却是另一版,Google 风控会判为自动化。
+        chrome_versions = ["124.0.0.0"]
 
         os_configs = [
             "Windows NT 10.0; Win64; x64",
@@ -175,7 +177,7 @@ class FlowClient:
         """Choose a TLS impersonation that does not contradict the visible UA."""
         family = self._get_user_agent_family(str(headers.get("User-Agent", "")))
         if family in ("chrome", "edge"):
-            return "chrome110"
+            return "chrome124"  # 与 UA 报的 Chrome 版本对齐(curl_cffi 0.7.3 最高支持 124)
         if family == "safari":
             return "safari15_3"
         return None
