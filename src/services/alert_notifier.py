@@ -58,8 +58,13 @@ class AlertNotifier:
         payload = build_discord_payload(title, description, fields, severity)
         try:
             async with AsyncSession() as session:
-                await session.post(self.webhook_url, json=payload, timeout=10)
-            debug_logger.log_info(f"[ALERT] 已投递: {title}")
+                resp = await session.post(self.webhook_url, json=payload, timeout=10)
+            status = getattr(resp, "status_code", 0)
+            if status >= 400:
+                body = getattr(resp, "text", "")
+                debug_logger.log_warning(f"[ALERT] 投递被拒 ({title}): HTTP {status} {str(body)[:200]}")
+                return False
+            debug_logger.log_info(f"[ALERT] 已投递: {title} (HTTP {status})")
             return True
         except Exception as e:
             debug_logger.log_warning(f"[ALERT] 投递失败 ({title}): {e}")
