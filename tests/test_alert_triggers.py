@@ -38,7 +38,7 @@ class KeepaliveSweepTests(unittest.IsolatedAsyncioTestCase):
                 raise RuntimeError("boom")  # 中间一个炸
             return True
         tm.keepalive_rotate_st = fake_rotate
-        await tm.keepalive_sweep()
+        await tm.keepalive_sweep(inter_delay=0)
         self.assertEqual(sorted(seen), [1, 2, 3])  # 1/2/3 都被尝试，4(禁用)跳过
 
 
