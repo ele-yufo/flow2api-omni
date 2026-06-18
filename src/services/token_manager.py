@@ -714,6 +714,21 @@ class TokenManager:
         await self._handle_refresh_failure(token_id, was_revoked_before)
         return False
 
+    async def keepalive_sweep(self) -> None:
+        """对所有活跃 token 跑一次保活续期；单个号失败不影响其余。
+
+        被后台保活任务调用。除续命外，也会顺带发现"已死但还挂着 active"的号
+        （如 Google 令牌已过期、闲置从未被用时刷新过）→ _do_refresh_at 命中 401 →
+        标记 ST_REVOKED → 禁用 → 发告警。
+        """
+        tokens = await self.db.get_active_tokens()
+        debug_logger.log_info(f"[ST_KEEPALIVE] 开始保活扫描，活跃账号 {len(tokens)} 个")
+        for token in tokens:
+            try:
+                await self.keepalive_rotate_st(token.id)
+            except Exception as e:
+                debug_logger.log_warning(f"[ST_KEEPALIVE] Token {token.id} 保活失败: {e}")
+
     async def ensure_project_exists(self, token_id: int) -> str:
         """Ensure a token has a pooled set of projects and return one in round-robin order."""
         project_lock = await self._get_token_lock(
