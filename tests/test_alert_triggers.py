@@ -61,3 +61,12 @@ class CreditsDrainedAlertTests(unittest.IsolatedAsyncioTestCase):
         tm = self._make(prev_credits=0, new_credits=0)
         await tm._do_refresh_at(7, "old")
         self.assertEqual(tm._alert.await_count, 0)
+
+
+class Ban429PoolLowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_429_ban_below_threshold_alerts(self):
+        # 429 禁用让可用账号跌破阈值，也应触发池告急（不只 ST_REVOKED）
+        toks = [Token(id=i, st=f"s{i}", email=f"{i}@x.com", is_active=True) for i in (1, 2, 3)]
+        db = FakeDB(toks); tm = _tm(db)
+        await tm.ban_token_for_429(1)  # 剩 2 个 → <=2 触发
+        self.assertEqual(tm._alert.await_count, 1)
