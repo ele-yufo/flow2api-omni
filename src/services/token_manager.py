@@ -21,6 +21,7 @@ class TokenManager:
         self._refresh_locks: dict[int, asyncio.Lock] = {}
         self._project_locks: dict[int, asyncio.Lock] = {}
         self._refresh_futures: dict[int, asyncio.Task] = {}
+        self._pool_low_alerted = False
 
     async def _get_token_lock(
         self,
@@ -191,10 +192,33 @@ class TokenManager:
         await self.db.update_token(token_id, is_active=True)
         # Reset error count when enabling (only reset total error_count, keep today_error_count)
         await self.db.reset_error_count(token_id)
+        # 活跃数回升后可能跨过阈值，复位池告急去重标志
+        await self._check_pool_low()
 
     async def disable_token(self, token_id: int):
         """Disable a token"""
         await self.db.update_token(token_id, is_active=False)
+        await self._check_pool_low()
+
+    async def _check_pool_low(self) -> None:
+        """检测可用账号数是否跌至阈值，带去重地触发"账号池告急"告警。
+        活跃数回升至阈值之上时复位去重标志，恢复后可再次告警。"""
+        try:
+            from ..core.config import config
+            active = await self.db.get_active_tokens()
+            threshold = config.alert_pool_low_threshold
+            if len(active) <= threshold and not self._pool_low_alerted:
+                self._pool_low_alerted = True
+                await self._alert(
+                    title="账号池告急",
+                    description=f"可用账号仅剩 {len(active)} 个（阈值 {threshold}），请尽快补充新 Pro 账号。",
+                    fields=[("可用账号数", str(len(active)), True), ("阈值", str(threshold), True)],
+                    severity="critical",
+                )
+            elif len(active) > threshold:
+                self._pool_low_alerted = False
+        except Exception as e:
+            debug_logger.log_warning(f"[ALERT] 池告急检测异常被忽略: {e}")
 
     # ========== Token添加 (支持Project创建) ==========
 
@@ -299,6 +323,8 @@ class TokenManager:
         debug_logger.log_info(
             f"[ADD_TOKEN] Token added successfully (ID: {token_id}, Email: {email}, pooled_projects={len(pooled_projects)})"
         )
+        # 新增账号后活跃数可能回升至阈值之上，复位池告急去重标志
+        await self._check_pool_low()
         return token
     async def update_token(
         self,
@@ -470,7 +496,15 @@ class TokenManager:
         )
         if newly_revoked:
             debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: ST 已被撤销，禁用并告警")
-            await self._send_st_alert(token_id)
+            token = await self.db.get_token(token_id)
+            email = token.email if token else str(token_id)
+            await self._alert(
+                title="账号失效需重登",
+                description=f"账号 {email} 的 Session Token 已被 Google 撤销/失效，需人工重登。",
+                fields=[("账号", email, True), ("Token ID", str(token_id), True),
+                        ("建议操作", "登录 labs.google/fx/tools/flow，在后台「添加账号」粘贴该号 cookies.txt", False)],
+                severity="critical",
+            )
             await self.disable_token(token_id)
         else:
             debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: 刷新失败(疑似瞬时)，保留账号待重试")
@@ -538,18 +572,34 @@ class TokenManager:
 
             # 验证 AT 有效性：通过 get_credits 测试
             try:
+                # 更新 credits 之前读一次快照，同时用于额度跨越判定与 ST_REVOKED 清除
+                before = await self.db.get_token(token_id)
+                prev_credits = before.credits if before else None
                 credits_result = await self.flow_client.get_credits(new_at)
+                new_credits = credits_result.get("credits", 0)
                 await self.db.update_token(
                     token_id,
-                    credits=credits_result.get("credits", 0),
+                    credits=new_credits,
                     user_paygate_tier=credits_result.get("userPaygateTier"),
                 )
                 # ST 证明仍健康：清除可能遗留的 ST_REVOKED（仅清这一种，勿动 429 等其它原因）
-                token_now = await self.db.get_token(token_id)
-                if token_now and token_now.ban_reason == "ST_REVOKED":
+                # 更新 credits 不改 ban_reason，故用 before 的快照判定与原"更新后再读"等价
+                if before and before.ban_reason == "ST_REVOKED":
                     await self.db.clear_token_ban(token_id)
                     debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 健康恢复，已清除 ST_REVOKED 标记")
-                debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {credits_result.get('credits', 0)}）")
+                # 额度从"足"跨越到"不足"时告警一次（仅在跨越的那次，已不足则不重发）
+                from ..core.config import config as _cfg
+                floor = _cfg.min_credits_to_select
+                if prev_credits is not None and prev_credits > floor >= new_credits:
+                    email = before.email if before else str(token_id)
+                    await self._alert(
+                        title="单账号额度耗尽",
+                        description=f"账号 {email} 剩余额度已降至 {new_credits}（阈值 {floor}），将不再被调度。",
+                        fields=[("账号", email, True), ("剩余额度", str(new_credits), True),
+                                ("建议操作", "为该账号充值或更换新号", False)],
+                        severity="warning",
+                    )
+                debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {new_credits}）")
                 return True
             except Exception as verify_err:
                 # AT 验证失败（可能返回 401），说明 ST 已过期
@@ -633,28 +683,14 @@ class TokenManager:
             debug_logger.log_error(f"[ST_REFRESH] Token {token_id}: 刷新 ST 失败 - {str(e)}")
             return None
 
-    async def _send_st_alert(self, token_id: int) -> None:
-        """ST 被撤销时尽力发一条 webhook 告警；无 URL 则只记日志。"""
-        from ..core.config import config
+    async def _alert(self, title: str, description: str, fields=None, severity: str = "warning") -> None:
+        """构造 AlertNotifier 投递告警；任何异常都不外抛，绝不影响主流程。"""
         try:
-            token = await self.db.get_token(token_id)
-            email = token.email if token else str(token_id)
-        except Exception:
-            email = str(token_id)
-        url = config.st_alert_webhook_url
-        if not url:
-            debug_logger.log_warning(f"[ST_ALERT] Token {token_id} ({email}) ST 已失效，需重新注入")
-            return
-        try:
-            from curl_cffi.requests import AsyncSession
-            async with AsyncSession() as session:
-                await session.post(
-                    url,
-                    json={"event": "ST_REVOKED", "token_id": token_id, "email": email},
-                    timeout=10,
-                )
+            from ..core.config import config
+            from .alert_notifier import AlertNotifier
+            await AlertNotifier(config.alert_webhook_url).send_alert(title, description, fields, severity)
         except Exception as e:
-            debug_logger.log_warning(f"[ST_ALERT] webhook 发送失败: {e}")
+            debug_logger.log_warning(f"[ALERT] 发送异常被忽略: {e}")
 
     async def keepalive_rotate_st(self, token_id: int) -> bool:
         """每日保活：滚动 ST 续期。直接走 _do_refresh_at（它会捕获并回写 rotated ST、

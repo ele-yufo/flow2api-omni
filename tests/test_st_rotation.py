@@ -140,32 +140,32 @@ class RefreshFailureHandlerTests(unittest.IsolatedAsyncioTestCase):
         token = Token(id=7, st="s", email="r@x.com", is_active=True, ban_reason=ban_reason)
         tm = TokenManager(db=FakeDB(token), flow_client=AsyncMock())
         tm.disable_token = AsyncMock()
-        tm._send_st_alert = AsyncMock()
+        tm._alert = AsyncMock()
         return tm
 
     async def test_newly_revoked_disables_and_alerts(self):
         tm = self._tm(ban_reason="ST_REVOKED")  # 本次刷新刚标记
         await tm._handle_refresh_failure(7, was_revoked_before=False)
         tm.disable_token.assert_called_once()
-        tm._send_st_alert.assert_called_once()
+        tm._alert.assert_called_once()
 
     async def test_stale_revoked_not_disabled(self):
         tm = self._tm(ban_reason="ST_REVOKED")  # 历史遗留
         await tm._handle_refresh_failure(7, was_revoked_before=True)
         tm.disable_token.assert_not_called()
-        tm._send_st_alert.assert_not_called()
+        tm._alert.assert_not_called()
 
     async def test_transient_not_disabled(self):
         tm = self._tm(ban_reason=None)  # 瞬时错误，未标记撤销
         await tm._handle_refresh_failure(7, was_revoked_before=False)
         tm.disable_token.assert_not_called()
-        tm._send_st_alert.assert_not_called()
+        tm._alert.assert_not_called()
 
-    async def test_send_st_alert_no_url_is_log_only(self):
-        # 默认无 webhook URL：仅记日志，不抛异常
+    async def test_alert_no_url_is_best_effort(self):
+        # 默认无 webhook URL：_alert 尽力而为，不抛异常
         token = Token(id=7, st="s", email="r@x.com")
         tm = TokenManager(db=FakeDB(token), flow_client=AsyncMock())
-        await tm._send_st_alert(7)
+        await tm._alert("t", "d")
 
 
 class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
@@ -175,11 +175,11 @@ class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
         tm = TokenManager(db=db, flow_client=AsyncMock())
         tm._do_refresh_at = AsyncMock(return_value=False)  # 刷新失败，但 ban_reason 未变
         tm.disable_token = AsyncMock()
-        tm._send_st_alert = AsyncMock()
+        tm._alert = AsyncMock()
         ok = await tm.keepalive_rotate_st(7)
         self.assertFalse(ok)
         tm.disable_token.assert_not_called()  # 瞬时错误不禁用
-        tm._send_st_alert.assert_not_called()
+        tm._alert.assert_not_called()
 
     async def test_revoked_disables_and_alerts(self):
         token = Token(id=7, st="old-st", email="r@x.com", is_active=True)
@@ -192,11 +192,11 @@ class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
 
         tm._do_refresh_at = AsyncMock(side_effect=fake_refresh)
         tm.disable_token = AsyncMock()
-        tm._send_st_alert = AsyncMock()
+        tm._alert = AsyncMock()
         ok = await tm.keepalive_rotate_st(7)
         self.assertFalse(ok)
         tm.disable_token.assert_called_once()
-        tm._send_st_alert.assert_called_once()
+        tm._alert.assert_called_once()
 
     async def test_stale_revoked_not_refalse_disabled_on_transient(self):
         # 账号历史上被标过 ST_REVOKED（但仍 active）；本次只是瞬时失败、未重新标记。
@@ -206,8 +206,8 @@ class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
         tm = TokenManager(db=db, flow_client=AsyncMock())
         tm._do_refresh_at = AsyncMock(return_value=False)  # 瞬时失败，ban_reason 未变
         tm.disable_token = AsyncMock()
-        tm._send_st_alert = AsyncMock()
+        tm._alert = AsyncMock()
         ok = await tm.keepalive_rotate_st(7)
         self.assertFalse(ok)
         tm.disable_token.assert_not_called()
-        tm._send_st_alert.assert_not_called()
+        tm._alert.assert_not_called()
