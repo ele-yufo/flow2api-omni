@@ -496,8 +496,7 @@ class TokenManager:
         )
         if newly_revoked:
             debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: ST 已被撤销，禁用并告警")
-            token = await self.db.get_token(token_id)
-            email = token.email if token else str(token_id)
+            email = refreshed.email if refreshed else str(token_id)
             await self._alert(
                 title="账号失效需重登",
                 description=f"账号 {email} 的 Session Token 已被 Google 撤销/失效，需人工重登。",
@@ -788,6 +787,8 @@ class TokenManager:
             ban_reason="429_rate_limit",
             banned_at=datetime.now(timezone.utc)
         )
+        # 429 也会让可用账号变少：触发池告急检测（任何禁用都要查）
+        await self._check_pool_low()
 
     async def auto_unban_429_tokens(self):
         """自动解禁因429被禁用的token
@@ -847,6 +848,8 @@ class TokenManager:
                 )
                 # 重置错误计数
                 await self.db.reset_error_count(token.id)
+                # 池恢复后复位池告急标志（解禁绕过了 enable_token）
+                await self._check_pool_low()
 
     # ========== 余额刷新 ==========
 
