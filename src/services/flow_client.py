@@ -2573,6 +2573,21 @@ class FlowClient:
             ]
         )
 
+    async def notify_browser_captcha_request_success(self, project_id: Optional[str] = None) -> None:
+        """通知浏览器打码服务：GENERATION 真正成功，清零该 slot 的失败 streak。
+
+        必须由 generation_handler.py 在 ✅ 生成成功路径调用。这是判定 Google
+        是否真接受 reCAPTCHA token 的唯一可靠信号（token 本地拿到不算）。
+        """
+        if not project_id or config.captcha_method != "personal":
+            return
+        try:
+            from .browser_captcha_personal import BrowserCaptchaService
+            service = await BrowserCaptchaService.get_instance(self.db)
+            await service.report_flow_success(project_id)
+        except Exception as e:
+            debug_logger.log_warning(f"[reCAPTCHA] 通知 personal 打码服务 success 失败: {e}")
+
     async def _notify_browser_captcha_error(
         self,
         browser_id: Optional[Union[int, str]] = None,
