@@ -1738,6 +1738,11 @@ class GenerationHandler:
             # 重置错误计数 (请求成功时清空连续错误计数)
             await self.token_manager.record_success(token.id)
 
+            # 真正的「Google 接受 token」信号 — 此时才清零浏览器 slot 的 reCAPTCHA streak。
+            # 不能在 token 本地拿到时清零（那样会让风控期间 streak 永远到不了 restart_threshold，
+            # 陷入无效 reload 循环 —— 2026-07-01 凌晨大规模 UNUSUAL_ACTIVITY 事故的根因）。
+            await self.flow_client.notify_browser_captcha_request_success(project_id)
+
             debug_logger.log_info(f"[GENERATION] ✅ 生成成功完成")
 
             # 7. 记录成功日志

@@ -2032,6 +2032,20 @@ class BrowserCaptchaService:
         )
         return True
 
+    async def report_flow_success(self, project_id: str) -> None:
+        """上游 GENERATION 真正成功时调用，清零该 slot 的 reCAPTCHA 失败 streak。
+
+        必须由 generation_handler.py 在 ✅ 路径调用 —— 这是判定 Google 是否真接受
+        token 的唯一可靠信号（token 本地拿到不算）。否则 streak 会被 token-success
+        信号反复重置，永远到不了 restart_threshold 做指纹更换，陷入无效 reload 循环。
+        """
+        if not project_id:
+            return
+        async with self._resident_lock:
+            slot_id, _ = self._resolve_resident_slot_for_project_locked(project_id)
+        if slot_id:
+            self._resident_error_streaks.pop(slot_id, None)
+
     async def report_flow_error(self, project_id: str, error_reason: str, error_message: str = ""):
         """上游生成接口异常时，对常驻标签页执行自愈恢复。"""
         if not project_id:
@@ -2597,7 +2611,12 @@ class BrowserCaptchaService:
         resident_info.last_used_at = time.time()
         resident_info.use_count += 1
         self._remember_project_affinity(project_id, slot_id, resident_info)
-        self._resident_error_streaks.pop(slot_id, None)
+        # 关键：不在拿到 reCAPTCHA token 时清零 streak。
+        # token 拿到只代表 v3 引擎本地评分通过，不代表 Google 服务端接受 —
+        # reCAPTCHA Enterprise 后端可能在 submit 时仍然返回 UNUSUAL_ACTIVITY。
+        # streak 应仅在 GENERATION 真正成功（Google 接受 submit）时由
+        # report_flow_success() 清零，否则连续被 Google 拒会因 streak 反复
+        # 重置而永远到不了 restart_threshold，做无效的 reload 循环。
         self._mark_browser_health(True)
         if resident_info.fingerprint:
             self._remember_fingerprint(resident_info.fingerprint)
@@ -2785,9 +2804,7 @@ class BrowserCaptchaService:
         # 最终 Fallback: 使用传统模式
         debug_logger.log_warning(f"[BrowserCaptcha] 所有常驻方式失败，fallback 到传统模式 (project: {project_id})")
         legacy_token = await self._get_token_legacy(project_id, action)
-        if legacy_token:
-            if slot_id:
-                self._resident_error_streaks.pop(slot_id, None)
+        # 不在 legacy token 拿到时清零 streak（同 line ~2600 注释，token 接受由 Google 决定）。
         return legacy_token
 
     async def _create_resident_tab(self, slot_id: str, project_id: Optional[str] = None) -> Optional[ResidentTabInfo]:

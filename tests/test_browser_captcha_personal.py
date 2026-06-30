@@ -85,6 +85,32 @@ class BrowserCaptchaPersonalTests(unittest.IsolatedAsyncioTestCase):
         self.service._restart_browser_for_project_unlocked.assert_not_awaited()
         self.service._ensure_resident_tab.assert_awaited_once()
 
+    async def test_report_flow_success_clears_streak_for_resolved_slot(self):
+        """T1-4 修复：streak 应仅在 GENERATION 真正成功（Google 接受 token）时清零。"""
+        # 模拟该 slot 历史有失败 streak
+        self.service._resident_error_streaks["slot-1"] = 5
+        self.service._resolve_resident_slot_for_project_locked = lambda pid: (
+            ("slot-1", object()) if pid == "project-1" else (None, None)
+        )
+
+        await self.service.report_flow_success("project-1")
+
+        self.assertNotIn("slot-1", self.service._resident_error_streaks)
+
+    async def test_report_flow_success_with_unknown_project_is_safe_noop(self):
+        self.service._resident_error_streaks["slot-1"] = 5
+        self.service._resolve_resident_slot_for_project_locked = lambda pid: (None, None)
+
+        await self.service.report_flow_success("unknown-project")
+
+        # 未知 project 不应误清其它 slot 的 streak
+        self.assertEqual(self.service._resident_error_streaks.get("slot-1"), 5)
+
+    async def test_report_flow_success_with_empty_project_id_is_noop(self):
+        self.service._resident_error_streaks["slot-1"] = 5
+        await self.service.report_flow_success("")
+        self.assertEqual(self.service._resident_error_streaks.get("slot-1"), 5)
+
 
 if __name__ == "__main__":
     unittest.main()
