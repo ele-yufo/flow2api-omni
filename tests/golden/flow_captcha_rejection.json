@@ -1,0 +1,8 @@
+{
+  "403_not_captcha": false,
+  "captcha": true,
+  "empty": false,
+  "recaptcha": true,
+  "unusual_activity": true,
+  "unusual_space": true
+}

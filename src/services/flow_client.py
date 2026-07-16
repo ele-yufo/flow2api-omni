@@ -16,7 +16,7 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .captcha.cooldown import CaptchaCooldownTracker
-from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
+from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import detect_image_mime_type
 from .flow.request_builders import (
@@ -2162,19 +2162,8 @@ class FlowClient:
         error_reason: Optional[str] = None,
         error_message: Optional[str] = None,
     ) -> bool:
-        # 不要把 "403" 算作 captcha rejection 信号：
-        # AT/ST 过期或 project 失效都会返回 403，被错误归类后会触发指数 backoff 冷却
-        # 最高 120s，反而掩盖真实的 token 失效信号。这里只看明确的 captcha/风控关键字。
-        text = f"{error_reason or ''} {error_message or ''}".lower()
-        return any(
-            keyword in text
-            for keyword in [
-                "recaptcha",
-                "unusual_activity",
-                "unusual activity",
-                "captcha",
-            ]
-        )
+        """委托 flow.errors。"""
+        return is_captcha_rejection_reason(error_reason, error_message)
 
     async def notify_browser_captcha_request_success(self, project_id: Optional[str] = None) -> None:
         """通知浏览器打码服务：GENERATION 真正成功，清零该 slot 的失败 streak。
