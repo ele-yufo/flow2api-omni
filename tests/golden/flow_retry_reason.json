@@ -1,0 +1,12 @@
+{
+  "200 OK": null,
+  "429 Too Many Requests": "429限流",
+  "HTTP 403 Forbidden": "403错误",
+  "HTTP Error 502 Bad Gateway": "5xx/上游瞬断",
+  "curl: (16) framing": "网络/TLS错误",
+  "reCAPTCHA evaluation failed": "reCAPTCHA 验证失败",
+  "reCAPTCHA token missing": "reCAPTCHA 错误",
+  "service unavailable": "5xx/上游瞬断",
+  "some random error": null,
+  "{\"reason\":\"internal\"}": "5xx/上游瞬断"
+}
