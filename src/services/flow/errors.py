@@ -4,6 +4,7 @@ Extracted from FlowClient (P5). These keyword tables decide fast-fail-retry beha
 on TLS/connection/timeout errors — golden-locked so a refactor can't silently drop a
 keyword and change retry semantics.
 """
+from typing import Optional
 
 
 def is_timeout_error(error) -> bool:
@@ -47,3 +48,36 @@ def is_retryable_network_error(error_str: str) -> bool:
         "badstatusline",
         "chunkedencodingerror",
     ])
+
+
+def get_retry_reason(error_str: str) -> Optional[str]:
+    """判断是否需要重试，返回日志提示内容（None 表示不重试）。"""
+    error_lower = error_str.lower()
+    if "403" in error_lower:
+        return "403错误"
+    if "429" in error_lower or "too many requests" in error_lower:
+        return "429限流"
+    if is_retryable_network_error(error_str):
+        return "网络/TLS错误"
+    if "recaptcha evaluation failed" in error_lower:
+        return "reCAPTCHA 验证失败"
+    if "recaptcha" in error_lower:
+        return "reCAPTCHA 错误"
+    if any(keyword in error_lower for keyword in [
+        "http error 500",
+        "http error 502",
+        "http error 503",
+        "http error 504",
+        "public_error",
+        "internal error",
+        "reason=internal",
+        "reason: internal",
+        "\"reason\":\"internal\"",
+        "server error",
+        "upstream error",
+        "bad gateway",
+        "service unavailable",
+        "gateway timeout",
+    ]):
+        return "5xx/上游瞬断"
+    return None

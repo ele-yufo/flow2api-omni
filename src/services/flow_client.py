@@ -15,7 +15,7 @@ from curl_cffi.requests import AsyncSession
 from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
-from .flow.errors import is_retryable_network_error, is_timeout_error
+from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error
 from .flow.request_builders import (
     build_image_request,
     build_video_extend_request,
@@ -2253,36 +2253,8 @@ class FlowClient:
         )
 
     def _get_retry_reason(self, error_str: str) -> Optional[str]:
-        """判断是否需要重试，返回日志提示内容"""
-        error_lower = error_str.lower()
-        if "403" in error_lower:
-            return "403错误"
-        if "429" in error_lower or "too many requests" in error_lower:
-            return "429限流"
-        if self._is_retryable_network_error(error_str):
-            return "网络/TLS错误"
-        if "recaptcha evaluation failed" in error_lower:
-            return "reCAPTCHA 验证失败"
-        if "recaptcha" in error_lower:
-            return "reCAPTCHA 错误"
-        if any(keyword in error_lower for keyword in [
-            "http error 500",
-            "http error 502",
-            "http error 503",
-            "http error 504",
-            "public_error",
-            "internal error",
-            "reason=internal",
-            "reason: internal",
-            "\"reason\":\"internal\"",
-            "server error",
-            "upstream error",
-            "bad gateway",
-            "service unavailable",
-            "gateway timeout",
-        ]):
-            return "5xx/上游瞬断"
-        return None
+        """委托 flow.errors。"""
+        return get_retry_reason(error_str)
 
     def _is_captcha_rejection_reason(
         self,
