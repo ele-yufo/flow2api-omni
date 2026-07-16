@@ -39,6 +39,9 @@ def test_result_state_helpers():
     assert r == {"success": False, "error_message": "boom", "error_emitted": True}
     mark_generation_succeeded(r)
     assert r == {"success": True, "error_message": None, "error_emitted": False}
+    from src.services.generation.state import get_no_token_error_message
+    assert "图片生成" in get_no_token_error_message("image")
+    assert "视频生成" in get_no_token_error_message("video")
     assert normalize_error_message("") == "未知错误"
     assert normalize_error_message("x" * 2000).endswith("...")
     assert len(normalize_error_message("x" * 2000)) == 1000

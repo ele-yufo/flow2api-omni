@@ -31,6 +31,7 @@ from .generation.state import (
     create_response_state,
     mark_generation_failed,
     mark_generation_succeeded,
+    get_no_token_error_message,
     normalize_error_message,
     resolve_video_model_key_for_tier,
 )
@@ -528,11 +529,8 @@ class GenerationHandler:
 
 
     def _get_no_token_error_message(self, generation_type: str) -> str:
-        """获取无可用Token时的详细错误信息"""
-        if generation_type == "image":
-            return "没有可用的Token进行图片生成。所有Token都处于禁用、冷却、锁定或已过期状态。"
-        else:
-            return "没有可用的Token进行视频生成。所有Token都处于禁用、冷却、配额耗尽或已过期状态。"
+        """委托 generation.state。"""
+        return get_no_token_error_message(generation_type)
 
     async def _handle_image_generation(
         self,
