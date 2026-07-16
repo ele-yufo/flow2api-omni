@@ -48,3 +48,18 @@ def extract_rotated_st_from_set_cookie(set_cookie_headers) -> Optional[str]:
             if len(value) >= MIN_ST_LEN:
                 return value
     return None
+
+
+def extract_google_error_reason(status_code: int, error_body) -> str:
+    """从 Google API 错误响应体提取可读 reason(details[].reason + error.message)。"""
+    reason = f"HTTP Error {status_code}"
+    if isinstance(error_body, dict) and "error" in error_body:
+        error_info = error_body["error"] or {}
+        message = error_info.get("message", "")
+        for detail in error_info.get("details", []) or []:
+            if isinstance(detail, dict) and detail.get("reason"):
+                reason = detail.get("reason")
+                break
+        if message:
+            reason = f"{reason}: {message}"
+    return reason

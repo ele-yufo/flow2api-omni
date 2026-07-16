@@ -24,7 +24,7 @@ from .flow.transport import (
     sync_json_request_via_urllib,
 )
 from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
-from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
+from .flow.response_parsers import extract_google_error_reason, extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import convert_to_jpeg, detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
@@ -372,22 +372,9 @@ class FlowClient:
 
                 # 检查HTTP错误
                 if response.status_code >= 400:
-                    # 解析错误响应
-                    error_reason = f"HTTP Error {response.status_code}"
+                    # 解析错误响应(纯解析已抽到 flow.response_parsers)
                     try:
-                        error_body = response.json()
-                        # 提取 Google API 错误格式中的 reason
-                        if "error" in error_body:
-                            error_info = error_body["error"]
-                            error_message = error_info.get("message", "")
-                            # 从 details 中提取 reason
-                            details = error_info.get("details", [])
-                            for detail in details:
-                                if detail.get("reason"):
-                                    error_reason = detail.get("reason")
-                                    break
-                            if error_message:
-                                error_reason = f"{error_reason}: {error_message}"
+                        error_reason = extract_google_error_reason(response.status_code, response.json())
                     except:
                         error_reason = f"HTTP Error {response.status_code}: {response.text[:200]}"
                     

@@ -31,3 +31,12 @@ def test_response_parsers_golden():
     assert out["fallback_curl16"] is True
     assert out["fallback_no"] is False
     assert_golden("flow_response_parsers", out)
+
+
+def test_extract_google_error_reason():
+    from src.services.flow.response_parsers import extract_google_error_reason
+    assert extract_google_error_reason(403, {"error": {"message": "denied",
+        "details": [{"reason": "PERMISSION_DENIED"}]}}) == "PERMISSION_DENIED: denied"
+    assert extract_google_error_reason(500, {"error": {"message": "boom"}}) == "HTTP Error 500: boom"
+    assert extract_google_error_reason(404, None) == "HTTP Error 404"
+    assert extract_google_error_reason(400, {"no_error": 1}) == "HTTP Error 400"
