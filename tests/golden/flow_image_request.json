@@ -1,0 +1,106 @@
+{
+  "i2i": {
+    "json_data": {
+      "clientContext": {
+        "projectId": "proj-1",
+        "recaptchaContext": {
+          "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+          "token": "RECAPTCHA_FIXED"
+        },
+        "sessionId": "SESSION_FIXED",
+        "tool": "PINHOLE"
+      },
+      "mediaGenerationContext": {
+        "batchId": "00000000-0000-0000-0000-000000000000"
+      },
+      "requests": [
+        {
+          "clientContext": {
+            "projectId": "proj-1",
+            "recaptchaContext": {
+              "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+              "token": "RECAPTCHA_FIXED"
+            },
+            "sessionId": "SESSION_FIXED",
+            "tool": "PINHOLE"
+          },
+          "imageAspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+          "imageInputs": [
+            {
+              "mediaId": "ref-1"
+            }
+          ],
+          "imageModelName": "GEM_PIX_2",
+          "seed": 77,
+          "structuredPrompt": {
+            "parts": [
+              {
+                "text": "a red apple"
+              }
+            ]
+          }
+        }
+      ],
+      "useNewMedia": true
+    },
+    "result": {
+      "media": [
+        {
+          "name": "img-1"
+        }
+      ]
+    },
+    "session_id": "SESSION_FIXED",
+    "url": "https://aisandbox-pa.googleapis.com/v1/projects/proj-1/flowMedia:batchGenerateImages"
+  },
+  "t2i": {
+    "json_data": {
+      "clientContext": {
+        "projectId": "proj-1",
+        "recaptchaContext": {
+          "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+          "token": "RECAPTCHA_FIXED"
+        },
+        "sessionId": "SESSION_FIXED",
+        "tool": "PINHOLE"
+      },
+      "mediaGenerationContext": {
+        "batchId": "00000000-0000-0000-0000-000000000000"
+      },
+      "requests": [
+        {
+          "clientContext": {
+            "projectId": "proj-1",
+            "recaptchaContext": {
+              "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+              "token": "RECAPTCHA_FIXED"
+            },
+            "sessionId": "SESSION_FIXED",
+            "tool": "PINHOLE"
+          },
+          "imageAspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
+          "imageInputs": [],
+          "imageModelName": "GEM_PIX_2",
+          "seed": 77,
+          "structuredPrompt": {
+            "parts": [
+              {
+                "text": "a red apple"
+              }
+            ]
+          }
+        }
+      ],
+      "useNewMedia": true
+    },
+    "result": {
+      "media": [
+        {
+          "name": "img-1"
+        }
+      ]
+    },
+    "session_id": "SESSION_FIXED",
+    "url": "https://aisandbox-pa.googleapis.com/v1/projects/proj-1/flowMedia:batchGenerateImages"
+  }
+}

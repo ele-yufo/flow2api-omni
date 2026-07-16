@@ -17,6 +17,7 @@ from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .flow.errors import is_retryable_network_error, is_timeout_error
 from .flow.request_builders import (
+    build_image_request,
     build_video_image_request,
     build_video_reference_images_request,
     build_video_text_input,
@@ -1113,39 +1114,17 @@ class FlowClient:
                 await progress_callback("submitting_image", 48)
             session_id = self._generate_session_id()
 
-            # 构建请求 - 新版接口在外层和 requests 内都带 clientContext
-            client_context = {
-                "recaptchaContext": {
-                    "token": recaptcha_token,
-                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                },
-                "sessionId": session_id,
-                "projectId": project_id,
-                "tool": "PINHOLE"
-            }
-
-            # 新版图片接口使用结构化提示词 + new media 开关
-            request_data = {
-                "clientContext": client_context,
-                "seed": random.randint(1, 999999),
-                "imageModelName": model_name,
-                "imageAspectRatio": aspect_ratio,
-                "structuredPrompt": {
-                    "parts": [{
-                        "text": prompt
-                    }]
-                },
-                "imageInputs": image_inputs or []
-            }
-
-            json_data = {
-                "clientContext": client_context,
-                "mediaGenerationContext": {
-                    "batchId": str(uuid.uuid4())
-                },
-                "useNewMedia": True,
-                "requests": [request_data]
-            }
+            json_data = build_image_request(
+                recaptcha_token=recaptcha_token,
+                session_id=session_id,
+                project_id=project_id,
+                seed=random.randint(1, 999999),
+                model_name=model_name,
+                aspect_ratio=aspect_ratio,
+                prompt=prompt,
+                image_inputs=image_inputs,
+                batch_id=str(uuid.uuid4()),
+            )
 
             try:
                 result = await self._make_image_generation_request(
