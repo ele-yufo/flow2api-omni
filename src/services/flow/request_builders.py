@@ -68,3 +68,52 @@ def build_video_text_request(
         json_data["useV2ModelConfig"] = True
 
     return json_data
+
+
+def build_video_reference_images_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    user_paygate_tier: str,
+    aspect_ratio: str,
+    seed: int,
+    prompt: str,
+    model_key: str,
+    reference_images: list,
+    scene_id: str,
+    batch_id: str,
+) -> Dict[str, Any]:
+    """Assemble the batchAsyncGenerateVideoReferenceImages (R2V) request body."""
+    return {
+        "mediaGenerationContext": {
+            "batchId": batch_id
+        },
+        "clientContext": {
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            },
+            "sessionId": session_id,
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier
+        },
+        "requests": [{
+            "aspectRatio": aspect_ratio,
+            "seed": seed,
+            "textInput": {
+                "structuredPrompt": {
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }
+            },
+            "videoModelKey": model_key,
+            "referenceImages": reference_images,
+            "metadata": {
+                "sceneId": scene_id
+            }
+        }],
+        "useV2ModelConfig": True
+    }

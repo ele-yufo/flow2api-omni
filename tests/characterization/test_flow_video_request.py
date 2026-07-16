@@ -68,3 +68,48 @@ def test_video_text_request_contract_golden(monkeypatch):
     assert jd["clientContext"]["recaptchaContext"]["token"] == "RECAPTCHA_FIXED"
     assert out["v2"]["request"]["json_data"]["useV2ModelConfig"] is True
     assert_golden("flow_video_text_request", out)
+
+
+def _capture_video_r2v_request(monkeypatch):
+    from src.services import flow_client as fc_mod
+    from src.services.flow_client import FlowClient
+
+    fc = FlowClient(None)
+    monkeypatch.setattr(fc_mod.random, "randint", lambda a, b: 42)
+    monkeypatch.setattr(fc_mod.uuid, "uuid4", lambda: _FixedUUID())
+    fc._generate_session_id = lambda: "SESSION_FIXED"
+    fc._get_recaptcha_token = AsyncMock(return_value=("RECAPTCHA_FIXED", "browser-1"))
+    fc._clear_captcha_rejection = lambda project_id: None
+    fc._notify_browser_captcha_request_finished = AsyncMock(return_value=None)
+
+    captured = {}
+
+    async def fake_make_request(**kwargs):
+        captured.update(kwargs)
+        return {"operations": [{"operation": {"name": "task-r2v"}}], "remainingCredits": 800}
+
+    fc._make_request = AsyncMock(side_effect=fake_make_request)
+
+    async def run():
+        return await fc.generate_video_reference_images(
+            at="AT_FIXED",
+            project_id="proj-1",
+            prompt="blend these references",
+            model_key="veo_3_1_r2v_fast",
+            aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+            reference_images=[{"imageUsageType": "IMAGE_USAGE_TYPE_ASSET", "mediaId": "m1"}],
+            user_paygate_tier="PAYGATE_TIER_ONE",
+        )
+
+    result = asyncio.run(run())
+    return {"request": {"url": captured.get("url"), "json_data": captured.get("json_data")},
+            "result": result}
+
+
+def test_video_r2v_request_contract_golden(monkeypatch):
+    out = _capture_video_r2v_request(monkeypatch)
+    jd = out["request"]["json_data"]
+    assert out["request"]["url"].endswith("/video:batchAsyncGenerateVideoReferenceImages")
+    assert jd["requests"][0]["referenceImages"][0]["mediaId"] == "m1"
+    assert jd["useV2ModelConfig"] is True
+    assert_golden("flow_video_r2v_request", out)
