@@ -1,0 +1,14 @@
+{
+  "delay_after_clear": 10.0,
+  "delays": [
+    10.0,
+    20.0,
+    40.0,
+    80.0,
+    120.0,
+    120.0
+  ],
+  "global_key": "_global",
+  "remaining_after_advance": 0.0,
+  "remaining_immediate": 120.0
+}

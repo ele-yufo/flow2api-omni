@@ -15,6 +15,7 @@ from curl_cffi.requests import AsyncSession
 from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
+from .captcha.cooldown import CaptchaCooldownTracker
 from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import detect_image_mime_type
@@ -58,8 +59,7 @@ class FlowClient:
             default=None
         )
         self._remote_browser_prefill_last_sent: Dict[str, float] = {}
-        self._captcha_rejection_streaks: Dict[str, int] = {}
-        self._captcha_cooldowns_until: Dict[str, float] = {}
+        self._captcha_cooldown = CaptchaCooldownTracker()
 
         # 发车策略改为“请求到就发”：
         # 不在 flow2api 本地对提交做批次整形或排队，避免把同批请求打成阶梯。
@@ -97,29 +97,20 @@ class FlowClient:
         return None
 
     def _captcha_cooldown_key(self, project_id: Optional[str]) -> str:
-        return str(project_id or "").strip() or "_global"
+        """委托 CaptchaCooldownTracker。"""
+        return self._captcha_cooldown.key(project_id)
 
     def _record_captcha_rejection(self, project_id: Optional[str]) -> float:
-        key = self._captcha_cooldown_key(project_id)
-        streak = int(self._captcha_rejection_streaks.get(key, 0) or 0) + 1
-        self._captcha_rejection_streaks[key] = streak
-        delay = min(120.0, 10.0 * (2 ** (streak - 1)))
-        self._captcha_cooldowns_until[key] = time.monotonic() + delay
-        debug_logger.log_warning(
-            f"[reCAPTCHA] upstream rejection streak={streak}, cooldown={delay:.0f}s, project_id={project_id}"
-        )
-        return delay
+        """委托 CaptchaCooldownTracker。"""
+        return self._captcha_cooldown.record_rejection(project_id)
 
     def _get_captcha_cooldown_delay(self, project_id: Optional[str]) -> float:
-        key = self._captcha_cooldown_key(project_id)
-        until = float(self._captcha_cooldowns_until.get(key, 0.0) or 0.0)
-        remaining = until - time.monotonic()
-        return remaining if remaining > 0 else 0.0
+        """委托 CaptchaCooldownTracker。"""
+        return self._captcha_cooldown.get_cooldown_delay(project_id)
 
     def _clear_captcha_rejection(self, project_id: Optional[str]):
-        key = self._captcha_cooldown_key(project_id)
-        self._captcha_rejection_streaks.pop(key, None)
-        self._captcha_cooldowns_until.pop(key, None)
+        """委托 CaptchaCooldownTracker。"""
+        self._captcha_cooldown.clear(project_id)
 
     async def _wait_for_captcha_cooldown(self, project_id: Optional[str], action: str):
         delay = self._get_captcha_cooldown_delay(project_id)
