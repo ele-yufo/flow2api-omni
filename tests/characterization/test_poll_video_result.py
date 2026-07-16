@@ -134,6 +134,18 @@ def test_success_fetches_media_url_when_fife_missing():
     assert "https://signed/cdn.mp4" in payload["choices"][0]["message"]["content"]
 
 
+def test_url_empty_after_media_fetch_returns_502():
+    # fifeUrl 缺失且换签名 URL 也失败(None) -> 视频URL为空 -> 502
+    gh = _make_handler(check_result=_successful_result(fife_url=None))
+    gh.flow_client.get_media_url = AsyncMock(return_value=None)
+    chunks, gr = asyncio.run(_drive(gh, [{"operation": {"name": "t"}}]))
+
+    err = json.loads(chunks[0])["error"]
+    assert err["status_code"] == 502
+    assert "视频URL为空" in err["message"]
+    assert gr["success"] is False
+
+
 def test_failed_status_returns_502():
     result = {"operations": [{
         "status": "MEDIA_GENERATION_STATUS_FAILED",

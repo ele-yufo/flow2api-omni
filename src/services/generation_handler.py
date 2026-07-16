@@ -1094,6 +1094,22 @@ class GenerationHandler:
         finally:
             pass
 
+    async def _emit_video_failure(
+        self, fail_target, fail_message, generation_result, response_message,
+        status_code, stream, stream_error_chunk=False,
+    ) -> AsyncGenerator:
+        """收口视频失败发射:标记任务失败 + 标记生成失败 + (可选流式❌) + yield 错误响应。
+
+        从 _poll_video_result 的 5 处重复失败块抽出,行为逐字不变。
+        fail_message 落库/日志用,response_message 返回给用户(二者可不同——如
+        FAILED 分支落库带 code 而返回是友好文案)。由 test_poll_video_result 守护。
+        """
+        await self._fail_video_task(fail_target, fail_message)
+        self._mark_generation_failed(generation_result, response_message)
+        if stream and stream_error_chunk:
+            yield self._create_stream_chunk(f"❌ {response_message}\n")
+        yield self._create_error_response(response_message, status_code=status_code)
+
     async def _finalize_video_success(
         self, video_url, token, operation, stream, response_state,
         generation_result, request_log_state,
@@ -1250,9 +1266,9 @@ class GenerationHandler:
 
                     if not video_url:
                         error_msg = "视频生成失败: 视频URL为空"
-                        await self._fail_video_task(checked_operations, error_msg)
-                        self._mark_generation_failed(generation_result, error_msg)
-                        yield self._create_error_response(error_msg, status_code=502)
+                        async for _c in self._emit_video_failure(
+                            checked_operations, error_msg, generation_result, error_msg, 502, stream):
+                            yield _c
                         return
 
                     # ========== 视频放大处理 ==========
@@ -1556,27 +1572,21 @@ class GenerationHandler:
                     error_code = error_info.get("code", "unknown")
                     error_message = error_info.get("message", "未知错误")
                     
-                    # 更新数据库任务状态
-                    await self._fail_video_task(
-                        checked_operations,
-                        f"{error_message} (code: {error_code})"
-                    )
-                    
-                    # 返回友好的错误消息，提示用户重试
+                    # 返回友好的错误消息，提示用户重试(落库带 code,返回用友好文案)
                     friendly_error = f"视频生成失败: {error_message}，请重试"
-                    self._mark_generation_failed(generation_result, friendly_error)
-                    if stream:
-                        yield self._create_stream_chunk(f"❌ {friendly_error}\n")
-                    yield self._create_error_response(friendly_error, status_code=502)
+                    async for _c in self._emit_video_failure(
+                        checked_operations, f"{error_message} (code: {error_code})",
+                        generation_result, friendly_error, 502, stream, stream_error_chunk=True):
+                        yield _c
                     return
 
                 elif status and status.startswith("MEDIA_GENERATION_STATUS_ERROR"):
                     # status 可能为 None（上游响应缺字段）；不加 guard 会抛 AttributeError
                     # 进入外层 except，浪费 consecutive_poll_errors 直到 3 次后才判失败。
                     error_msg = f"视频生成失败: {status}"
-                    await self._fail_video_task(checked_operations, error_msg)
-                    self._mark_generation_failed(generation_result, error_msg)
-                    yield self._create_error_response(error_msg, status_code=502)
+                    async for _c in self._emit_video_failure(
+                        checked_operations, error_msg, generation_result, error_msg, 502, stream):
+                        yield _c
                     return
 
             except Exception as e:
@@ -1585,11 +1595,9 @@ class GenerationHandler:
                 debug_logger.log_error(f"Poll error: {str(e)}")
                 if consecutive_poll_errors >= max_consecutive_poll_errors:
                     error_msg = f"视频状态查询失败: {self._normalize_error_message(e)}"
-                    await self._fail_video_task(operations, error_msg)
-                    self._mark_generation_failed(generation_result, error_msg)
-                    if stream:
-                        yield self._create_stream_chunk(f"❌ {error_msg}\n")
-                    yield self._create_error_response(error_msg, status_code=502)
+                    async for _c in self._emit_video_failure(
+                        operations, error_msg, generation_result, error_msg, 502, stream, stream_error_chunk=True):
+                        yield _c
                     return
                 continue
 
@@ -1598,9 +1606,9 @@ class GenerationHandler:
             error_msg = f"视频状态查询持续失败: {self._normalize_error_message(last_poll_error)}"
         else:
             error_msg = f"视频生成超时 (已轮询 {max_attempts} 次)"
-        await self._fail_video_task(operations, error_msg)
-        self._mark_generation_failed(generation_result, error_msg)
-        yield self._create_error_response(error_msg, status_code=504)
+        async for _c in self._emit_video_failure(
+            operations, error_msg, generation_result, error_msg, 504, stream):
+            yield _c
 
     # ========== 响应格式化 ==========
 
