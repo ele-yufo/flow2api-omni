@@ -177,3 +177,51 @@ def build_video_image_request(
         json_data["useV2ModelConfig"] = True
 
     return json_data
+
+
+def build_image_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    seed: int,
+    model_name: str,
+    aspect_ratio: str,
+    prompt: str,
+    image_inputs: Optional[list],
+    batch_id: str,
+) -> Dict[str, Any]:
+    """Assemble the flowMedia:batchGenerateImages request body.
+
+    clientContext appears both top-level and inside the single request (matching the
+    upstream new-media image API). imageInputs is [] for text-to-image.
+    """
+    client_context = {
+        "recaptchaContext": {
+            "token": recaptcha_token,
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+        },
+        "sessionId": session_id,
+        "projectId": project_id,
+        "tool": "PINHOLE"
+    }
+    request_data = {
+        "clientContext": client_context,
+        "seed": seed,
+        "imageModelName": model_name,
+        "imageAspectRatio": aspect_ratio,
+        "structuredPrompt": {
+            "parts": [{
+                "text": prompt
+            }]
+        },
+        "imageInputs": image_inputs or []
+    }
+    return {
+        "clientContext": client_context,
+        "mediaGenerationContext": {
+            "batchId": batch_id
+        },
+        "useNewMedia": True,
+        "requests": [request_data]
+    }
