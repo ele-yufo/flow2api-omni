@@ -1,0 +1,95 @@
+{
+  "v1": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "textInput": {
+              "prompt": "a cat chasing a butterfly"
+            },
+            "videoModelKey": "veo_3_1_t2v_fast_landscape"
+          }
+        ]
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText",
+      "use_at": true
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-1"
+          }
+        }
+      ],
+      "remainingCredits": 900
+    }
+  },
+  "v2": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "mediaGenerationContext": {
+          "audioFailurePreference": "BLOCK_SILENCED_VIDEOS",
+          "batchId": "00000000-0000-0000-0000-000000000000"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "textInput": {
+              "structuredPrompt": {
+                "parts": [
+                  {
+                    "text": "a cat chasing a butterfly"
+                  }
+                ]
+              }
+            },
+            "videoModelKey": "veo_3_1_t2v_fast_landscape"
+          }
+        ],
+        "useV2ModelConfig": true
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText",
+      "use_at": true
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-1"
+          }
+        }
+      ],
+      "remainingCredits": 900
+    }
+  }
+}
