@@ -38,6 +38,7 @@ from .generation.state import (
 )
 from .generation.response_parsing import (
     coerce_media_status_to_operations,
+    is_media_generation_failed,
     normalize_media_id_to_uuid_str,
     normalize_video_submit_response,
 )
@@ -1241,7 +1242,7 @@ class GenerationHandler:
                                                         )
                                                     up_ok = True
                                                     break
-                                                elif ups_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (ups_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                                elif is_media_generation_failed(ups_status):
                                                     if stream:
                                                         yield self._create_stream_chunk("⚠️ 视频放大失败，将使用原始视频进行延长\n")
                                                     break
@@ -1346,7 +1347,7 @@ class GenerationHandler:
                                                 extend_media_id = ext_video_info.get("mediaGenerationId")
                                                 extend_success = True
                                                 break
-                                            elif ext_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (ext_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                            elif is_media_generation_failed(ext_status):
                                                 if stream:
                                                     yield self._create_stream_chunk("⚠️ 视频延长失败，返回原始视频\n")
                                                 break
@@ -1396,7 +1397,7 @@ class GenerationHandler:
                                                     encoded_video = c_result.get("encodedVideo")
                                                     concat_success = True
                                                     break
-                                                elif c_status in ("MEDIA_GENERATION_STATUS_FAILED",) or (c_status or "").startswith("MEDIA_GENERATION_STATUS_ERROR"):
+                                                elif is_media_generation_failed(c_status):
                                                     break
                                                 if stream and c_attempt % 10 == 0:
                                                     yield self._create_stream_chunk(f"拼接进度: {min(int((c_attempt / concat_max_attempts) * 100), 95)}%\n")

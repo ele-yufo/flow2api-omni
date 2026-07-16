@@ -8,6 +8,17 @@ import uuid
 from typing import Any, Dict, List
 
 
+def is_media_generation_failed(status: Any) -> bool:
+    """媒体生成终态失败判定:显式 FAILED,或任何 MEDIA_GENERATION_STATUS_ERROR* 前缀。
+
+    None-safe。与原 3 处内联
+    `x in ("MEDIA_GENERATION_STATUS_FAILED",) or (x or "").startswith("...ERROR")`
+    逐字等价。
+    """
+    return status in ("MEDIA_GENERATION_STATUS_FAILED",) or \
+        (status or "").startswith("MEDIA_GENERATION_STATUS_ERROR")
+
+
 def normalize_media_id_to_uuid_str(raw_media_id: str) -> str:
     """把原始 media id 归一化为标准 UUID 字符串;不是合法 UUID 时原样返回。
 
