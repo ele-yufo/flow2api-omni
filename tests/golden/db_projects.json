@@ -1,0 +1,15 @@
+{
+  "after_delete": null,
+  "by_id": {
+    "is_active": true,
+    "project_id": "uuid-1",
+    "project_name": "P1",
+    "token_id": 1,
+    "tool_name": "PINHOLE"
+  },
+  "by_token_count": 2,
+  "by_token_names": [
+    "P1",
+    "P2"
+  ]
+}
