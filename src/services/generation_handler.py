@@ -21,6 +21,11 @@ from ..core.account_tiers import (
 )
 from .file_cache import FileCache
 from .watermark_client import dewatermark_video
+from .generation.responses import (
+    create_completion_response,
+    create_error_response,
+    create_stream_chunk,
+)
 
 
 # Google 端策略性拒绝（非 token 故障），这些不应计入 token 错误计数 —
@@ -1698,87 +1703,16 @@ class GenerationHandler:
     # ========== 响应格式化 ==========
 
     def _create_stream_chunk(self, content: str, role: str = None, finish_reason: str = None) -> str:
-        """创建流式响应chunk"""
-        import json
-        import time
-
-        chunk = {
-            "id": f"chatcmpl-{int(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "flow2api",
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": finish_reason
-            }]
-        }
-
-        if role:
-            chunk["choices"][0]["delta"]["role"] = role
-
-        if finish_reason:
-            chunk["choices"][0]["delta"]["content"] = content
-        else:
-            chunk["choices"][0]["delta"]["reasoning_content"] = content
-
-        return f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        """创建流式响应chunk（委托 generation.responses,保留方法便于 91 处调用点不变）"""
+        return create_stream_chunk(content, role, finish_reason)
 
     def _create_completion_response(self, content: str, media_type: str = "image", is_availability_check: bool = False) -> str:
-        """创建非流式响应
-
-        Args:
-            content: 媒体URL或纯文本消息
-            media_type: 媒体类型 ("image" 或 "video")
-            is_availability_check: 是否为可用性检查响应 (纯文本消息)
-
-        Returns:
-            JSON格式的响应
-        """
-        import json
-        import time
-
-        # 可用性检查: 返回纯文本消息
-        if is_availability_check:
-            formatted_content = content
-        else:
-            # 媒体生成: 根据媒体类型格式化内容为Markdown
-            if media_type == "video":
-                formatted_content = f"```html\n<video src='{content}' controls></video>\n```"
-            else:  # image
-                formatted_content = f"![Generated Image]({content})"
-
-        response = {
-            "id": f"chatcmpl-{int(time.time())}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "flow2api",
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": formatted_content
-                },
-                "finish_reason": "stop"
-            }]
-        }
-
-        return json.dumps(response, ensure_ascii=False)
+        """创建非流式响应（委托 generation.responses）"""
+        return create_completion_response(content, media_type, is_availability_check)
 
     def _create_error_response(self, error_message: str, status_code: int = 500) -> str:
-        """创建错误响应"""
-        import json
-
-        error = {
-            "error": {
-                "message": error_message,
-                "type": "server_error" if status_code >= 500 else "invalid_request_error",
-                "code": "generation_failed",
-                "status_code": status_code,
-            }
-        }
-
-        return json.dumps(error, ensure_ascii=False)
+        """创建错误响应（委托 generation.responses）"""
+        return create_error_response(error_message, status_code)
 
     def _get_base_url(self, response_state: Optional[Dict[str, Any]] = None) -> str:
         """获取基础URL用于缓存文件访问"""
