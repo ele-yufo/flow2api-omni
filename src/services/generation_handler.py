@@ -35,11 +35,13 @@ from .generation.state import (
     normalize_error_message,
     resolve_base_url,
     resolve_video_model_key_for_tier,
+    truncate_prompt_for_log,
 )
 from .generation.response_parsing import (
     coerce_media_status_to_operations,
     extract_video_info,
     is_media_generation_failed,
+    poll_progress_percent,
     normalize_media_id_to_uuid_str,
     normalize_video_submit_response,
 )
@@ -213,7 +215,7 @@ class GenerationHandler:
         model_config = MODEL_CONFIG[model]
         generation_type = model_config["type"]
         request_operation = f"generate_{generation_type}"
-        prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+        prompt_for_log = truncate_prompt_for_log(prompt)
         request_payload = {
             "model": model,
             "prompt": prompt_for_log,
@@ -394,7 +396,7 @@ class GenerationHandler:
                 perf_trace["status"] = "failed"
                 perf_trace["total_ms"] = int(duration * 1000)
                 perf_trace["error"] = error_msg
-                prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+                prompt_for_log = truncate_prompt_for_log(prompt)
                 await self._log_request(
                     token.id if token else None,
                     request_operation,
@@ -430,7 +432,7 @@ class GenerationHandler:
             perf_trace["status"] = "success"
             perf_trace["total_ms"] = int(duration * 1000)
             # 日志中保留更完整的 prompt，避免管理页只看到过短内容
-            prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+            prompt_for_log = truncate_prompt_for_log(prompt)
 
             # 构建响应数据，包含生成的URL
             response_data = {
@@ -478,7 +480,7 @@ class GenerationHandler:
             perf_trace["status"] = "failed"
             perf_trace["total_ms"] = int(duration * 1000)
             perf_trace["error"] = error_msg
-            prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+            prompt_for_log = truncate_prompt_for_log(prompt)
             await self._log_request(
                 token.id if token else None,
                 request_operation if generation_type else "generate_unknown",
@@ -503,7 +505,7 @@ class GenerationHandler:
             perf_trace["status"] = "failed"
             perf_trace["total_ms"] = int(duration * 1000)
             perf_trace["error"] = error_msg
-            prompt_for_log = prompt if len(prompt) <= 2000 else f"{prompt[:2000]}...(truncated)"
+            prompt_for_log = truncate_prompt_for_log(prompt)
             await self._log_request(
                 token.id if token else None,
                 request_operation if generation_type else "generate_unknown",
@@ -1244,7 +1246,7 @@ class GenerationHandler:
                 # 状态更新 - 每20秒报告一次 (poll_interval=3秒, 20秒约7次轮询)
                 progress_update_interval = 7  # 每7次轮询 = 21秒
                 if stream and attempt % progress_update_interval == 0:  # 每20秒报告一次
-                    progress = min(int((attempt / max_attempts) * 100), 95)
+                    progress = poll_progress_percent(attempt, max_attempts)
                     await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="video_polling", progress=max(45, progress), response_extra={"upstream_status": status})
                     yield self._create_stream_chunk(f"生成进度: {progress}%\n")
 
@@ -1318,7 +1320,7 @@ class GenerationHandler:
                                                 ups_op = ups_ops[0]
                                                 ups_status = ups_op.get("status")
                                                 if stream and ups_attempt % 7 == 0:
-                                                    yield self._create_stream_chunk(f"放大进度: {min(int((ups_attempt / ups_max) * 100), 95)}%\n")
+                                                    yield self._create_stream_chunk(f"放大进度: {poll_progress_percent(ups_attempt, ups_max)}%\n")
                                                 if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
                                                     ups_video_info = extract_video_info(ups_op)
                                                     upsampled_video_url = ups_video_info.get("fifeUrl")
@@ -1429,7 +1431,7 @@ class GenerationHandler:
                                             ext_op = ext_ops[0]
                                             ext_status = ext_op.get("status")
                                             if stream and ext_attempt % 7 == 0:
-                                                yield self._create_stream_chunk(f"延长进度: {min(int((ext_attempt / extend_max_attempts) * 100), 95)}%\n")
+                                                yield self._create_stream_chunk(f"延长进度: {poll_progress_percent(ext_attempt, extend_max_attempts)}%\n")
                                             if ext_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
                                                 ext_video_info = extract_video_info(ext_op)
                                                 extend_media_id = ext_video_info.get("mediaGenerationId")
@@ -1488,7 +1490,7 @@ class GenerationHandler:
                                                 elif is_media_generation_failed(c_status):
                                                     break
                                                 if stream and c_attempt % 10 == 0:
-                                                    yield self._create_stream_chunk(f"拼接进度: {min(int((c_attempt / concat_max_attempts) * 100), 95)}%\n")
+                                                    yield self._create_stream_chunk(f"拼接进度: {poll_progress_percent(c_attempt, concat_max_attempts)}%\n")
                                             except Exception as e:
                                                 concat_consecutive_errors += 1
                                                 debug_logger.log_error(f"Concat poll error: {str(e)}")

@@ -44,6 +44,14 @@ def normalize_error_message(error_message: Any, max_length: int = 1000) -> str:
     return f"{text[:max_length - 3]}..."
 
 
+def truncate_prompt_for_log(prompt: str, max_length: int = 2000) -> str:
+    """日志用 prompt 截断:超长时截到 max_length 并加 ...(truncated) 后缀。
+
+    与原 5 处内联 `p if len(p) <= 2000 else f"{p[:2000]}...(truncated)"` 逐字等价。
+    """
+    return prompt if len(prompt) <= max_length else f"{prompt[:max_length]}...(truncated)"
+
+
 def resolve_video_model_key_for_tier(
     model_config: Dict[str, Any], user_tier: str
 ) -> Tuple[str, Optional[str]]:

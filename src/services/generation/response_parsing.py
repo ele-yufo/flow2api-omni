@@ -8,6 +8,14 @@ import uuid
 from typing import Any, Dict, List
 
 
+def poll_progress_percent(attempt: int, max_attempts: int, cap: int = 95) -> int:
+    """轮询进度百分比:min(int((attempt/max_attempts)*100), cap)。
+
+    与原 4 处内联 `min(int((x / y) * 100), 95)` 逐字等价。
+    """
+    return min(int((attempt / max_attempts) * 100), cap)
+
+
 def extract_video_info(operation: Dict[str, Any]) -> Dict[str, Any]:
     """取 operation 里的 video 元数据子字典:operation['operation'].metadata.video。
 
