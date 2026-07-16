@@ -1,0 +1,56 @@
+{
+  "request": {
+    "json_data": {
+      "clientContext": {
+        "projectId": "proj-1",
+        "recaptchaContext": {
+          "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+          "token": "RECAPTCHA_FIXED"
+        },
+        "sessionId": "SESSION_FIXED",
+        "tool": "PINHOLE",
+        "userPaygateTier": "PAYGATE_TIER_ONE"
+      },
+      "mediaGenerationContext": {
+        "batchId": "00000000-0000-0000-0000-000000000000"
+      },
+      "requests": [
+        {
+          "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+          "metadata": {
+            "sceneId": "00000000-0000-0000-0000-000000000000"
+          },
+          "referenceImages": [
+            {
+              "imageUsageType": "IMAGE_USAGE_TYPE_ASSET",
+              "mediaId": "m1"
+            }
+          ],
+          "seed": 42,
+          "textInput": {
+            "structuredPrompt": {
+              "parts": [
+                {
+                  "text": "blend these references"
+                }
+              ]
+            }
+          },
+          "videoModelKey": "veo_3_1_r2v_fast"
+        }
+      ],
+      "useV2ModelConfig": true
+    },
+    "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoReferenceImages"
+  },
+  "result": {
+    "operations": [
+      {
+        "operation": {
+          "name": "task-r2v"
+        }
+      }
+    ],
+    "remainingCredits": 800
+  }
+}

@@ -16,7 +16,11 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .flow.errors import is_retryable_network_error, is_timeout_error
-from .flow.request_builders import build_video_text_input, build_video_text_request
+from .flow.request_builders import (
+    build_video_reference_images_request,
+    build_video_text_input,
+    build_video_text_request,
+)
 
 try:
     import httpx
@@ -1467,42 +1471,19 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-            batch_id = str(uuid.uuid4())
-            scene_id = str(uuid.uuid4())
-
-            json_data = {
-                "mediaGenerationContext": {
-                    "batchId": batch_id
-                },
-                "clientContext": {
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": session_id,
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier
-                },
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "seed": random.randint(1, 99999),
-                    "textInput": {
-                        "structuredPrompt": {
-                            "parts": [{
-                                "text": prompt
-                            }]
-                        }
-                    },
-                    "videoModelKey": model_key,
-                    "referenceImages": reference_images,
-                    "metadata": {
-                        "sceneId": scene_id
-                    }
-                }],
-                "useV2ModelConfig": True
-            }
+            json_data = build_video_reference_images_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                prompt=prompt,
+                model_key=model_key,
+                reference_images=reference_images,
+                scene_id=str(uuid.uuid4()),
+                batch_id=str(uuid.uuid4()),
+            )
 
             try:
                 result = await self._make_request(
