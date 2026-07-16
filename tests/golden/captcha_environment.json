@@ -1,0 +1,13 @@
+{
+  "'  true  '": true,
+  "''": false,
+  "'0'": false,
+  "'1'": true,
+  "'TRUE'": true,
+  "'false'": false,
+  "'off'": false,
+  "'on'": true,
+  "'true'": true,
+  "'yes'": true,
+  "missing": false
+}

@@ -24,39 +24,14 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 
 
 # ==================== Docker 环境检测 ====================
-def _is_running_in_docker() -> bool:
-    """检测是否在 Docker 容器中运行"""
-    # 方法1: 检查 /.dockerenv 文件
-    if os.path.exists('/.dockerenv'):
-        return True
-    # 方法2: 检查 cgroup
-    try:
-        with open('/proc/1/cgroup', 'r') as f:
-            content = f.read()
-            if 'docker' in content or 'kubepods' in content or 'containerd' in content:
-                return True
-    except:
-        pass
-    # 方法3: 检查环境变量
-    if os.environ.get('DOCKER_CONTAINER') or os.environ.get('KUBERNETES_SERVICE_HOST'):
-        return True
-    return False
-
-
-IS_DOCKER = _is_running_in_docker()
-
-
-def _is_truthy_env(name: str) -> bool:
-    """判断环境变量是否为 true。"""
-    value = os.environ.get(name, "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-ALLOW_DOCKER_HEADED = (
-    _is_truthy_env("ALLOW_DOCKER_HEADED_CAPTCHA")
-    or _is_truthy_env("ALLOW_DOCKER_BROWSER_CAPTCHA")
+# 环境检测(Docker/headed 允许)已抽到 captcha.environment(纯,派生全局同前)。
+from .captcha.environment import (
+    ALLOW_DOCKER_HEADED,
+    DOCKER_HEADED_BLOCKED,
+    IS_DOCKER,
+    is_running_in_docker as _is_running_in_docker,
+    is_truthy_env as _is_truthy_env,
 )
-DOCKER_HEADED_BLOCKED = IS_DOCKER and not ALLOW_DOCKER_HEADED
 
 
 # ==================== nodriver 自动安装 ====================
