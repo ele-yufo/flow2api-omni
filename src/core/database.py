@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from ..shared.db import SqliteEngine
+from .repositories.token_stats_repository import TokenStatsRepository
 from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig, CallLogicConfig
 
 
@@ -22,6 +23,8 @@ class Database(SqliteEngine):
             data_dir.mkdir(exist_ok=True)
             db_path = str(data_dir / "flow.db")
         super().__init__(db_path)
+        # 按实体拆分的仓储(共享本引擎的连接层),Database 逐步收敛为组合根。
+        self._token_stats = TokenStatsRepository(self)
 
     async def _ensure_config_rows(self, db, config_dict: dict = None):
         """Ensure all config tables have their default rows
@@ -1042,135 +1045,28 @@ class Database(SqliteEngine):
 
     # Token stats operations (kept for compatibility, now delegates to specific methods)
     async def increment_token_stats(self, token_id: int, stat_type: str):
-        """Increment token statistics (delegates to specific methods)"""
-        if stat_type == "image":
-            await self.increment_image_count(token_id)
-        elif stat_type == "video":
-            await self.increment_video_count(token_id)
-        elif stat_type == "error":
-            await self.increment_error_count(token_id)
+        """委托 TokenStatsRepository。"""
+        await self._token_stats.increment_token_stats(token_id, stat_type)
 
     async def get_token_stats(self, token_id: int) -> Optional[TokenStats]:
-        """Get token statistics"""
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute("SELECT * FROM token_stats WHERE token_id = ?", (token_id,))
-            row = await cursor.fetchone()
-            if row:
-                return TokenStats(**dict(row))
-            return None
+        """委托 TokenStatsRepository。"""
+        return await self._token_stats.get_token_stats(token_id)
 
     async def increment_image_count(self, token_id: int):
-        """Increment image generation count with daily reset"""
-        from datetime import date
-        async with self._connect(write=True) as db:
-            today = str(date.today())
-            # Get current stats
-            cursor = await db.execute("SELECT today_date FROM token_stats WHERE token_id = ?", (token_id,))
-            row = await cursor.fetchone()
-
-            # If date changed, reset today's count
-            if row and row[0] != today:
-                await db.execute("""
-                    UPDATE token_stats
-                    SET image_count = image_count + 1,
-                        today_image_count = 1,
-                        today_date = ?
-                    WHERE token_id = ?
-                """, (today, token_id))
-            else:
-                # Same day, just increment both
-                await db.execute("""
-                    UPDATE token_stats
-                    SET image_count = image_count + 1,
-                        today_image_count = today_image_count + 1,
-                        today_date = ?
-                    WHERE token_id = ?
-                """, (today, token_id))
-            await db.commit()
+        """委托 TokenStatsRepository。"""
+        await self._token_stats.increment_image_count(token_id)
 
     async def increment_video_count(self, token_id: int):
-        """Increment video generation count with daily reset"""
-        from datetime import date
-        async with self._connect(write=True) as db:
-            today = str(date.today())
-            # Get current stats
-            cursor = await db.execute("SELECT today_date FROM token_stats WHERE token_id = ?", (token_id,))
-            row = await cursor.fetchone()
-
-            # If date changed, reset today's count
-            if row and row[0] != today:
-                await db.execute("""
-                    UPDATE token_stats
-                    SET video_count = video_count + 1,
-                        today_video_count = 1,
-                        today_date = ?
-                    WHERE token_id = ?
-                """, (today, token_id))
-            else:
-                # Same day, just increment both
-                await db.execute("""
-                    UPDATE token_stats
-                    SET video_count = video_count + 1,
-                        today_video_count = today_video_count + 1,
-                        today_date = ?
-                    WHERE token_id = ?
-                """, (today, token_id))
-            await db.commit()
+        """委托 TokenStatsRepository。"""
+        await self._token_stats.increment_video_count(token_id)
 
     async def increment_error_count(self, token_id: int):
-        """Increment error count with daily reset
-
-        Updates two counters:
-        - error_count: Historical total errors (never reset)
-        - consecutive_error_count: Consecutive errors (reset on success/enable)
-        - today_error_count: Today's errors (reset on date change)
-        """
-        from datetime import date
-        async with self._connect(write=True) as db:
-            today = str(date.today())
-            # Get current stats
-            cursor = await db.execute("SELECT today_date FROM token_stats WHERE token_id = ?", (token_id,))
-            row = await cursor.fetchone()
-
-            # If date changed, reset today's error count
-            if row and row[0] != today:
-                await db.execute("""
-                    UPDATE token_stats
-                    SET error_count = error_count + 1,
-                        consecutive_error_count = consecutive_error_count + 1,
-                        today_error_count = 1,
-                        today_date = ?,
-                        last_error_at = CURRENT_TIMESTAMP
-                    WHERE token_id = ?
-                """, (today, token_id))
-            else:
-                # Same day, just increment all counters
-                await db.execute("""
-                    UPDATE token_stats
-                    SET error_count = error_count + 1,
-                        consecutive_error_count = consecutive_error_count + 1,
-                        today_error_count = today_error_count + 1,
-                        today_date = ?,
-                        last_error_at = CURRENT_TIMESTAMP
-                    WHERE token_id = ?
-                """, (today, token_id))
-            await db.commit()
+        """委托 TokenStatsRepository。"""
+        await self._token_stats.increment_error_count(token_id)
 
     async def reset_error_count(self, token_id: int):
-        """Reset consecutive error count (only reset consecutive_error_count, keep error_count and today_error_count)
-
-        This is called when:
-        - Token is manually enabled by admin
-        - Request succeeds (resets consecutive error counter)
-
-        Note: error_count (total historical errors) is NEVER reset
-        """
-        async with self._connect(write=True) as db:
-            await db.execute("""
-                UPDATE token_stats SET consecutive_error_count = 0 WHERE token_id = ?
-            """, (token_id,))
-            await db.commit()
+        """委托 TokenStatsRepository。"""
+        await self._token_stats.reset_error_count(token_id)
 
     # Config operations
     async def get_admin_config(self) -> Optional[AdminConfig]:
