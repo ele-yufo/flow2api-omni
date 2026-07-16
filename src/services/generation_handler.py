@@ -638,8 +638,8 @@ class GenerationHandler:
             # 提取URL和mediaId
             media = result.get("media", [])
             if not media:
-                self._mark_generation_failed(generation_result, "\u751f\u6210\u7ed3\u679c\u4e3a\u7a7a")
-                yield self._create_error_response("生成结果为空", status_code=502)
+                async for _c in self._emit_generation_failure(generation_result, "生成结果为空"):
+                    yield _c
                 return
 
             image_url = (
@@ -654,8 +654,8 @@ class GenerationHandler:
                     media_name=media_id,
                 )
             if not image_url:
-                self._mark_generation_failed(generation_result, "生成结果缺少下载 URL")
-                yield self._create_error_response("生成结果缺少下载 URL", status_code=502)
+                async for _c in self._emit_generation_failure(generation_result, "生成结果缺少下载 URL"):
+                    yield _c
                 return
             response_state["generated_assets"] = {
                 "type": "image",
@@ -1029,15 +1029,15 @@ class GenerationHandler:
                 debug_logger.log_error(
                     f"[VIDEO] 生成任务创建响应缺少 operations/media: keys={list(result.keys())}"
                 )
-                self._mark_generation_failed(generation_result, "生成任务创建失败")
-                yield self._create_error_response("生成任务创建失败", status_code=502)
+                async for _c in self._emit_generation_failure(generation_result, "生成任务创建失败"):
+                    yield _c
                 return
 
             task_id = status_refs.get("task_id")
             scene_id = status_refs.get("scene_id")
             if not task_id:
-                self._mark_generation_failed(generation_result, "生成任务创建失败")
-                yield self._create_error_response("生成任务创建失败", status_code=502)
+                async for _c in self._emit_generation_failure(generation_result, "生成任务创建失败"):
+                    yield _c
                 return
 
             # 保存Task到数据库
@@ -1107,6 +1107,15 @@ class GenerationHandler:
             "type": "video",
             "final_video_url": local_url
         }
+
+    async def _emit_generation_failure(self, generation_result, message, status_code=502):
+        """收口图片/视频生成的简单失败发射:标记失败 + yield 错误响应。
+
+        从 4 处相同块抽出(无流式前缀,落库与返回同文案)。区别于 _emit_video_failure
+        (后者还 fail_video_task + 可选流式❌)。
+        """
+        self._mark_generation_failed(generation_result, message)
+        yield self._create_error_response(message, status_code=status_code)
 
     async def _emit_video_failure(
         self, fail_target, fail_message, generation_result, response_message,
