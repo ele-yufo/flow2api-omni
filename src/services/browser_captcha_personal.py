@@ -106,6 +106,7 @@ from .captcha.errors import (
 # 代理解析 + 代理认证扩展生成已抽到 captcha.proxy(纯,可离线测)。
 from .captcha.proxy import _create_proxy_auth_extension, _parse_proxy_url
 from .captcha.evaluate_result import decode_nodriver_object_entries, normalize_nodriver_evaluate_result
+from .captcha.fetch_helpers import browser_fetch_headers, flow_recaptcha_page_url
 
 
 class ResidentTabInfo:
@@ -346,14 +347,8 @@ class BrowserCaptchaService:
 
     @staticmethod
     def _flow_recaptcha_page_url(project_id: Optional[str]) -> str:
-        # 必须用轻量 JSON 端点而不是 SPA 主页。
-        # 上一版改成 /fx/tools/flow/project/{id} 后，未认证 SPA 在
-        # 代理环境下永远到不了 readyState=complete，warmup 全部 7s 超时，
-        # token 取不到走伪降级。auth/providers 是固定 JSON 返回，<1s 就 ready，
-        # reCAPTCHA Enterprise 评分只看 origin（labs.google）+ siteKey + action +
-        # 浏览器指纹 + IP，不在意页面正文。
-        _ = project_id
-        return "https://labs.google/fx/api/auth/providers"
+        """委托 captcha.fetch_helpers。"""
+        return flow_recaptcha_page_url(project_id)
 
     def _decode_nodriver_object_entries(self, value: Any) -> Optional[Dict[str, Any]]:
         """委托 captcha.evaluate_result。"""
@@ -2559,54 +2554,8 @@ class BrowserCaptchaService:
 
     @staticmethod
     def _browser_fetch_headers(headers: Optional[Dict[str, Any]]) -> Dict[str, str]:
-        """保留浏览器 fetch 允许设置的业务头，UA/client hints 由浏览器真实发送。"""
-        forbidden = {
-            "accept-charset",
-            "accept-encoding",
-            "access-control-request-headers",
-            "access-control-request-method",
-            "connection",
-            "content-length",
-            "cookie",
-            "cookie2",
-            "date",
-            "dnt",
-            "expect",
-            "host",
-            "keep-alive",
-            "origin",
-            "referer",
-            "sec-ch-ua",
-            "sec-ch-ua-mobile",
-            "sec-ch-ua-platform",
-            "sec-fetch-dest",
-            "sec-fetch-mode",
-            "sec-fetch-site",
-            "te",
-            "trailer",
-            "transfer-encoding",
-            "upgrade",
-            "user-agent",
-            "via",
-        }
-        allowed = {
-            "accept",
-            "authorization",
-            "content-type",
-        }
-        result: Dict[str, str] = {}
-        for key, value in (headers or {}).items():
-            key_text = str(key)
-            key_lower = key_text.lower()
-            if key_lower not in allowed:
-                continue
-            if key_lower in forbidden or key_lower.startswith("proxy-"):
-                continue
-            if value is None:
-                continue
-            result[key_text] = str(value)
-        result.setdefault("Content-Type", "application/json")
-        return result
+        """委托 captcha.fetch_helpers。"""
+        return browser_fetch_headers(headers)
 
     async def submit_flow_request(
         self,
