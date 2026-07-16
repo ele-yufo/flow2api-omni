@@ -1096,6 +1096,25 @@ class GenerationHandler:
         finally:
             pass
 
+    async def _persist_video_completion(self, operation, local_url, response_state):
+        """收口视频完成落库:task 置 completed + 写 response_state 的 url/generated_assets。
+
+        从 _finalize_video_success 与 concat 成功分支的 2 处相同块抽出,行为逐字不变。
+        """
+        task_id = operation["operation"]["name"]
+        await self.db.update_task(
+            task_id,
+            status="completed",
+            progress=100,
+            result_urls=[local_url],
+            completed_at=time.time()
+        )
+        response_state["url"] = local_url
+        response_state["generated_assets"] = {
+            "type": "video",
+            "final_video_url": local_url
+        }
+
     async def _emit_video_failure(
         self, fail_target, fail_message, generation_result, response_message,
         status_code, stream, stream_error_chunk=False,
@@ -1155,22 +1174,8 @@ class GenerationHandler:
             elif stream:
                 yield self._create_stream_chunk("⚠️ 去水印未成功, 返回原视频\n")
 
-        # 更新数据库
-        task_id = operation["operation"]["name"]
-        await self.db.update_task(
-            task_id,
-            status="completed",
-            progress=100,
-            result_urls=[local_url],
-            completed_at=time.time()
-        )
-
-        # 存储URL用于日志记录
-        response_state["url"] = local_url
-        response_state["generated_assets"] = {
-            "type": "video",
-            "final_video_url": local_url
-        }
+        # 更新数据库 + 写 response_state
+        await self._persist_video_completion(operation, local_url, response_state)
 
         # 返回结果
         self._mark_generation_succeeded(generation_result)
@@ -1522,21 +1527,8 @@ class GenerationHandler:
                                             if stream:
                                                 yield self._create_stream_chunk("✅ 15秒视频拼接完成！\n")
 
-                                            # 更新数据库
-                                            task_id = operation["operation"]["name"]
-                                            await self.db.update_task(
-                                                task_id,
-                                                status="completed",
-                                                progress=100,
-                                                result_urls=[local_url],
-                                                completed_at=time.time()
-                                            )
-
-                                            response_state["url"] = local_url
-                                            response_state["generated_assets"] = {
-                                                "type": "video",
-                                                "final_video_url": local_url
-                                            }
+                                            # 更新数据库 + 写 response_state
+                                            await self._persist_video_completion(operation, local_url, response_state)
                                             self._mark_generation_succeeded(generation_result)
 
                                             if stream:
