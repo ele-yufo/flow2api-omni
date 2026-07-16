@@ -29,6 +29,7 @@ from .captcha.environment import (
     ALLOW_DOCKER_HEADED,
     DOCKER_HEADED_BLOCKED,
     IS_DOCKER,
+    wait_for_display_ready,
     is_running_in_docker as _is_running_in_docker,
     is_truthy_env as _is_truthy_env,
 )
@@ -281,24 +282,8 @@ class BrowserCaptchaService:
             raise TimeoutError(f"{label} 超时 ({effective_timeout:.1f}s)") from e
 
     async def _wait_for_display_ready(self, display_value: str, timeout_seconds: float = 5.0):
-        """Docker 有头模式下等待 Xvfb socket 就绪，避免容器重启后立刻拉起浏览器失败。"""
-        if not (IS_DOCKER and display_value and display_value.startswith(":") and os.name == "posix"):
-            return
-
-        display_suffix = display_value.split(".", 1)[0].lstrip(":")
-        if not display_suffix.isdigit():
-            return
-
-        socket_path = f"/tmp/.X11-unix/X{display_suffix}"
-        deadline = time.monotonic() + max(0.5, float(timeout_seconds or 0))
-        while time.monotonic() < deadline:
-            if os.path.exists(socket_path):
-                return
-            await asyncio.sleep(0.1)
-
-        raise RuntimeError(
-            f"DISPLAY={display_value} 对应的 Xvfb socket 未就绪: {socket_path}"
-        )
+        """委托 captcha.environment。"""
+        return await wait_for_display_ready(display_value, timeout_seconds)
 
     def _mark_browser_health(self, healthy: bool):
         self._last_health_probe_at = time.monotonic()
