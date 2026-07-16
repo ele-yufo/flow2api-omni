@@ -6,6 +6,7 @@ from ..core.database import Database
 from ..core.config import config
 from ..core.models import Token, Project
 from ..core.logger import debug_logger
+from .tokens.at_refresh import should_refresh_at
 from .flow_client import FlowClient
 from .proxy_manager import ProxyManager
 
@@ -395,30 +396,8 @@ class TokenManager:
     # ========== AT自动刷新逻辑 (核心) ==========
 
     def _should_refresh_at(self, token: Token) -> bool:
-        """根据当前 token 快照判断是否需要刷新 AT。"""
-        if not token.at:
-            debug_logger.log_info(f"[AT_CHECK] Token {token.id}: AT不存在,需要刷新")
-            return True
-
-        if not token.at_expires:
-            debug_logger.log_info(f"[AT_CHECK] Token {token.id}: AT过期时间未知,尝试刷新")
-            return True
-
-        now = datetime.now(timezone.utc)
-        if token.at_expires.tzinfo is None:
-            at_expires_aware = token.at_expires.replace(tzinfo=timezone.utc)
-        else:
-            at_expires_aware = token.at_expires
-
-        time_until_expiry = at_expires_aware - now
-        if time_until_expiry.total_seconds() < 3600:
-            debug_logger.log_info(
-                f"[AT_CHECK] Token {token.id}: AT即将过期 "
-                f"(剩余 {time_until_expiry.total_seconds():.0f} 秒),需要刷新"
-            )
-            return True
-
-        return False
+        """委托 tokens.at_refresh。"""
+        return should_refresh_at(token)
 
     def needs_at_refresh(self, token: Optional[Token]) -> bool:
         """供调度层快速判断当前 token 是否大概率会触发 AT 刷新。"""
