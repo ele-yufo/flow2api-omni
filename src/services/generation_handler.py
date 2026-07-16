@@ -583,12 +583,7 @@ class GenerationHandler:
 
                 # 支持多图输入
                 for idx, image_bytes in enumerate(images):
-                    media_id = await self.flow_client.upload_image(
-                        token.at,
-                        image_bytes,
-                        model_config["aspect_ratio"],
-                        project_id=project_id
-                    )
+                    media_id = await self._upload_reference_image(token, project_id, model_config, image_bytes)
                     image_inputs.append({
                         "name": media_id,
                         "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"
@@ -931,21 +926,15 @@ class GenerationHandler:
                     # 只有1张图: 仅作为首帧
                     if stream:
                         yield self._create_stream_chunk("上传首帧图片...\n")
-                    start_media_id = await self.flow_client.upload_image(
-                        token.at, images[0], model_config["aspect_ratio"], project_id=project_id
-                    )
+                    start_media_id = await self._upload_reference_image(token, project_id, model_config, images[0])
                     debug_logger.log_info(f"[I2V] 仅上传首帧: {start_media_id}")
 
                 elif image_count == 2:
                     # 2张图: 首帧+尾帧
                     if stream:
                         yield self._create_stream_chunk("上传首帧和尾帧图片...\n")
-                    start_media_id = await self.flow_client.upload_image(
-                        token.at, images[0], model_config["aspect_ratio"], project_id=project_id
-                    )
-                    end_media_id = await self.flow_client.upload_image(
-                        token.at, images[1], model_config["aspect_ratio"], project_id=project_id
-                    )
+                    start_media_id = await self._upload_reference_image(token, project_id, model_config, images[0])
+                    end_media_id = await self._upload_reference_image(token, project_id, model_config, images[1])
                     debug_logger.log_info(f"[I2V] 上传首尾帧: {start_media_id}, {end_media_id}")
 
             # R2V: 多图处理
@@ -954,9 +943,7 @@ class GenerationHandler:
                     yield self._create_stream_chunk(f"上传 {image_count} 张参考图片...\n")
 
                 for img in images:
-                    media_id = await self.flow_client.upload_image(
-                        token.at, img, model_config["aspect_ratio"], project_id=project_id
-                    )
+                    media_id = await self._upload_reference_image(token, project_id, model_config, img)
                     reference_images.append({
                         "imageUsageType": "IMAGE_USAGE_TYPE_ASSET",
                         "mediaId": media_id
@@ -1095,6 +1082,12 @@ class GenerationHandler:
 
         finally:
             pass
+
+    async def _upload_reference_image(self, token, project_id, model_config, image_bytes):
+        """上传输入/参考图片,返回 media_id。收口 5 处相同形状的 upload_image 调用。"""
+        return await self.flow_client.upload_image(
+            token.at, image_bytes, model_config["aspect_ratio"], project_id=project_id
+        )
 
     async def _persist_video_completion(self, operation, local_url, response_state):
         """收口视频完成落库:task 置 completed + 写 response_state 的 url/generated_assets。
