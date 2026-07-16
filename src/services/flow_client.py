@@ -24,7 +24,7 @@ from .flow.transport import (
 )
 from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
-from ..shared.storage.media_types import detect_image_mime_type
+from ..shared.storage.media_types import convert_to_jpeg, detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
     build_image_upsample_request,
@@ -743,25 +743,8 @@ class FlowClient:
         return detect_image_mime_type(image_bytes)
 
     def _convert_to_jpeg(self, image_bytes: bytes) -> bytes:
-        """将图片转换为 JPEG 格式
-
-        Args:
-            image_bytes: 原始图片字节数据
-
-        Returns:
-            JPEG 格式的图片字节数据
-        """
-        from io import BytesIO
-        from PIL import Image
-
-        img = Image.open(BytesIO(image_bytes))
-        # 如果有透明通道，转换为 RGB
-        if img.mode in ('RGBA', 'LA', 'P'):
-            img = img.convert('RGB')
-        
-        output = BytesIO()
-        img.save(output, format='JPEG', quality=95)
-        return output.getvalue()
+        """委托 shared.storage.media_types。"""
+        return convert_to_jpeg(image_bytes)
 
     async def upload_image(
         self,
