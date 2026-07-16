@@ -26,6 +26,14 @@ from .generation.responses import (
     create_error_response,
     create_stream_chunk,
 )
+from .generation.state import (
+    create_generation_result,
+    create_response_state,
+    mark_generation_failed,
+    mark_generation_succeeded,
+    normalize_error_message,
+    resolve_video_model_key_for_tier,
+)
 
 
 # Google 端策略性拒绝（非 token 故障），这些不应计入 token 错误计数 —
@@ -66,57 +74,28 @@ class GenerationHandler:
         )
 
     def _create_generation_result(self) -> Dict[str, Any]:
-        """????????????????"""
-        return dict(success=False, error_message=None, error_emitted=False)
+        """委托 generation.state。"""
+        return create_generation_result()
 
     def _create_response_state(self) -> Dict[str, Any]:
-        """为单次请求创建独立的响应状态，避免并发请求互相污染。"""
-        return {
-            "url": None,
-            "generated_assets": None,
-            "base_url": None,
-        }
+        """委托 generation.state。"""
+        return create_response_state()
 
     def _mark_generation_failed(self, generation_result: Optional[Dict[str, Any]], error_message: str):
-        """????????????????????"""
-        if isinstance(generation_result, dict):
-            generation_result["success"] = False
-            generation_result["error_message"] = error_message
-            generation_result["error_emitted"] = True
+        """委托 generation.state。"""
+        mark_generation_failed(generation_result, error_message)
 
     def _mark_generation_succeeded(self, generation_result: Optional[Dict[str, Any]]):
-        """???????"""
-        if isinstance(generation_result, dict):
-            generation_result["success"] = True
-            generation_result["error_message"] = None
-            generation_result["error_emitted"] = False
+        """委托 generation.state。"""
+        mark_generation_succeeded(generation_result)
 
     def _normalize_error_message(self, error_message: Any, max_length: int = 1000) -> str:
-        """归一化错误文本，避免写入超长内容。"""
-        text = str(error_message or "").strip() or "未知错误"
-        if len(text) <= max_length:
-            return text
-        return f"{text[:max_length - 3]}..."
+        """委托 generation.state。"""
+        return normalize_error_message(error_message, max_length)
 
     def _resolve_video_model_key_for_tier(self, model_config: Dict[str, Any], user_tier: str) -> tuple[str, Optional[str]]:
-        """根据账号层级调整视频模型 key。"""
-        model_key = model_config["model_key"]
-        allow_tier_upgrade = bool(model_config.get("allow_tier_upgrade", True))
-
-        if user_tier == "PAYGATE_TIER_TWO":
-            if allow_tier_upgrade and "ultra" not in model_key:
-                if "_fl" in model_key:
-                    model_key = model_key.replace("_fl", "_ultra_fl")
-                else:
-                    model_key = model_key + "_ultra"
-                return model_key, f"TIER_TWO 账号自动切换到 ultra 模型: {model_key}"
-            return model_key, None
-
-        if user_tier == "PAYGATE_TIER_ONE" and "ultra" in model_key:
-            model_key = model_key.replace("_ultra_fl", "_fl").replace("_ultra", "")
-            return model_key, f"TIER_ONE 账号自动切换到标准模型: {model_key}"
-
-        return model_key, None
+        """委托 generation.state。"""
+        return resolve_video_model_key_for_tier(model_config, user_tier)
 
     async def _fail_video_task(self, operations: Optional[List[Dict[str, Any]]], error_message: str):
         """将视频任务收口到失败态，避免残留 processing。"""
