@@ -1,0 +1,26 @@
+{
+  "created": {
+    "error_message": null,
+    "model": "veo",
+    "progress": 0,
+    "prompt": "hi",
+    "result_urls": null,
+    "scene_id": "sc-1",
+    "status": "pending",
+    "task_id": "tk-1"
+  },
+  "missing": null,
+  "updated": {
+    "error_message": null,
+    "model": "veo",
+    "progress": 100,
+    "prompt": "hi",
+    "result_urls": [
+      "http://a",
+      "http://b"
+    ],
+    "scene_id": "sc-1",
+    "status": "done",
+    "task_id": "tk-1"
+  }
+}
