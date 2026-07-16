@@ -16,7 +16,12 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .captcha.cooldown import CaptchaCooldownTracker
-from .flow.transport import sync_json_request_via_urllib
+from .flow.transport import (
+    build_remote_browser_http_timeout,
+    stdlib_json_http_request,
+    sync_json_http_request,
+    sync_json_request_via_urllib,
+)
 from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import detect_image_mime_type
@@ -2217,16 +2222,8 @@ class FlowClient:
 
     @staticmethod
     def _build_remote_browser_http_timeout(read_timeout: float) -> Any:
-        read_value = max(3.0, float(read_timeout))
-        write_value = min(10.0, max(3.0, read_value))
-        if httpx is None:
-            return read_value
-        return httpx.Timeout(
-            connect=2.5,
-            read=read_value,
-            write=write_value,
-            pool=2.5,
-        )
+        """委托 flow.transport。"""
+        return build_remote_browser_http_timeout(read_timeout)
 
     @staticmethod
     def _parse_json_response_text(text: str) -> Optional[Any]:
@@ -2241,41 +2238,8 @@ class FlowClient:
         payload: Optional[Dict[str, Any]],
         timeout: int,
     ) -> tuple[int, Optional[Any], str]:
-        req_headers = dict(headers or {})
-        req_headers.setdefault("Accept", "application/json")
-        request_method = (method or "GET").upper()
-        request_data: Optional[bytes] = None
-
-        if payload is not None:
-            req_headers["Content-Type"] = "application/json; charset=utf-8"
-            if request_method != "GET":
-                request_data = json.dumps(payload).encode("utf-8")
-
-        def do_request() -> tuple[int, str]:
-            request = urllib.request.Request(
-                url=url,
-                data=request_data,
-                headers=req_headers,
-                method=request_method,
-            )
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-            try:
-                with opener.open(request, timeout=max(1.0, float(timeout))) as response:
-                    status_code = int(getattr(response, "status", 0) or response.getcode() or 0)
-                    body = response.read()
-                    charset = response.headers.get_content_charset() or "utf-8"
-                    return status_code, body.decode(charset, errors="replace")
-            except urllib.error.HTTPError as exc:
-                body = exc.read()
-                charset = exc.headers.get_content_charset() if exc.headers else None
-                return int(getattr(exc, "code", 0) or 0), body.decode(charset or "utf-8", errors="replace")
-
-        try:
-            status_code, text = await asyncio.to_thread(do_request)
-        except Exception as e:
-            raise RuntimeError(f"remote_browser 请求失败: {e}") from e
-
-        return status_code, FlowClient._parse_json_response_text(text), text
+        """委托 flow.transport。"""
+        return await stdlib_json_http_request(method, url, headers, payload, timeout)
 
     @staticmethod
     async def _sync_json_http_request(
@@ -2285,45 +2249,8 @@ class FlowClient:
         payload: Optional[Dict[str, Any]],
         timeout: int,
     ) -> tuple[int, Optional[Any], str]:
-        req_headers = dict(headers or {})
-        req_headers.setdefault("Accept", "application/json")
-        request_method = (method or "GET").upper()
-        request_kwargs: Dict[str, Any] = {
-            "headers": req_headers,
-            "timeout": FlowClient._build_remote_browser_http_timeout(timeout),
-        }
-
-        if payload is not None:
-            req_headers["Content-Type"] = "application/json; charset=utf-8"
-            if request_method != "GET":
-                request_kwargs["json"] = payload
-
-        if httpx is None:
-            return await FlowClient._stdlib_json_http_request(
-                method=method,
-                url=url,
-                headers=req_headers,
-                payload=payload,
-                timeout=timeout,
-            )
-
-        try:
-            # remote_browser 控制面只需要稳定传输 JSON，不需要浏览器指纹伪装。
-            # 使用 httpx 可以避免 curl_cffi 在当前环境下 POST body 被吞掉。
-            async with httpx.AsyncClient(follow_redirects=False, trust_env=False) as session:
-                response = await session.request(
-                    method=request_method,
-                    url=url,
-                    **request_kwargs,
-                )
-        except Exception as e:
-            raise RuntimeError(f"remote_browser 请求失败: {e}") from e
-
-        status_code = int(getattr(response, "status_code", 0) or 0)
-        text = response.text or ""
-        parsed = FlowClient._parse_json_response_text(text)
-
-        return status_code, parsed, text
+        """委托 flow.transport。"""
+        return await sync_json_http_request(method, url, headers, payload, timeout)
 
     async def _call_remote_browser_service(
         self,

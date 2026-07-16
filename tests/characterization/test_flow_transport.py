@@ -81,3 +81,31 @@ def test_flowclient_delegates(monkeypatch):
                         lambda *h: _fake_opener(b'{"via": "fc"}', 200))
     fc = FlowClient(None)
     assert fc._sync_json_request_via_urllib("POST", "https://x", None, {}, None, 5) == {"via": "fc"}
+
+
+def test_build_remote_browser_http_timeout():
+    from src.services.flow import transport as T
+    t = T.build_remote_browser_http_timeout(2.0)
+    # returns httpx.Timeout (or float if httpx absent); read clamped to >=3
+    if T.httpx is not None:
+        assert t.read == 3.0
+    else:
+        assert t == 3.0
+
+
+def test_stdlib_json_http_request(monkeypatch):
+    from src.services.flow import transport as T
+
+    class _R:
+        status = 200
+        headers = type("H", (), {"get_content_charset": lambda self: "utf-8"})()
+        def read(self): return b'{"ok": 1}'
+        def getcode(self): return 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    op = type("O", (), {"open": lambda self, req, timeout: _R()})()
+    monkeypatch.setattr(T.urllib.request, "build_opener", lambda *h: op)
+    import asyncio
+    status, parsed, text = asyncio.run(
+        T.stdlib_json_http_request("POST", "https://x", {}, {"a": 1}, 5))
+    assert status == 200 and parsed == {"ok": 1}
