@@ -38,6 +38,7 @@ from .generation.state import (
 )
 from .generation.response_parsing import (
     coerce_media_status_to_operations,
+    normalize_media_id_to_uuid_str,
     normalize_video_submit_response,
 )
 
@@ -1232,10 +1233,7 @@ class GenerationHandler:
                                                     ups_video_info = ups_meta.get("video", {})
                                                     upsampled_video_url = ups_video_info.get("fifeUrl")
                                                     ups_raw_media_id = ups_op["operation"]["name"]
-                                                    try:
-                                                        upsampled_media_id = str(uuid.UUID(ups_raw_media_id))
-                                                    except ValueError:
-                                                        upsampled_media_id = ups_raw_media_id
+                                                    upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
                                                     if not upsampled_video_url and upsampled_media_id:
                                                         upsampled_video_url = await self.flow_client.get_media_url(
                                                             st=token.st,
@@ -1281,16 +1279,10 @@ class GenerationHandler:
                             # Use media_id from video URL (CDN URL contains the correct media name)
                             url_media_id = video_url.split('/')[-1].split('?')[0] if video_url else None
                             if url_media_id:
-                                try:
-                                    source_media_id = str(uuid.UUID(url_media_id))
-                                except ValueError:
-                                    source_media_id = url_media_id
+                                source_media_id = normalize_media_id_to_uuid_str(url_media_id)
                             else:
                                 raw_media_id = operation["operation"]["name"]
-                                try:
-                                    source_media_id = str(uuid.UUID(raw_media_id))
-                                except ValueError:
-                                    source_media_id = raw_media_id
+                                source_media_id = normalize_media_id_to_uuid_str(raw_media_id)
                         # Resolve workflow_id: prefer from generation response, fallback to media-format poll
                         workflow_id = generation_workflow_id
                         if not workflow_id:
