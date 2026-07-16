@@ -1,0 +1,10 @@
+{
+  "completion_availability": "{\"id\": \"chatcmpl-X\", \"object\": \"chat.completion\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Service unavailable\"}, \"finish_reason\": \"stop\"}]}",
+  "completion_image": "{\"id\": \"chatcmpl-X\", \"object\": \"chat.completion\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"![Generated Image](http://x/i.png)\"}, \"finish_reason\": \"stop\"}]}",
+  "completion_video": "{\"id\": \"chatcmpl-X\", \"object\": \"chat.completion\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"```html\\n<video src='http://x/v.mp4' controls></video>\\n```\"}, \"finish_reason\": \"stop\"}]}",
+  "error_400": "{\"error\": {\"message\": \"bad request\", \"type\": \"invalid_request_error\", \"code\": \"generation_failed\", \"status_code\": 400}}",
+  "error_500": "{\"error\": {\"message\": \"boom\", \"type\": \"server_error\", \"code\": \"generation_failed\", \"status_code\": 500}}",
+  "stream_finish": "data: {\"id\": \"chatcmpl-X\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"done\"}, \"finish_reason\": \"stop\"}]}\n\n",
+  "stream_reasoning": "data: {\"id\": \"chatcmpl-X\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"delta\": {\"reasoning_content\": \"thinking...\"}, \"finish_reason\": null}]}\n\n",
+  "stream_role": "data: {\"id\": \"chatcmpl-X\", \"object\": \"chat.completion.chunk\", \"created\": 0, \"model\": \"flow2api\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"reasoning_content\": \"hi\"}, \"finish_reason\": null}]}\n\n"
+}
