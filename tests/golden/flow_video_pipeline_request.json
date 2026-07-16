@@ -1,0 +1,90 @@
+{
+  "extend": {
+    "json_data": {
+      "clientContext": {
+        "projectId": "proj-1",
+        "recaptchaContext": {
+          "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+          "token": "RECAPTCHA_FIXED"
+        },
+        "sessionId": "SESSION_FIXED",
+        "tool": "PINHOLE",
+        "userPaygateTier": "PAYGATE_TIER_ONE"
+      },
+      "mediaGenerationContext": {
+        "audioFailurePreference": "BLOCK_SILENCED_VIDEOS",
+        "batchId": "00000000-0000-0000-0000-000000000000"
+      },
+      "requests": [
+        {
+          "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+          "metadata": {
+            "workflowId": "wf-1"
+          },
+          "seed": 42,
+          "textInput": {
+            "structuredPrompt": {
+              "parts": [
+                {
+                  "text": "continue"
+                }
+              ]
+            }
+          },
+          "videoInput": {
+            "mediaId": "vid-1"
+          },
+          "videoModelKey": "veo_3_1_extend_landscape"
+        }
+      ],
+      "useV2ModelConfig": true
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-extend"
+          }
+        }
+      ]
+    },
+    "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoExtendVideo"
+  },
+  "upsample": {
+    "json_data": {
+      "clientContext": {
+        "projectId": "proj-1",
+        "recaptchaContext": {
+          "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+          "token": "RECAPTCHA_FIXED"
+        },
+        "sessionId": "SESSION_FIXED",
+        "tool": "PINHOLE"
+      },
+      "requests": [
+        {
+          "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+          "metadata": {
+            "sceneId": "00000000-0000-0000-0000-000000000000"
+          },
+          "resolution": "VIDEO_RESOLUTION_4K",
+          "seed": 42,
+          "videoInput": {
+            "mediaId": "vid-1"
+          },
+          "videoModelKey": "veo_3_1_upsampler_4k"
+        }
+      ]
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-upsample"
+          }
+        }
+      ]
+    },
+    "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoUpsampleVideo"
+  }
+}
