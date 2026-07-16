@@ -1,0 +1,17 @@
+{
+  "bad_types": {
+    "flow_max_retries": 1,
+    "flow_timeout": 120,
+    "min_credits_to_select": 1
+  },
+  "empty": {
+    "flow_max_retries": 3,
+    "flow_timeout": 120,
+    "min_credits_to_select": 1
+  },
+  "extreme": {
+    "flow_max_retries": 999,
+    "flow_timeout": 5,
+    "min_credits_to_select": 1
+  }
+}
