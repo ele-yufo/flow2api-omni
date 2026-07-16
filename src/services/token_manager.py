@@ -7,6 +7,7 @@ from ..core.config import config
 from ..core.models import Token, Project
 from ..core.logger import debug_logger
 from .tokens.at_refresh import should_refresh_at
+from .tokens.project_naming import build_project_name, normalize_project_name_base
 from .flow_client import FlowClient
 from .proxy_manager import ProxyManager
 
@@ -50,19 +51,12 @@ class TokenManager:
         return sorted(projects, key=lambda project: (project.id or 0, project.project_id))
 
     def _normalize_project_name_base(self, project_name: Optional[str] = None) -> str:
-        """Normalize a project base name for pooled creation."""
-        raw_name = (project_name or "").strip()
-        if raw_name:
-            parts = raw_name.rsplit(" ", 1)
-            if len(parts) == 2 and parts[1].startswith("P") and parts[1][1:].isdigit():
-                return parts[0]
-            return raw_name
-        return datetime.now().strftime("%b %d - %H:%M")
+        """委托 tokens.project_naming。"""
+        return normalize_project_name_base(project_name)
 
     def _build_project_name(self, pool_index: int, base_name: Optional[str] = None) -> str:
-        """Build a project name for the pool."""
-        normalized_base = self._normalize_project_name_base(base_name)
-        return f"{normalized_base} P{pool_index}"
+        """委托 tokens.project_naming。"""
+        return build_project_name(pool_index, base_name)
 
     async def get_personal_warmup_project_ids(
         self,
