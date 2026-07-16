@@ -11,7 +11,7 @@ class ProxyManager:
     def __init__(self, db: Database):
         self.db = db
 
-        def _parse_proxy_line(self, line: str) -> Optional[str]:
+    def _parse_proxy_line(self, line: str) -> Optional[str]:
         """委托 shared.proxy_parse。"""
         return parse_proxy_line(line)
 
