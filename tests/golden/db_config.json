@@ -1,0 +1,60 @@
+{
+  "admin": {
+    "api_key": "KEY123",
+    "error_ban_threshold": 3,
+    "password": "admin",
+    "username": "admin"
+  },
+  "cache_after_enable": {
+    "cache_base_url": null,
+    "cache_enabled": true,
+    "cache_timeout": 1234
+  },
+  "cache_base_url_is_none": true,
+  "call_logic": {
+    "call_mode": "polling",
+    "polling_mode_enabled": true
+  },
+  "captcha": {
+    "browser_count": 1,
+    "browser_proxy_enabled": false,
+    "browser_proxy_url": null,
+    "capmonster_api_key": "",
+    "capmonster_base_url": "https://api.capmonster.cloud",
+    "capsolver_api_key": "",
+    "capsolver_base_url": "https://api.capsolver.com",
+    "captcha_method": "personal",
+    "ezcaptcha_api_key": "",
+    "ezcaptcha_base_url": "https://api.ez-captcha.com",
+    "page_action": "IMAGE_GENERATION",
+    "personal_idle_tab_ttl_seconds": 60,
+    "personal_max_resident_tabs": 5,
+    "personal_project_pool_size": 50,
+    "remote_browser_api_key": "",
+    "remote_browser_base_url": "",
+    "remote_browser_timeout": 60,
+    "website_key": "6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV",
+    "yescaptcha_api_key": "",
+    "yescaptcha_base_url": "https://api.yescaptcha.com"
+  },
+  "debug": {
+    "enabled": true,
+    "log_requests": true,
+    "log_responses": true,
+    "mask_token": false
+  },
+  "generation": {
+    "image_timeout": 99,
+    "video_timeout": 88
+  },
+  "plugin": {
+    "auto_enable_on_update": false,
+    "connection_token": "TK"
+  },
+  "proxy": {
+    "enabled": true,
+    "media_proxy_enabled": true,
+    "media_proxy_url": "http://y:2",
+    "proxy_url": "http://x:1"
+  }
+}
