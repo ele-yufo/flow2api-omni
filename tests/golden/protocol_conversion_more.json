@@ -1,0 +1,15 @@
+{
+  "coerce_count": 1,
+  "extract_text": "hi\nthere",
+  "extract_text_none": "",
+  "model_desc_image": "Image generation - GEM_PIX",
+  "model_desc_video": "Video generation - veo_x",
+  "video_parts": [
+    {
+      "fileData": {
+        "fileUri": "http://x/v.mp4",
+        "mimeType": "video/mp4"
+      }
+    }
+  ]
+}

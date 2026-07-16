@@ -7,10 +7,12 @@ import base64
 import json
 import mimetypes
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
+
+from ..core.models import GeminiContent
 
 
 MARKDOWN_IMAGE_RE = re.compile(r"!\[.*?\]\((.*?)\)")
@@ -117,3 +119,41 @@ def _normalize_finish_reason(reason: Optional[str]) -> Optional[str]:
         "content_filter": "SAFETY",
     }
     return mapping.get(reason, "STOP")
+
+
+def _build_model_description(model_config: Dict[str, Any]) -> str:
+    """Build a human-readable description for model listing endpoints."""
+    description = f"{model_config['type'].capitalize()} generation"
+    if model_config["type"] == "image":
+        description += f" - {model_config['model_name']}"
+    else:
+        description += f" - {model_config['model_key']}"
+    return description
+
+
+def _coerce_gemini_contents(raw_contents: Optional[List[Any]]) -> List[GeminiContent]:
+    contents: List[GeminiContent] = []
+    for item in raw_contents or []:
+        if isinstance(item, GeminiContent):
+            contents.append(item)
+        else:
+            contents.append(GeminiContent.model_validate(item))
+    return contents
+
+
+def _extract_text_from_gemini_content(content: Optional[GeminiContent]) -> str:
+    if content is None:
+        return ""
+    text_parts = [part.text.strip() for part in content.parts if part.text]
+    return "\n".join(part for part in text_parts if part).strip()
+
+
+def _build_video_parts_from_uri(uri: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "fileData": {
+                "mimeType": _guess_mime_type(uri, "video/mp4"),
+                "fileUri": uri,
+            }
+        }
+    ]
