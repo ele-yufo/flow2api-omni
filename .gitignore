@@ -67,6 +67,9 @@ config/setting_warp_example.toml
 
 # 测试文件
 test_*
+# `test_*`(上一行)本意忽略根目录临时测试脚本,但不加锚点会误吞 tests/ 下真实测试源
+# (现有 tests/test_*.py 仅因早已被跟踪而幸免)。定向重新纳入正式测试源。
+!tests/**/test_*.py
 tests/__pycache__/
 *.har
 
