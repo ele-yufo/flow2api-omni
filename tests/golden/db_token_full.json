@@ -1,0 +1,16 @@
+{
+  "active_after_ban": 1,
+  "active_before": 2,
+  "all_after_delete": 1,
+  "all_count": 2,
+  "by_email_name": "B",
+  "by_id_email": "a@e.com",
+  "by_st_name": "A",
+  "dashboard_total_active": [
+    2,
+    2
+  ],
+  "system_total_credits": 150,
+  "t1_stats_gone": true,
+  "t2_ban_cleared": null
+}
