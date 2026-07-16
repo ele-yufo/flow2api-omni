@@ -105,3 +105,22 @@ def should_fallback_to_urllib(error_message: str) -> bool:
             "network is unreachable",
         ]
     )
+
+
+def is_captcha_rejection_reason(error_reason: Optional[str] = None,
+                                error_message: Optional[str] = None) -> bool:
+    """只认明确的 captcha/风控关键字。
+
+    刻意排除 "403"：AT/ST 过期或 project 失效也返回 403,若误判为 captcha rejection 会触发
+    指数 backoff 冷却(最高 120s),反而掩盖真实的 token 失效信号。
+    """
+    text = f"{error_reason or ''} {error_message or ''}".lower()
+    return any(
+        keyword in text
+        for keyword in [
+            "recaptcha",
+            "unusual_activity",
+            "unusual activity",
+            "captcha",
+        ]
+    )
