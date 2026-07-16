@@ -17,6 +17,7 @@ from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .flow.errors import is_retryable_network_error, is_timeout_error
 from .flow.request_builders import (
+    build_video_image_request,
     build_video_reference_images_request,
     build_video_text_input,
     build_video_text_request,
@@ -1584,42 +1585,21 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-            scene_id = str(uuid.uuid4())
-            client_context = {
-                "recaptchaContext": {
-                    "token": recaptcha_token,
-                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                },
-                "sessionId": session_id,
-                "projectId": project_id,
-                "tool": "PINHOLE",
-                "userPaygateTier": user_paygate_tier
-            }
-            request_data = {
-                "aspectRatio": aspect_ratio,
-                "seed": random.randint(1, 99999),
-                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
-                "videoModelKey": model_key,
-                "startImage": {
-                    "mediaId": start_media_id
-                },
-                "endImage": {
-                    "mediaId": end_media_id
-                },
-                "metadata": {
-                    "sceneId": scene_id
-                }
-            }
-            json_data = {
-                "clientContext": client_context,
-                "requests": [request_data]
-            }
-            if use_v2_model_config:
-                json_data["mediaGenerationContext"] = {
-                    "batchId": str(uuid.uuid4())
-                }
-                json_data["useV2ModelConfig"] = True
+            json_data = build_video_image_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                text_input=self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                model_key=model_key,
+                start_media_id=start_media_id,
+                end_media_id=end_media_id,
+                scene_id=str(uuid.uuid4()),
+                use_v2_model_config=use_v2_model_config,
+                batch_id=str(uuid.uuid4()) if use_v2_model_config else None,
+            )
 
             try:
                 result = await self._make_request(
@@ -1718,40 +1698,20 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-            scene_id = str(uuid.uuid4())
-            client_context = {
-                "recaptchaContext": {
-                    "token": recaptcha_token,
-                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                },
-                "sessionId": session_id,
-                "projectId": project_id,
-                "tool": "PINHOLE",
-                "userPaygateTier": user_paygate_tier
-            }
-            request_data = {
-                "aspectRatio": aspect_ratio,
-                "seed": random.randint(1, 99999),
-                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
-                "videoModelKey": model_key,
-                "startImage": {
-                    "mediaId": start_media_id
-                },
-                # 注意: 没有endImage字段,只用首帧
-                "metadata": {
-                    "sceneId": scene_id
-                }
-            }
-            json_data = {
-                "clientContext": client_context,
-                "requests": [request_data]
-            }
-            if use_v2_model_config:
-                json_data["mediaGenerationContext"] = {
-                    "batchId": str(uuid.uuid4())
-                }
-                json_data["useV2ModelConfig"] = True
+            json_data = build_video_image_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                text_input=self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                model_key=model_key,
+                start_media_id=start_media_id,
+                scene_id=str(uuid.uuid4()),
+                use_v2_model_config=use_v2_model_config,
+                batch_id=str(uuid.uuid4()) if use_v2_model_config else None,
+            )
 
             try:
                 result = await self._make_request(
