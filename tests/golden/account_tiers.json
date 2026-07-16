@@ -1,46 +1,53 @@
 {
   "label": {
     "": "Free",
-    "NOT_PAID": "Free",
     "None": "Free",
+    "PAYGATE_TIER_NOT_PAID": "Free",
+    "PAYGATE_TIER_ONE": "Pro",
+    "PAYGATE_TIER_TWO": "Ult",
     "TIER_ONE": "Free",
-    "TIER_TWO": "Free",
     "garbage": "Free"
   },
   "normalize": {
     "": "PAYGATE_TIER_NOT_PAID",
-    "NOT_PAID": "PAYGATE_TIER_NOT_PAID",
     "None": "PAYGATE_TIER_NOT_PAID",
+    "PAYGATE_TIER_NOT_PAID": "PAYGATE_TIER_NOT_PAID",
+    "PAYGATE_TIER_ONE": "PAYGATE_TIER_ONE",
+    "PAYGATE_TIER_TWO": "PAYGATE_TIER_TWO",
     "TIER_ONE": "PAYGATE_TIER_NOT_PAID",
-    "TIER_TWO": "PAYGATE_TIER_NOT_PAID",
     "garbage": "PAYGATE_TIER_NOT_PAID"
   },
   "rank": {
     "": 0,
-    "NOT_PAID": 0,
     "None": 0,
+    "PAYGATE_TIER_NOT_PAID": 0,
+    "PAYGATE_TIER_ONE": 1,
+    "PAYGATE_TIER_TWO": 2,
     "TIER_ONE": 0,
-    "TIER_TWO": 0,
     "garbage": 0
   },
   "required": {
+    "gemini-3.0-pro-image-square-2k": "PAYGATE_TIER_ONE",
     "gemini-3.1-flash-image-landscape": "PAYGATE_TIER_NOT_PAID",
-    "gemini_omni_t2v_4s": "PAYGATE_TIER_NOT_PAID",
-    "veo_3_1_t2v_fast_landscape": "PAYGATE_TIER_NOT_PAID",
+    "veo_3_1_t2v_fast_1080p": "PAYGATE_TIER_ONE",
+    "veo_3_1_t2v_fast_4k": "PAYGATE_TIER_TWO",
     "veo_3_1_t2v_fast_ultra": "PAYGATE_TIER_TWO"
   },
   "supports": {
-    "gemini-3.1-flash-image-landscape|NOT_PAID": true,
-    "gemini-3.1-flash-image-landscape|TIER_ONE": true,
-    "gemini-3.1-flash-image-landscape|TIER_TWO": true,
-    "gemini_omni_t2v_4s|NOT_PAID": true,
-    "gemini_omni_t2v_4s|TIER_ONE": true,
-    "gemini_omni_t2v_4s|TIER_TWO": true,
-    "veo_3_1_t2v_fast_landscape|NOT_PAID": true,
-    "veo_3_1_t2v_fast_landscape|TIER_ONE": true,
-    "veo_3_1_t2v_fast_landscape|TIER_TWO": true,
-    "veo_3_1_t2v_fast_ultra|NOT_PAID": false,
-    "veo_3_1_t2v_fast_ultra|TIER_ONE": false,
-    "veo_3_1_t2v_fast_ultra|TIER_TWO": false
+    "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_NOT_PAID": false,
+    "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_ONE": true,
+    "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_TWO": true,
+    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_NOT_PAID": true,
+    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_ONE": true,
+    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_TWO": true,
+    "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_NOT_PAID": false,
+    "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_ONE": true,
+    "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_TWO": true,
+    "veo_3_1_t2v_fast_4k|PAYGATE_TIER_NOT_PAID": false,
+    "veo_3_1_t2v_fast_4k|PAYGATE_TIER_ONE": false,
+    "veo_3_1_t2v_fast_4k|PAYGATE_TIER_TWO": true,
+    "veo_3_1_t2v_fast_ultra|PAYGATE_TIER_NOT_PAID": false,
+    "veo_3_1_t2v_fast_ultra|PAYGATE_TIER_ONE": false,
+    "veo_3_1_t2v_fast_ultra|PAYGATE_TIER_TWO": true
   }
 }
