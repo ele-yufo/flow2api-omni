@@ -38,6 +38,7 @@ from .generation.state import (
 )
 from .generation.response_parsing import (
     coerce_media_status_to_operations,
+    extract_video_info,
     is_media_generation_failed,
     normalize_media_id_to_uuid_str,
     normalize_video_submit_response,
@@ -1160,8 +1161,7 @@ class GenerationHandler:
                 # 检查状态
                 if status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
                     # 成功
-                    metadata = operation["operation"].get("metadata", {})
-                    video_info = metadata.get("video", {})
+                    video_info = extract_video_info(operation)
                     video_url = video_info.get("fifeUrl")
                     video_media_id = video_info.get("mediaGenerationId")
                     aspect_ratio = video_info.get("aspectRatio", "VIDEO_ASPECT_RATIO_LANDSCAPE")
@@ -1230,8 +1230,7 @@ class GenerationHandler:
                                                 if stream and ups_attempt % 7 == 0:
                                                     yield self._create_stream_chunk(f"放大进度: {min(int((ups_attempt / ups_max) * 100), 95)}%\n")
                                                 if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                                    ups_meta = ups_op["operation"].get("metadata", {})
-                                                    ups_video_info = ups_meta.get("video", {})
+                                                    ups_video_info = extract_video_info(ups_op)
                                                     upsampled_video_url = ups_video_info.get("fifeUrl")
                                                     ups_raw_media_id = ups_op["operation"]["name"]
                                                     upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
@@ -1342,8 +1341,7 @@ class GenerationHandler:
                                             if stream and ext_attempt % 7 == 0:
                                                 yield self._create_stream_chunk(f"延长进度: {min(int((ext_attempt / extend_max_attempts) * 100), 95)}%\n")
                                             if ext_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                                ext_meta = ext_op["operation"].get("metadata", {})
-                                                ext_video_info = ext_meta.get("video", {})
+                                                ext_video_info = extract_video_info(ext_op)
                                                 extend_media_id = ext_video_info.get("mediaGenerationId")
                                                 extend_success = True
                                                 break
