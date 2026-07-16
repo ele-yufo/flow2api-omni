@@ -13,6 +13,7 @@ from ..models import (
     CacheConfig,
     CallLogicConfig,
     CaptchaConfig,
+    DebugConfig,
     GenerationConfig,
     PluginConfig,
     ProxyConfig,
@@ -201,7 +202,6 @@ class ConfigRepository:
 
     async def get_debug_config(self) -> 'DebugConfig':
             """Get debug configuration"""
-            from ..models import DebugConfig
             async with self._engine._connect() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("SELECT * FROM debug_config WHERE id = 1")

@@ -4,6 +4,7 @@ Extracted from browser_captcha_personal. Patches nodriver internals to tolerate 
 disconnects; fragile by nature. Moved verbatim. browser_captcha re-imports the patch fns.
 """
 import asyncio
+import types
 
 from ...shared.telemetry import debug_logger
 from .errors import _is_runtime_disconnect_error, _is_runtime_normal_close_error
