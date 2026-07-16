@@ -257,6 +257,7 @@ else:
 # 运行态错误分类已抽到 captcha.errors(纯,可离线测)。保留名字供本模块多处调用。
 from .captcha.errors import (
     _NORMAL_CLOSE_KEYWORDS,
+    is_server_side_flow_error,
     _RUNTIME_ERROR_KEYWORDS,
     _flatten_exception_text,
     _is_runtime_disconnect_error,
@@ -1680,17 +1681,8 @@ class BrowserCaptchaService:
         return False
 
     def _is_server_side_flow_error(self, error_text: str) -> bool:
-        error_lower = (error_text or "").lower()
-        return any(keyword in error_lower for keyword in [
-            "http error 500",
-            "public_error",
-            "internal error",
-            "reason=internal",
-            "reason: internal",
-            "\"reason\":\"internal\"",
-            "server error",
-            "upstream error",
-        ])
+        """委托 captcha.errors。"""
+        return is_server_side_flow_error(error_text)
 
     async def _clear_tab_site_storage(self, tab) -> Dict[str, Any]:
         """清理当前站点的本地存储状态，但保留 cookies 登录态。"""
