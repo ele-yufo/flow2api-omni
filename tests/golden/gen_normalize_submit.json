@@ -1,0 +1,66 @@
+{
+  "empty": {
+    "media": [],
+    "operations": [],
+    "scene_id": null,
+    "task_id": null,
+    "workflow_id": null
+  },
+  "junk_operation": {
+    "media": [],
+    "operations": [],
+    "scene_id": null,
+    "task_id": null,
+    "workflow_id": null
+  },
+  "media_dict": {
+    "media": [
+      {
+        "name": "m2",
+        "projectId": "p-override"
+      }
+    ],
+    "operations": [],
+    "scene_id": null,
+    "task_id": "m2",
+    "workflow_id": null
+  },
+  "media_new": {
+    "media": [
+      {
+        "name": "m1",
+        "projectId": "proj-default"
+      }
+    ],
+    "operations": [],
+    "scene_id": "s2",
+    "task_id": "m1",
+    "workflow_id": "wf1"
+  },
+  "operations": {
+    "media": [],
+    "operations": [
+      {
+        "operation": {
+          "name": "task-1"
+        },
+        "sceneId": "s1"
+      }
+    ],
+    "scene_id": "s1",
+    "task_id": "task-1",
+    "workflow_id": null
+  },
+  "workflow": {
+    "media": [
+      {
+        "name": "m3",
+        "projectId": "proj-default"
+      }
+    ],
+    "operations": [],
+    "scene_id": null,
+    "task_id": "m3",
+    "workflow_id": "wf-top"
+  }
+}
