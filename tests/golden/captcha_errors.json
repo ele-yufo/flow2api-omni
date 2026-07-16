@@ -1,0 +1,38 @@
+{
+  "chained": {
+    "disconnect": true,
+    "normal_close": false
+  },
+  "conn_reset": {
+    "disconnect": true,
+    "normal_close": false
+  },
+  "connclosedok": {
+    "disconnect": true,
+    "normal_close": true
+  },
+  "empty": {
+    "disconnect": false,
+    "normal_close": false
+  },
+  "errno111": {
+    "disconnect": true,
+    "normal_close": false
+  },
+  "normal_1000": {
+    "disconnect": true,
+    "normal_close": true
+  },
+  "target_closed": {
+    "disconnect": true,
+    "normal_close": false
+  },
+  "unrelated": {
+    "disconnect": false,
+    "normal_close": false
+  },
+  "ws_not_open": {
+    "disconnect": true,
+    "normal_close": false
+  }
+}
