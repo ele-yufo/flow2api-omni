@@ -1,0 +1,23 @@
+{
+  "background_js": "var config = {\n    mode: \"fixed_servers\",\n    rules: {\n        singleProxy: {\n            scheme: \"http\",\n            host: \"1.2.3.4\",\n            port: parseInt(8080)\n        },\n        bypassList: [\"localhost\"]\n    }\n};\nchrome.proxy.settings.set({value: config, scope: \"regular\"}, function(){});\nchrome.webRequest.onAuthRequired.addListener(\n    function(details) {\n        return {\n            authCredentials: {\n                username: \"alice\",\n                password: \"secret\"\n            }\n        };\n    },\n    {urls: [\"<all_urls>\"]},\n    ['blocking']\n);\n",
+  "manifest": {
+    "background": {
+      "scripts": [
+        "background.js"
+      ]
+    },
+    "manifest_version": 2,
+    "minimum_chrome_version": "76.0.0",
+    "name": "Proxy Auth Helper",
+    "permissions": [
+      "proxy",
+      "tabs",
+      "unlimitedStorage",
+      "storage",
+      "<all_urls>",
+      "webRequest",
+      "webRequestBlocking"
+    ],
+    "version": "1.0.0"
+  }
+}
