@@ -1,0 +1,27 @@
+{
+  "count": 184,
+  "item_keys": [
+    "description",
+    "displayName",
+    "inputTokenLimit",
+    "name",
+    "outputTokenLimit",
+    "supportedGenerationMethods",
+    "version"
+  ],
+  "items_key": "models",
+  "sample_first_no_desc": {
+    "displayName": "gemini-2.5-flash-image",
+    "inputTokenLimit": 0,
+    "name": "models/gemini-2.5-flash-image",
+    "outputTokenLimit": 0,
+    "supportedGenerationMethods": [
+      "generateContent",
+      "streamGenerateContent"
+    ],
+    "version": "flow2api"
+  },
+  "top_level_keys": [
+    "models"
+  ]
+}
