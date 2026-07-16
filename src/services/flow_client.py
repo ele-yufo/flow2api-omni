@@ -15,7 +15,8 @@ from curl_cffi.requests import AsyncSession
 from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
-from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error
+from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
+from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
@@ -164,20 +165,8 @@ class FlowClient:
         return False
 
     def _extract_project_id_from_payload(self, value: Any) -> Optional[str]:
-        if isinstance(value, dict):
-            project_id = value.get("projectId")
-            if isinstance(project_id, str) and project_id.strip():
-                return project_id.strip()
-            for item in value.values():
-                found = self._extract_project_id_from_payload(item)
-                if found:
-                    return found
-        elif isinstance(value, list):
-            for item in value:
-                found = self._extract_project_id_from_payload(item)
-                if found:
-                    return found
-        return None
+        """委托 flow.response_parsers。"""
+        return extract_project_id_from_payload(value)
 
     def _should_submit_via_captcha_browser(
         self,
@@ -457,27 +446,8 @@ class FlowClient:
             raise Exception(f"Flow API request failed: {error_msg}")
 
     def _should_fallback_to_urllib(self, error_message: str) -> bool:
-        """判断是否应从 curl_cffi 回退到 urllib。"""
-        error_lower = (error_message or "").lower()
-        return any(
-            keyword in error_lower
-            for keyword in [
-                "curl: (6)",
-                "curl: (7)",
-                "curl: (16)",   # HTTP/2 framing error (large body / proxy 抖动)
-                "curl: (28)",
-                "curl: (35)",
-                "curl: (52)",
-                "curl: (56)",
-                "http/2 framing",
-                "connection timed out",
-                "could not connect",
-                "failed to connect",
-                "ssl connect error",
-                "tls connect error",
-                "network is unreachable",
-            ]
-        )
+        """委托 flow.errors。"""
+        return should_fallback_to_urllib(error_message)
 
     def _sync_json_request_via_urllib(
         self,
@@ -678,18 +648,8 @@ class FlowClient:
 
     @staticmethod
     def _extract_rotated_st_from_set_cookie(set_cookie_headers) -> Optional[str]:
-        """从响应的 Set-Cookie 头里解析轮换后的 __Secure-next-auth.session-token。
-
-        labs.google /auth/session 每次会回发一个滚动续期 ~30 天的新 ST。
-        长度护栏 >= 200，防止把异常短值当成有效 ST。
-        """
-        from ..core.cookie_extractor import SESSION_TOKEN_KEY, MIN_ST_LEN
-        for raw in set_cookie_headers or []:
-            if isinstance(raw, str) and raw.startswith(SESSION_TOKEN_KEY + "="):
-                value = raw.split("=", 1)[1].split(";", 1)[0].strip()
-                if len(value) >= MIN_ST_LEN:
-                    return value
-        return None
+        """委托 flow.response_parsers。"""
+        return extract_rotated_st_from_set_cookie(set_cookie_headers)
 
     async def st_to_at(self, st: str) -> dict:
         """ST转AT；并捕获 labs.google 回发的轮换新 ST (rotated_st)。
@@ -2349,12 +2309,8 @@ class FlowClient:
 
     @staticmethod
     def _parse_json_response_text(text: str) -> Optional[Any]:
-        if not text:
-            return None
-        try:
-            return json.loads(text)
-        except Exception:
-            return None
+        """委托 flow.response_parsers。"""
+        return parse_json_response_text(text)
 
     @staticmethod
     async def _stdlib_json_http_request(

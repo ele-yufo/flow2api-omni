@@ -1,0 +1,14 @@
+{
+  "fallback_curl16": true,
+  "fallback_no": false,
+  "json_empty": null,
+  "json_invalid": null,
+  "json_valid": {
+    "k": 1
+  },
+  "project_id_missing": null,
+  "project_id_nested": "p1",
+  "rotated_st_none": null,
+  "rotated_st_ok": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "rotated_st_too_short": null
+}

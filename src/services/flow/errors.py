@@ -81,3 +81,27 @@ def get_retry_reason(error_str: str) -> Optional[str]:
     ]):
         return "5xx/上游瞬断"
     return None
+
+
+def should_fallback_to_urllib(error_message: str) -> bool:
+    """判断是否应从 curl_cffi 回退到 urllib（连接/TLS/framing 类）。"""
+    error_lower = (error_message or "").lower()
+    return any(
+        keyword in error_lower
+        for keyword in [
+            "curl: (6)",
+            "curl: (7)",
+            "curl: (16)",   # HTTP/2 framing error (large body / proxy 抖动)
+            "curl: (28)",
+            "curl: (35)",
+            "curl: (52)",
+            "curl: (56)",
+            "http/2 framing",
+            "connection timed out",
+            "could not connect",
+            "failed to connect",
+            "ssl connect error",
+            "tls connect error",
+            "network is unreachable",
+        ]
+    )
