@@ -1,0 +1,47 @@
+{
+  "after_add": [
+    {
+      "ban_reason": null,
+      "captcha_proxy_url": null,
+      "credits": 42,
+      "current_project_id": null,
+      "current_project_name": null,
+      "email": "chartest@example.com",
+      "error_count": 0,
+      "image_concurrency": -1,
+      "image_count": 0,
+      "image_enabled": 1,
+      "is_active": 1,
+      "name": "chartest",
+      "remark": null,
+      "use_count": 0,
+      "user_paygate_tier": "PAYGATE_TIER_ONE",
+      "video_concurrency": -1,
+      "video_count": 0,
+      "video_enabled": 1
+    }
+  ],
+  "after_update": [
+    {
+      "ban_reason": "GRANT_EXPIRED",
+      "captcha_proxy_url": null,
+      "credits": 42,
+      "current_project_id": null,
+      "current_project_name": null,
+      "email": "chartest@example.com",
+      "error_count": 0,
+      "image_concurrency": -1,
+      "image_count": 0,
+      "image_enabled": 1,
+      "is_active": 0,
+      "name": "chartest",
+      "remark": null,
+      "use_count": 0,
+      "user_paygate_tier": "PAYGATE_TIER_ONE",
+      "video_concurrency": -1,
+      "video_count": 0,
+      "video_enabled": 1
+    }
+  ],
+  "returned_id_is_int": true
+}
