@@ -73,3 +73,18 @@ def get_no_token_error_message(generation_type: str) -> str:
         return "没有可用的Token进行图片生成。所有Token都处于禁用、冷却、锁定或已过期状态。"
     else:
         return "没有可用的Token进行视频生成。所有Token都处于禁用、冷却、配额耗尽或已过期状态。"
+
+
+def resolve_base_url(cache_base_url, response_base_url, server_host, server_port) -> str:
+    """基础 URL 解析优先级:已配置缓存域名 > 请求 base_url > 服务监听地址(避免暴露 0.0.0.0)。"""
+    if cache_base_url:
+        return cache_base_url.rstrip("/")
+
+    request_base_url = (response_base_url or "").strip().rstrip("/")
+    if request_base_url:
+        return request_base_url
+
+    host = (server_host or "").strip()
+    if host in {"", "0.0.0.0", "::", "[::]"}:
+        host = "127.0.0.1"
+    return f"http://{host}:{server_port}"
