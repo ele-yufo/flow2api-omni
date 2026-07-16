@@ -16,6 +16,7 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .flow.errors import is_retryable_network_error, is_timeout_error
+from .flow.request_builders import build_video_text_input, build_video_text_request
 
 try:
     import httpx
@@ -1282,17 +1283,8 @@ class FlowClient:
     # ========== 视频生成 (使用AT) - 异步返回 ==========
 
     def _build_video_text_input(self, prompt: str, use_v2_model_config: bool = False) -> Dict[str, Any]:
-        if use_v2_model_config:
-            return {
-                "structuredPrompt": {
-                    "parts": [{
-                        "text": prompt
-                    }]
-                }
-            }
-        return {
-            "prompt": prompt
-        }
+        """委托 flow.request_builders。"""
+        return build_video_text_input(prompt, use_v2_model_config)
 
     async def generate_video_text(
         self,
@@ -1365,37 +1357,19 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-            scene_id = str(uuid.uuid4())
-            client_context = {
-                "recaptchaContext": {
-                    "token": recaptcha_token,
-                    "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                },
-                "sessionId": session_id,
-                "projectId": project_id,
-                "tool": "PINHOLE",
-                "userPaygateTier": user_paygate_tier
-            }
-            request_data = {
-                "aspectRatio": aspect_ratio,
-                "seed": random.randint(1, 99999),
-                "textInput": self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
-                "videoModelKey": model_key,
-                "metadata": {
-                    "sceneId": scene_id
-                }
-            }
-            json_data = {
-                "clientContext": client_context,
-                "requests": [request_data]
-            }
-            if use_v2_model_config:
-                json_data["mediaGenerationContext"] = {
-                    "batchId": str(uuid.uuid4()),
-                    "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
-                }
-                json_data["useV2ModelConfig"] = True
+            json_data = build_video_text_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                text_input=self._build_video_text_input(prompt, use_v2_model_config=use_v2_model_config),
+                model_key=model_key,
+                scene_id=str(uuid.uuid4()),
+                use_v2_model_config=use_v2_model_config,
+                batch_id=str(uuid.uuid4()) if use_v2_model_config else None,
+            )
 
             try:
                 result = await self._make_request(
