@@ -1,0 +1,11 @@
+{
+  "headers_empty": {
+    "Content-Type": "application/json"
+  },
+  "headers_filtered": {
+    "Accept": "application/json",
+    "Authorization": "Bearer x",
+    "Content-Type": "application/json"
+  },
+  "url": "https://labs.google/fx/api/auth/providers"
+}
