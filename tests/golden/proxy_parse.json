@@ -1,0 +1,11 @@
+{
+  "": null,
+  "1.2.3.4:8080": "http://1.2.3.4:8080",
+  "1.2.3.4:8080:user:pass": "http://user:pass@1.2.3.4:8080",
+  "garbage no colon": null,
+  "http://u:p@1.2.3.4:8080": "http://u:p@1.2.3.4:8080",
+  "socks5://1.2.3.4:1080:user:pass": "socks5://user:pass@1.2.3.4:1080",
+  "socks5h://u:p@h:1080": "socks5h://u:p@h:1080",
+  "st5 1.2.3.4:1080:user:pass": "socks5://user:pass@1.2.3.4:1080",
+  "user:pass@host:9": "http://user:pass@host:9"
+}
