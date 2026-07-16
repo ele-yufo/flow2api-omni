@@ -75,3 +75,8 @@ tests/__pycache__/
 
 # 去水印开发临时目录(ProPainter/权重/样本, 勿入库)
 .wm_dev/
+
+# 测试覆盖率产物
+.coverage
+.coverage.*
+htmlcov/
