@@ -29,3 +29,17 @@ def detect_image_mime_type(image_bytes: bytes) -> str:
         return "image/jp2"
 
     return "image/jpeg"
+
+
+def convert_to_jpeg(image_bytes: bytes) -> bytes:
+    """将图片转换为 JPEG 格式(透明通道转 RGB)。"""
+    from io import BytesIO
+    from PIL import Image
+
+    img = Image.open(BytesIO(image_bytes))
+    if img.mode in ('RGBA', 'LA', 'P'):
+        img = img.convert('RGB')
+
+    output = BytesIO()
+    img.save(output, format='JPEG', quality=95)
+    return output.getvalue()
