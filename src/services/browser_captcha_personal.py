@@ -25,6 +25,7 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 
 # ==================== Docker 环境检测 ====================
 # 环境检测(Docker/headed 允许)已抽到 captcha.environment(纯,派生全局同前)。
+from ..shared.async_utils import run_with_timeout
 from .captcha.environment import (
     ALLOW_DOCKER_HEADED,
     DOCKER_HEADED_BLOCKED,
@@ -274,12 +275,8 @@ class BrowserCaptchaService:
             )
 
     async def _run_with_timeout(self, awaitable, timeout_seconds: float, label: str):
-        """统一收口 nodriver 操作超时，避免单次卡死拖住整条请求链路。"""
-        effective_timeout = max(0.5, float(timeout_seconds or 0))
-        try:
-            return await asyncio.wait_for(awaitable, timeout=effective_timeout)
-        except asyncio.TimeoutError as e:
-            raise TimeoutError(f"{label} 超时 ({effective_timeout:.1f}s)") from e
+        """委托 shared.async_utils。"""
+        return await run_with_timeout(awaitable, timeout_seconds, label)
 
     async def _wait_for_display_ready(self, display_value: str, timeout_seconds: float = 5.0):
         """委托 captcha.environment。"""
