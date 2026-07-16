@@ -1,0 +1,37 @@
+{
+  "empty": [],
+  "explicit_status": [
+    {
+      "mediaGenerationId": "m2",
+      "operation": {
+        "error": {},
+        "metadata": {
+          "video": {
+            "mediaGenerationId": "m2"
+          }
+        },
+        "name": "m2"
+      },
+      "sceneId": "s-fallback",
+      "status": "MEDIA_GENERATION_STATUS_ACTIVE"
+    }
+  ],
+  "no_name": [],
+  "successful_by_fifeurl": [
+    {
+      "mediaGenerationId": "m1",
+      "operation": {
+        "error": {},
+        "metadata": {
+          "video": {
+            "fifeUrl": "http://x",
+            "mediaGenerationId": "m1"
+          }
+        },
+        "name": "m1"
+      },
+      "sceneId": "s-fallback",
+      "status": "MEDIA_GENERATION_STATUS_SUCCESSFUL"
+    }
+  ]
+}
