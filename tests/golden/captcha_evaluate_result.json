@@ -1,0 +1,23 @@
+{
+  "dict_typed_wrapper": "wrapped",
+  "none": null,
+  "object_entry_list": {
+    "x": "1",
+    "y": "2"
+  },
+  "plain_dict": {
+    "k": "v",
+    "n": 5
+  },
+  "plain_list": [
+    1,
+    2,
+    3
+  ],
+  "plain_str": "x",
+  "typed_object_entries": {
+    "a": 1,
+    "b": 2
+  },
+  "typed_string": "hello"
+}
