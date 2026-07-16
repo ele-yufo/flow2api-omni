@@ -326,3 +326,55 @@ def build_video_status_request(operations) -> Dict[str, Any]:
     return {
         "operations": operations
     }
+
+
+def build_video_concatenation_request(
+    *,
+    original_media_id: str,
+    extended_media_id: str,
+    original_duration_nanos: int,
+    extended_start_offset: str,
+) -> Dict[str, Any]:
+    """Assemble the runVideoFxConcatenation request (original + extended segment stitch)."""
+    return {
+        "inputVideos": [
+            {
+                "mediaGenerationId": original_media_id,
+                "lengthNanos": original_duration_nanos,
+                "startTimeOffset": "0s",
+                "endTimeOffset": "8s",
+            },
+            {
+                "mediaGenerationId": extended_media_id,
+                "lengthNanos": original_duration_nanos,
+                "startTimeOffset": extended_start_offset,
+                "endTimeOffset": "8s",
+            },
+        ]
+    }
+
+
+def build_image_upsample_request(
+    *,
+    media_id: str,
+    target_resolution: str,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    user_paygate_tier: str,
+) -> Dict[str, Any]:
+    """Assemble the flow/upsampleImage request body (2K/4K image upscale)."""
+    return {
+        "mediaId": media_id,
+        "targetResolution": target_resolution,
+        "clientContext": {
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            },
+            "sessionId": session_id,
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier
+        }
+    }
