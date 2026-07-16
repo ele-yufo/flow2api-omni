@@ -35,3 +35,22 @@ def test_protocol_conversion_golden():
     assert out["finish_length"] == "MAX_TOKENS"
     assert out["decode_data_url_mime"] == "image/png"
     assert_golden("protocol_conversion", out)
+
+
+def test_protocol_conversion_more_golden():
+    from src.api import routes as R
+    from src.core.models import GeminiContent
+
+    gc = GeminiContent.model_validate({"role": "user", "parts": [{"text": "hi"}, {"text": "there"}]})
+    out = {
+        "model_desc_image": R._build_model_description({"type": "image", "model_name": "GEM_PIX"}),
+        "model_desc_video": R._build_model_description({"type": "video", "model_key": "veo_x"}),
+        "extract_text": R._extract_text_from_gemini_content(gc),
+        "extract_text_none": R._extract_text_from_gemini_content(None),
+        "video_parts": R._build_video_parts_from_uri("http://x/v.mp4"),
+        "coerce_count": len(R._coerce_gemini_contents([{"role": "user", "parts": [{"text": "a"}]}])),
+    }
+    assert out["model_desc_image"] == "Image generation - GEM_PIX"
+    assert out["extract_text"] == "hi\nthere"
+    assert out["video_parts"][0]["fileData"]["mimeType"] == "video/mp4"
+    assert_golden("protocol_conversion_more", out)

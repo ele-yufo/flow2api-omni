@@ -29,6 +29,8 @@ from .protocol_conversion import (
     _extract_openai_message_content, _extract_url_from_openai_payload,
     _get_error_status_code, _guess_mime_type, _normalize_finish_reason,
     _parse_handler_result,
+    _build_model_description, _coerce_gemini_contents,
+    _extract_text_from_gemini_content, _build_video_parts_from_uri,
 )
 
 router = APIRouter()
@@ -61,14 +63,6 @@ def _ensure_generation_handler() -> GenerationHandler:
     return generation_handler
 
 
-def _build_model_description(model_config: Dict[str, Any]) -> str:
-    """Build a human-readable description for model listing endpoints."""
-    description = f"{model_config['type'].capitalize()} generation"
-    if model_config["type"] == "image":
-        description += f" - {model_config['model_name']}"
-    else:
-        description += f" - {model_config['model_key']}"
-    return description
 
 
 def _get_openai_model_catalog() -> List[Dict[str, str]]:
@@ -194,21 +188,8 @@ async def _load_image_bytes_from_uri(uri: str) -> bytes:
     raise HTTPException(status_code=400, detail=f"Unsupported image URI: {uri}")
 
 
-def _coerce_gemini_contents(raw_contents: Optional[List[Any]]) -> List[GeminiContent]:
-    contents: List[GeminiContent] = []
-    for item in raw_contents or []:
-        if isinstance(item, GeminiContent):
-            contents.append(item)
-        else:
-            contents.append(GeminiContent.model_validate(item))
-    return contents
 
 
-def _extract_text_from_gemini_content(content: Optional[GeminiContent]) -> str:
-    if content is None:
-        return ""
-    text_parts = [part.text.strip() for part in content.parts if part.text]
-    return "\n".join(part for part in text_parts if part).strip()
 
 
 async def _extract_prompt_and_images_from_openai_messages(
@@ -462,15 +443,6 @@ async def _build_image_parts_from_uri(uri: str) -> List[Dict[str, Any]]:
     ]
 
 
-def _build_video_parts_from_uri(uri: str) -> List[Dict[str, Any]]:
-    return [
-        {
-            "fileData": {
-                "mimeType": _guess_mime_type(uri, "video/mp4"),
-                "fileUri": uri,
-            }
-        }
-    ]
 
 
 async def _build_gemini_parts_from_output(output: str) -> List[Dict[str, Any]]:
