@@ -8,6 +8,17 @@ import asyncio
 from ...shared.telemetry import debug_logger
 from .errors import _is_runtime_disconnect_error, _is_runtime_normal_close_error
 
+# nodriver 可用性探测 —— _patch_nodriver_runtime 需要 uc/NODRIVER_AVAILABLE。
+# 这两个原为 browser_captcha_personal 的模块级全局;抽出补丁函数时必须让本模块自持,
+# 不能反向 import browser_captcha_personal(会循环)。语义等价:浏览器真正启动时
+# nodriver 必然可用,补丁照常应用。
+try:
+    import nodriver as uc
+    NODRIVER_AVAILABLE = True
+except Exception:
+    uc = None
+    NODRIVER_AVAILABLE = False
+
 
 _NODRIVER_RUNTIME_PATCHED = False
 
