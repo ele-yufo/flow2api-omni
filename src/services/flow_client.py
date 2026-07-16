@@ -16,6 +16,7 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error
+from ..shared.storage.media_types import detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
     build_video_status_request,
@@ -825,37 +826,8 @@ class FlowClient:
     # ========== 图片上传 (使用AT) ==========
 
     def _detect_image_mime_type(self, image_bytes: bytes) -> str:
-        """通过文件头 magic bytes 检测图片 MIME 类型
-
-        Args:
-            image_bytes: 图片字节数据
-
-        Returns:
-            MIME 类型字符串，默认 image/jpeg
-        """
-        if len(image_bytes) < 12:
-            return "image/jpeg"
-
-        # WebP: RIFF....WEBP
-        if image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-            return "image/webp"
-        # PNG: 89 50 4E 47
-        if image_bytes[:4] == b'\x89PNG':
-            return "image/png"
-        # JPEG: FF D8 FF
-        if image_bytes[:3] == b'\xff\xd8\xff':
-            return "image/jpeg"
-        # GIF: GIF87a 或 GIF89a
-        if image_bytes[:6] in (b'GIF87a', b'GIF89a'):
-            return "image/gif"
-        # BMP: BM
-        if image_bytes[:2] == b'BM':
-            return "image/bmp"
-        # JPEG 2000: 00 00 00 0C 6A 50
-        if image_bytes[:6] == b'\x00\x00\x00\x0cjP':
-            return "image/jp2"
-
-        return "image/jpeg"
+        """委托 shared.storage.media_types。"""
+        return detect_image_mime_type(image_bytes)
 
     def _convert_to_jpeg(self, image_bytes: bytes) -> bytes:
         """将图片转换为 JPEG 格式
