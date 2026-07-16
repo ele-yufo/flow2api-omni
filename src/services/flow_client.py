@@ -20,6 +20,8 @@ from .flow.response_parsers import extract_project_id_from_payload, extract_rota
 from ..shared.storage.media_types import detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
+    build_image_upsample_request,
+    build_video_concatenation_request,
     build_video_status_request,
     build_video_extend_request,
     build_video_upsample_request,
@@ -1150,20 +1152,14 @@ class FlowClient:
                 raise last_error
             upsample_session_id = session_id or self._generate_session_id()
 
-            json_data = {
-                "mediaId": media_id,
-                "targetResolution": target_resolution,
-                "clientContext": {
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": upsample_session_id,
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier
-                }
-            }
+            json_data = build_image_upsample_request(
+                media_id=media_id,
+                target_resolution=target_resolution,
+                recaptcha_token=recaptcha_token,
+                session_id=upsample_session_id,
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+            )
 
             # 4K/2K 放大使用专用超时，因为返回的 base64 数据量很大
             try:
@@ -1899,22 +1895,12 @@ class FlowClient:
         """
         url = f"{self.api_base_url}:runVideoFxConcatenation"
 
-        json_data = {
-            "inputVideos": [
-                {
-                    "mediaGenerationId": original_media_id,
-                    "lengthNanos": original_duration_nanos,
-                    "startTimeOffset": "0s",
-                    "endTimeOffset": "8s",
-                },
-                {
-                    "mediaGenerationId": extended_media_id,
-                    "lengthNanos": original_duration_nanos,
-                    "startTimeOffset": extended_start_offset,
-                    "endTimeOffset": "8s",
-                },
-            ]
-        }
+        json_data = build_video_concatenation_request(
+            original_media_id=original_media_id,
+            extended_media_id=extended_media_id,
+            original_duration_nanos=original_duration_nanos,
+            extended_start_offset=extended_start_offset,
+        )
 
         return await self._make_request(
             method="POST",

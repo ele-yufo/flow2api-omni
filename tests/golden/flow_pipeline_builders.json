@@ -1,0 +1,32 @@
+{
+  "concat": {
+    "inputVideos": [
+      {
+        "endTimeOffset": "8s",
+        "lengthNanos": 8000,
+        "mediaGenerationId": "orig",
+        "startTimeOffset": "0s"
+      },
+      {
+        "endTimeOffset": "8s",
+        "lengthNanos": 8000,
+        "mediaGenerationId": "ext",
+        "startTimeOffset": "1s"
+      }
+    ]
+  },
+  "upsample": {
+    "clientContext": {
+      "projectId": "p1",
+      "recaptchaContext": {
+        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+        "token": "RC"
+      },
+      "sessionId": "S",
+      "tool": "PINHOLE",
+      "userPaygateTier": "PAYGATE_TIER_ONE"
+    },
+    "mediaId": "m1",
+    "targetResolution": "UPSAMPLE_IMAGE_RESOLUTION_4K"
+  }
+}
