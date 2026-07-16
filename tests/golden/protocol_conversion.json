@@ -1,0 +1,35 @@
+{
+  "decode_data_url_mime": "image/png",
+  "finish_length": "MAX_TOKENS",
+  "finish_none": null,
+  "finish_stop": "STOP",
+  "gemini_err": {
+    "error": {
+      "code": 400,
+      "message": "bad",
+      "status": "INVALID_ARGUMENT"
+    }
+  },
+  "gemini_err_unknown": {
+    "error": {
+      "code": 499,
+      "message": "weird",
+      "status": "UNKNOWN"
+    }
+  },
+  "guess_mime": "image/png",
+  "openai_content": "hello",
+  "openai_content_result": "fallback",
+  "parse_json": {
+    "k": 1
+  },
+  "parse_nonjson": {
+    "result": "plain text"
+  },
+  "status_error_int": 403,
+  "status_error_str": 404,
+  "status_ok": 200,
+  "url_direct": "http://direct",
+  "url_markdown": "http://md.png",
+  "url_video": "http://v.mp4"
+}
