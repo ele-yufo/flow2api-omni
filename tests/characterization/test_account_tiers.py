@@ -1,16 +1,29 @@
-"""Characterization: lock paygate tier pure-function behavior."""
+"""Characterization: lock paygate tier pure-function behavior.
+
+Uses the canonical tier strings so ranking/labels/gating are actually exercised,
+plus junk inputs to lock the "unknown → free" fallback.
+"""
 from tests.conftest import assert_golden
 
 
 def test_account_tiers_golden():
     from src.core import account_tiers as at
 
-    tiers = [None, "", "NOT_PAID", "TIER_ONE", "TIER_TWO", "garbage"]
+    tiers = [
+        None,
+        "",
+        at.PAYGATE_TIER_NOT_PAID,   # canonical free
+        at.PAYGATE_TIER_ONE,        # canonical pro
+        at.PAYGATE_TIER_TWO,        # canonical ultra
+        "TIER_ONE",                 # non-canonical → fallback
+        "garbage",                  # junk → fallback
+    ]
     models = [
-        "gemini-3.1-flash-image-landscape",
-        "veo_3_1_t2v_fast_landscape",
-        "gemini_omni_t2v_4s",
-        "veo_3_1_t2v_fast_ultra",
+        "gemini-3.1-flash-image-landscape",   # plain → NOT_PAID
+        "gemini-3.0-pro-image-square-2k",     # -2k → TIER_ONE
+        "veo_3_1_t2v_fast_1080p",             # _1080p → TIER_ONE
+        "veo_3_1_t2v_fast_ultra",             # _ultra → TIER_TWO
+        "veo_3_1_t2v_fast_4k",                # _4k → TIER_TWO
     ]
     out = {
         "normalize": {str(t): at.normalize_user_paygate_tier(t) for t in tiers},
@@ -20,7 +33,7 @@ def test_account_tiers_golden():
         "supports": {
             f"{m}|{t}": at.supports_model_for_tier(m, t)
             for m in models
-            for t in ["NOT_PAID", "TIER_ONE", "TIER_TWO"]
+            for t in [at.PAYGATE_TIER_NOT_PAID, at.PAYGATE_TIER_ONE, at.PAYGATE_TIER_TWO]
         },
     }
     assert_golden("account_tiers", out)
