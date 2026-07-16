@@ -1,0 +1,54 @@
+{
+  "": {
+    "retryable": false,
+    "timeout": false
+  },
+  "200 OK": {
+    "retryable": false,
+    "timeout": false
+  },
+  "403 Forbidden PUBLIC_ERROR_UNUSUAL_ACTIVITY": {
+    "retryable": false,
+    "timeout": false
+  },
+  "Connection reset by peer": {
+    "retryable": true,
+    "timeout": false
+  },
+  "Empty reply from server": {
+    "retryable": true,
+    "timeout": false
+  },
+  "SSL_ERROR_SYSCALL": {
+    "retryable": true,
+    "timeout": false
+  },
+  "UNEXPECTED_EOF_WHILE_READING": {
+    "retryable": true,
+    "timeout": false
+  },
+  "curl: (16) HTTP/2 framing error": {
+    "retryable": true,
+    "timeout": false
+  },
+  "curl: (28) Operation timed out after 120000ms": {
+    "retryable": false,
+    "timeout": true
+  },
+  "curl: (35) SSL connect error": {
+    "retryable": true,
+    "timeout": false
+  },
+  "http.client.IncompleteRead(0 bytes read)": {
+    "retryable": true,
+    "timeout": false
+  },
+  "network is unreachable": {
+    "retryable": true,
+    "timeout": false
+  },
+  "requests.exceptions.ChunkedEncodingError": {
+    "retryable": true,
+    "timeout": false
+  }
+}
