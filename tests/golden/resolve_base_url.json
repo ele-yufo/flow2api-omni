@@ -1,0 +1,7 @@
+{
+  "cache_wins": "http://cdn.example.com",
+  "empty_host_to_localhost": "http://127.0.0.1:8000",
+  "response_next": "http://req.example.com",
+  "server_fallback": "http://5.6.7.8:9000",
+  "wildcard_host_to_localhost": "http://127.0.0.1:8000"
+}

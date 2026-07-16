@@ -33,6 +33,7 @@ from .generation.state import (
     mark_generation_succeeded,
     get_no_token_error_message,
     normalize_error_message,
+    resolve_base_url,
     resolve_video_model_key_for_tier,
 )
 from .generation.response_parsing import (
@@ -1610,23 +1611,10 @@ class GenerationHandler:
         return create_error_response(error_message, status_code)
 
     def _get_base_url(self, response_state: Optional[Dict[str, Any]] = None) -> str:
-        """获取基础URL用于缓存文件访问"""
-        # 已配置缓存访问域名时，始终优先使用它，避免被请求 Host/IP 覆盖。
-        if config.cache_base_url:
-            return config.cache_base_url.rstrip("/")
-
-        request_base_url = ""
-        if isinstance(response_state, dict):
-            request_base_url = (response_state.get("base_url") or "").strip().rstrip("/")
-        if request_base_url:
-            return request_base_url
-
-        # 回退到服务地址，避免把监听地址 0.0.0.0 / :: 直接返回给客户端
-        server_host = (config.server_host or "").strip()
-        if server_host in {"", "0.0.0.0", "::", "[::]"}:
-            server_host = "127.0.0.1"
-
-        return f"http://{server_host}:{config.server_port}"
+        """获取基础URL用于缓存文件访问(委托 generation.state,config 值就地读取)。"""
+        response_base_url = response_state.get("base_url") if isinstance(response_state, dict) else None
+        return resolve_base_url(config.cache_base_url, response_base_url,
+                                config.server_host, config.server_port)
 
     async def _update_request_log_progress(
         self,
