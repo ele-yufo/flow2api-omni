@@ -1,0 +1,11 @@
+{
+  "bmp": "image/bmp",
+  "gif87": "image/gif",
+  "gif89": "image/gif",
+  "jp2": "image/jp2",
+  "jpeg": "image/jpeg",
+  "png": "image/png",
+  "too_short": "image/jpeg",
+  "unknown": "image/jpeg",
+  "webp": "image/webp"
+}
