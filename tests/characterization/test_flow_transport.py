@@ -109,3 +109,15 @@ def test_stdlib_json_http_request(monkeypatch):
     status, parsed, text = asyncio.run(
         T.stdlib_json_http_request("POST", "https://x", {}, {"a": 1}, 5))
     assert status == 200 and parsed == {"ok": 1}
+
+
+def test_validate_remote_browser_response():
+    from src.services.flow.transport import validate_remote_browser_response
+    import pytest
+    assert validate_remote_browser_response(200, {"ok": 1}, "") == {"ok": 1}
+    with pytest.raises(RuntimeError, match="返回格式错误"):
+        validate_remote_browser_response(200, "not-dict", "")
+    with pytest.raises(RuntimeError, match="boom"):
+        validate_remote_browser_response(500, {"detail": "boom"}, "")
+    with pytest.raises(RuntimeError, match="HTTP 503"):
+        validate_remote_browser_response(503, None, "")

@@ -19,6 +19,7 @@ from .captcha.api_solver import get_api_captcha_token
 from .captcha.cooldown import CaptchaCooldownTracker
 from .flow.transport import (
     build_remote_browser_http_timeout,
+    validate_remote_browser_response,
     stdlib_json_http_request,
     sync_json_http_request,
     sync_json_request_via_urllib,
@@ -2242,18 +2243,7 @@ class FlowClient:
             timeout=effective_timeout,
         )
 
-        if status_code >= 400:
-            detail = ""
-            if isinstance(payload, dict):
-                detail = payload.get("detail") or payload.get("message") or str(payload)
-            if not detail:
-                detail = (response_text or "").strip() or f"HTTP {status_code}"
-            raise RuntimeError(f"remote_browser 请求失败: {detail}")
-
-        if not isinstance(payload, dict):
-            raise RuntimeError("remote_browser 返回格式错误")
-
-        return payload
+        return validate_remote_browser_response(status_code, payload, response_text)
 
     async def prefill_remote_browser_pool(
         self,

@@ -171,3 +171,19 @@ async def sync_json_http_request(
     status_code = int(getattr(response, "status_code", 0) or 0)
     text = response.text or ""
     return status_code, parse_json_response_text(text), text
+
+
+def validate_remote_browser_response(status_code: int, payload, response_text: str):
+    """校验远程打码服务响应:>=400 或非 dict 抛 RuntimeError,否则返回 payload。"""
+    if status_code >= 400:
+        detail = ""
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("message") or str(payload)
+        if not detail:
+            detail = (response_text or "").strip() or f"HTTP {status_code}"
+        raise RuntimeError(f"remote_browser 请求失败: {detail}")
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("remote_browser 返回格式错误")
+
+    return payload
