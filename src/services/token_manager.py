@@ -7,6 +7,7 @@ from ..core.config import config
 from ..core.models import Token, Project
 from ..core.logger import debug_logger
 from .tokens.at_refresh import should_refresh_at
+from .tokens.locks import get_keyed_lock
 from .tokens.project_naming import build_project_name, normalize_project_name_base
 from .flow_client import FlowClient
 from .proxy_manager import ProxyManager
@@ -31,13 +32,8 @@ class TokenManager:
         guard: asyncio.Lock,
         token_id: int,
     ) -> asyncio.Lock:
-        """按 token 维度获取锁，避免不同 token 之间串行阻塞。"""
-        async with guard:
-            lock = lock_map.get(token_id)
-            if lock is None:
-                lock = asyncio.Lock()
-                lock_map[token_id] = lock
-            return lock
+        """委托 tokens.locks。"""
+        return await get_keyed_lock(lock_map, guard, token_id)
 
     def _get_project_pool_size(self) -> int:
         """读取当前生效的单 Token 项目池大小配置。"""
