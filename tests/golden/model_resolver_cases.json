@@ -1,0 +1,9 @@
+{
+  "img_assemble_default_aspect": "gemini-3.1-flash-image-landscape",
+  "img_assemble_square_2k": "gemini-3.0-pro-image-square-2k",
+  "img_full_key": "gemini-3.0-pro-image-square-2k",
+  "omni_full_key": "gemini_omni_t2v_4s",
+  "unknown_model": "this-model-does-not-exist",
+  "video_assemble_default_landscape": "veo_3_1_t2v_fast_landscape",
+  "video_assemble_portrait": "veo_3_1_t2v_fast_portrait"
+}
