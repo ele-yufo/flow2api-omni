@@ -309,3 +309,20 @@ def build_video_extend_request(
             }
         }]
     }
+
+
+def build_video_status_request(operations) -> Dict[str, Any]:
+    """Assemble the batchCheckAsyncVideoGenerationStatus request body.
+
+    operations may be a dict (carrying "operations" and/or "media" keys) or a raw list.
+    """
+    if isinstance(operations, dict):
+        json_data: Dict[str, Any] = {}
+        if operations.get("operations"):
+            json_data["operations"] = operations["operations"]
+        if operations.get("media"):
+            json_data["media"] = operations["media"]
+        return json_data
+    return {
+        "operations": operations
+    }

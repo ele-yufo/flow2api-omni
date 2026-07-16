@@ -18,6 +18,7 @@ from .flow.http_headers import HeaderBuilder
 from .flow.errors import get_retry_reason, is_retryable_network_error, is_timeout_error
 from .flow.request_builders import (
     build_image_request,
+    build_video_status_request,
     build_video_extend_request,
     build_video_upsample_request,
     build_video_image_request,
@@ -2041,16 +2042,7 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"
 
-        if isinstance(operations, dict):
-            json_data = {}
-            if operations.get("operations"):
-                json_data["operations"] = operations["operations"]
-            if operations.get("media"):
-                json_data["media"] = operations["media"]
-        else:
-            json_data = {
-                "operations": operations
-            }
+        json_data = build_video_status_request(operations)
         max_retries = max(1, getattr(config, "flow_max_retries", 3))
         last_error: Optional[Exception] = None
 
