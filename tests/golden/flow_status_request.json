@@ -1,0 +1,41 @@
+{
+  "dict_both": {
+    "media": [
+      {
+        "m": 2
+      }
+    ],
+    "operations": [
+      {
+        "o": 1
+      }
+    ]
+  },
+  "dict_empty": {},
+  "dict_media": {
+    "media": [
+      {
+        "name": "m1",
+        "projectId": "p1"
+      }
+    ]
+  },
+  "dict_operations": {
+    "operations": [
+      {
+        "operation": {
+          "name": "t2"
+        }
+      }
+    ]
+  },
+  "list": {
+    "operations": [
+      {
+        "operation": {
+          "name": "t1"
+        }
+      }
+    ]
+  }
+}
