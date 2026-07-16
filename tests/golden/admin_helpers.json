@@ -1,0 +1,37 @@
+{
+  "err_dict": "boom",
+  "err_nested": "deep",
+  "err_str_json": "j",
+  "hints_chrome_win": {
+    "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Google Chrome\";v=\"124\", \"Chromium\";v=\"124\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\""
+  },
+  "hints_mobile": {
+    "sec-ch-ua": "\"Not:A-Brand\";v=\"99\", \"Google Chrome\";v=\"120\", \"Chromium\";v=\"120\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\""
+  },
+  "impersonate_124": "chrome124",
+  "impersonate_none": "chrome120",
+  "mask_long": "AAAAAAAAAAAAAAAAAA...AAAAAAAA",
+  "mask_short": "short",
+  "normalize_url": "http://host:9",
+  "proxy_bad": [
+    false,
+    "代理格式错误"
+  ],
+  "proxy_empty": [
+    true,
+    null
+  ],
+  "proxy_map": {
+    "http": "http://x:1",
+    "https": "http://x:1"
+  },
+  "proxy_ok": [
+    true,
+    null
+  ],
+  "truncate": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx..."
+}
