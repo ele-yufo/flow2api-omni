@@ -113,3 +113,52 @@ def test_video_r2v_request_contract_golden(monkeypatch):
     assert jd["requests"][0]["referenceImages"][0]["mediaId"] == "m1"
     assert jd["useV2ModelConfig"] is True
     assert_golden("flow_video_r2v_request", out)
+
+
+def _capture_i2v(monkeypatch, *, kind: str, use_v2: bool):
+    """kind = 'start_image' | 'start_end'"""
+    from src.services import flow_client as fc_mod
+    from src.services.flow_client import FlowClient
+
+    fc = FlowClient(None)
+    monkeypatch.setattr(fc_mod.random, "randint", lambda a, b: 42)
+    monkeypatch.setattr(fc_mod.uuid, "uuid4", lambda: _FixedUUID())
+    fc._generate_session_id = lambda: "SESSION_FIXED"
+    fc._get_recaptcha_token = AsyncMock(return_value=("RECAPTCHA_FIXED", "browser-1"))
+    fc._clear_captcha_rejection = lambda project_id: None
+    fc._notify_browser_captcha_request_finished = AsyncMock(return_value=None)
+
+    captured = {}
+
+    async def fake_make_request(**kwargs):
+        captured.update(kwargs)
+        return {"operations": [{"operation": {"name": f"task-{kind}"}}]}
+
+    fc._make_request = AsyncMock(side_effect=fake_make_request)
+
+    async def run():
+        common = dict(at="AT_FIXED", project_id="proj-1", prompt="i2v prompt",
+                      model_key="veo_3_1_i2v_s_fast_fl", aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+                      use_v2_model_config=use_v2, user_paygate_tier="PAYGATE_TIER_ONE")
+        if kind == "start_end":
+            return await fc.generate_video_start_end(start_media_id="m_start", end_media_id="m_end", **common)
+        return await fc.generate_video_start_image(start_media_id="m_start", **common)
+
+    result = asyncio.run(run())
+    return {"request": {"url": captured.get("url"), "json_data": captured.get("json_data")},
+            "result": result}
+
+
+def test_video_i2v_request_contracts_golden(monkeypatch):
+    out = {
+        "start_image_v1": _capture_i2v(monkeypatch, kind="start_image", use_v2=False),
+        "start_image_v2": _capture_i2v(monkeypatch, kind="start_image", use_v2=True),
+        "start_end_v1": _capture_i2v(monkeypatch, kind="start_end", use_v2=False),
+        "start_end_v2": _capture_i2v(monkeypatch, kind="start_end", use_v2=True),
+    }
+    assert out["start_image_v1"]["request"]["url"].endswith("/video:batchAsyncGenerateVideoStartImage")
+    assert out["start_end_v1"]["request"]["url"].endswith("/video:batchAsyncGenerateVideoStartAndEndImage")
+    # start_image must NOT carry endImage; start_end must
+    assert "endImage" not in out["start_image_v1"]["request"]["json_data"]["requests"][0]
+    assert out["start_end_v1"]["request"]["json_data"]["requests"][0]["endImage"]["mediaId"] == "m_end"
+    assert_golden("flow_video_i2v_requests", out)

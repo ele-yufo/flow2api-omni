@@ -117,3 +117,63 @@ def build_video_reference_images_request(
         }],
         "useV2ModelConfig": True
     }
+
+
+def build_video_image_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    user_paygate_tier: str,
+    aspect_ratio: str,
+    seed: int,
+    text_input: Dict[str, Any],
+    model_key: str,
+    start_media_id: str,
+    scene_id: str,
+    use_v2_model_config: bool,
+    batch_id: Optional[str],
+    end_media_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Assemble I2V request body — start-image (end_media_id=None) or start+end frames.
+
+    Covers batchAsyncGenerateVideoStartImage and ...StartAndEndImage. mediaGenerationContext
+    here carries only batchId (no audioFailurePreference, unlike text-to-video).
+    """
+    request_data: Dict[str, Any] = {
+        "aspectRatio": aspect_ratio,
+        "seed": seed,
+        "textInput": text_input,
+        "videoModelKey": model_key,
+        "startImage": {
+            "mediaId": start_media_id
+        },
+        "metadata": {
+            "sceneId": scene_id
+        }
+    }
+    if end_media_id is not None:
+        request_data["endImage"] = {
+            "mediaId": end_media_id
+        }
+
+    json_data: Dict[str, Any] = {
+        "clientContext": {
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            },
+            "sessionId": session_id,
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier
+        },
+        "requests": [request_data]
+    }
+    if use_v2_model_config:
+        json_data["mediaGenerationContext"] = {
+            "batchId": batch_id
+        }
+        json_data["useV2ModelConfig"] = True
+
+    return json_data

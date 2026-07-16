@@ -1,0 +1,196 @@
+{
+  "start_end_v1": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "endImage": {
+              "mediaId": "m_end"
+            },
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "startImage": {
+              "mediaId": "m_start"
+            },
+            "textInput": {
+              "prompt": "i2v prompt"
+            },
+            "videoModelKey": "veo_3_1_i2v_s_fast_fl"
+          }
+        ]
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartAndEndImage"
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-start_end"
+          }
+        }
+      ]
+    }
+  },
+  "start_end_v2": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "mediaGenerationContext": {
+          "batchId": "00000000-0000-0000-0000-000000000000"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "endImage": {
+              "mediaId": "m_end"
+            },
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "startImage": {
+              "mediaId": "m_start"
+            },
+            "textInput": {
+              "structuredPrompt": {
+                "parts": [
+                  {
+                    "text": "i2v prompt"
+                  }
+                ]
+              }
+            },
+            "videoModelKey": "veo_3_1_i2v_s_fast_fl"
+          }
+        ],
+        "useV2ModelConfig": true
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartAndEndImage"
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-start_end"
+          }
+        }
+      ]
+    }
+  },
+  "start_image_v1": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "startImage": {
+              "mediaId": "m_start"
+            },
+            "textInput": {
+              "prompt": "i2v prompt"
+            },
+            "videoModelKey": "veo_3_1_i2v_s_fast_fl"
+          }
+        ]
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage"
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-start_image"
+          }
+        }
+      ]
+    }
+  },
+  "start_image_v2": {
+    "request": {
+      "json_data": {
+        "clientContext": {
+          "projectId": "proj-1",
+          "recaptchaContext": {
+            "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB",
+            "token": "RECAPTCHA_FIXED"
+          },
+          "sessionId": "SESSION_FIXED",
+          "tool": "PINHOLE",
+          "userPaygateTier": "PAYGATE_TIER_ONE"
+        },
+        "mediaGenerationContext": {
+          "batchId": "00000000-0000-0000-0000-000000000000"
+        },
+        "requests": [
+          {
+            "aspectRatio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+            "metadata": {
+              "sceneId": "00000000-0000-0000-0000-000000000000"
+            },
+            "seed": 42,
+            "startImage": {
+              "mediaId": "m_start"
+            },
+            "textInput": {
+              "structuredPrompt": {
+                "parts": [
+                  {
+                    "text": "i2v prompt"
+                  }
+                ]
+              }
+            },
+            "videoModelKey": "veo_3_1_i2v_s_fast_fl"
+          }
+        ],
+        "useV2ModelConfig": true
+      },
+      "url": "https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage"
+    },
+    "result": {
+      "operations": [
+        {
+          "operation": {
+            "name": "task-start_image"
+          }
+        }
+      ]
+    }
+  }
+}
