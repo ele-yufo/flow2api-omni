@@ -1,0 +1,8 @@
+{
+  "build": "My Project P2",
+  "build_from_pooled": "My Project P5",
+  "empty_fallback": "Mar 05 - 14:30",
+  "not_pool_suffix": "My Project Phase",
+  "plain": "My Project",
+  "strip_pool_suffix": "My Project"
+}
