@@ -4,7 +4,20 @@ Extracted from GenerationHandler (P4). Transforms the varied upstream submit/sta
 response shapes (operations vs media vs workflow) into the internal shape used
 downstream. Pure — golden-locked against representative response shapes.
 """
+import uuid
 from typing import Any, Dict, List
+
+
+def normalize_media_id_to_uuid_str(raw_media_id: str) -> str:
+    """把原始 media id 归一化为标准 UUID 字符串;不是合法 UUID 时原样返回。
+
+    行为与原 3 处内联 `try: str(uuid.UUID(x)) except ValueError: x` 完全一致——
+    只吞 ValueError,其它异常(如 x 为 None 触发的 TypeError)照旧向上传播。
+    """
+    try:
+        return str(uuid.UUID(raw_media_id))
+    except ValueError:
+        return raw_media_id
 
 
 def normalize_video_submit_response(result: Dict[str, Any], project_id: str) -> Dict[str, Any]:
