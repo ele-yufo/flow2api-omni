@@ -8,6 +8,7 @@ from ..shared.db import SqliteEngine
 from .repositories.token_stats_repository import TokenStatsRepository
 from .repositories.request_log_repository import RequestLogRepository
 from .repositories.project_repository import ProjectRepository
+from .repositories.task_repository import TaskRepository
 from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig, CallLogicConfig
 
 
@@ -29,6 +30,7 @@ class Database(SqliteEngine):
         self._token_stats = TokenStatsRepository(self)
         self._request_logs = RequestLogRepository(self)
         self._projects = ProjectRepository(self)
+        self._tasks = TaskRepository(self)
 
     async def _ensure_config_rows(self, db, config_dict: dict = None):
         """Ensure all config tables have their default rows
@@ -981,49 +983,16 @@ class Database(SqliteEngine):
 
     # Task operations
     async def create_task(self, task: Task) -> int:
-        """Create a new task"""
-        async with self._connect(write=True) as db:
-            cursor = await db.execute("""
-                INSERT INTO tasks (task_id, token_id, model, prompt, status, progress, scene_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (task.task_id, task.token_id, task.model, task.prompt,
-                  task.status, task.progress, task.scene_id))
-            await db.commit()
-            return cursor.lastrowid
+        """委托 TaskRepository。"""
+        return await self._tasks.create_task(task)
 
     async def get_task(self, task_id: str) -> Optional[Task]:
-        """Get task by ID"""
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
-            row = await cursor.fetchone()
-            if row:
-                task_dict = dict(row)
-                # Parse result_urls from JSON
-                if task_dict.get("result_urls"):
-                    task_dict["result_urls"] = json.loads(task_dict["result_urls"])
-                return Task(**task_dict)
-            return None
+        """委托 TaskRepository。"""
+        return await self._tasks.get_task(task_id)
 
     async def update_task(self, task_id: str, **kwargs):
-        """Update task"""
-        async with self._connect(write=True) as db:
-            updates = []
-            params = []
-
-            for key, value in kwargs.items():
-                if value is not None:
-                    # Convert list to JSON string for result_urls
-                    if key == "result_urls" and isinstance(value, list):
-                        value = json.dumps(value)
-                    updates.append(f"{key} = ?")
-                    params.append(value)
-
-            if updates:
-                params.append(task_id)
-                query = f"UPDATE tasks SET {', '.join(updates)} WHERE task_id = ?"
-                await db.execute(query, params)
-                await db.commit()
+        """委托 TaskRepository。"""
+        await self._tasks.update_task(task_id, **kwargs)
 
     # Token stats operations (kept for compatibility, now delegates to specific methods)
     async def increment_token_stats(self, token_id: int, stat_type: str):
