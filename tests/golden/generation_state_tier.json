@@ -1,0 +1,62 @@
+{
+  "veo_3_1_i2v_s_fast_fl|allow=True|PAYGATE_TIER_NOT_PAID": [
+    "veo_3_1_i2v_s_fast_fl",
+    null
+  ],
+  "veo_3_1_i2v_s_fast_fl|allow=True|PAYGATE_TIER_ONE": [
+    "veo_3_1_i2v_s_fast_fl",
+    null
+  ],
+  "veo_3_1_i2v_s_fast_fl|allow=True|PAYGATE_TIER_TWO": [
+    "veo_3_1_i2v_s_fast_ultra_fl",
+    "TIER_TWO 账号自动切换到 ultra 模型: veo_3_1_i2v_s_fast_ultra_fl"
+  ],
+  "veo_3_1_i2v_s_fast_ultra_fl|allow=True|PAYGATE_TIER_NOT_PAID": [
+    "veo_3_1_i2v_s_fast_ultra_fl",
+    null
+  ],
+  "veo_3_1_i2v_s_fast_ultra_fl|allow=True|PAYGATE_TIER_ONE": [
+    "veo_3_1_i2v_s_fast_fl",
+    "TIER_ONE 账号自动切换到标准模型: veo_3_1_i2v_s_fast_fl"
+  ],
+  "veo_3_1_i2v_s_fast_ultra_fl|allow=True|PAYGATE_TIER_TWO": [
+    "veo_3_1_i2v_s_fast_ultra_fl",
+    null
+  ],
+  "veo_3_1_t2v_fast_ultra|allow=True|PAYGATE_TIER_NOT_PAID": [
+    "veo_3_1_t2v_fast_ultra",
+    null
+  ],
+  "veo_3_1_t2v_fast_ultra|allow=True|PAYGATE_TIER_ONE": [
+    "veo_3_1_t2v_fast",
+    "TIER_ONE 账号自动切换到标准模型: veo_3_1_t2v_fast"
+  ],
+  "veo_3_1_t2v_fast_ultra|allow=True|PAYGATE_TIER_TWO": [
+    "veo_3_1_t2v_fast_ultra",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=False|PAYGATE_TIER_NOT_PAID": [
+    "veo_3_1_t2v_fast",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=False|PAYGATE_TIER_ONE": [
+    "veo_3_1_t2v_fast",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=False|PAYGATE_TIER_TWO": [
+    "veo_3_1_t2v_fast",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=True|PAYGATE_TIER_NOT_PAID": [
+    "veo_3_1_t2v_fast",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=True|PAYGATE_TIER_ONE": [
+    "veo_3_1_t2v_fast",
+    null
+  ],
+  "veo_3_1_t2v_fast|allow=True|PAYGATE_TIER_TWO": [
+    "veo_3_1_t2v_fast_ultra",
+    "TIER_TWO 账号自动切换到 ultra 模型: veo_3_1_t2v_fast_ultra"
+  ]
+}
