@@ -1094,6 +1094,80 @@ class GenerationHandler:
         finally:
             pass
 
+    async def _finalize_video_success(
+        self, video_url, token, operation, stream, response_state,
+        generation_result, request_log_state,
+    ) -> AsyncGenerator:
+        """成功生成后的收尾:缓存 -> Pro 去水印 -> 落库 -> yield 最终响应。
+
+        从 _poll_video_result 抽出,行为逐字不变;由 test_poll_video_result 安全网守护。
+        """
+        # 缓存视频 (如果启用)
+        local_url = video_url
+        if config.cache_enabled:
+            await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="caching_video", progress=92)
+            try:
+                if stream:
+                    yield self._create_stream_chunk("正在缓存视频文件...\n")
+                cached_filename = await self.file_cache.download_and_cache(video_url, "video")
+                local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
+                if stream:
+                    yield self._create_stream_chunk("✅ 视频缓存成功,准备返回缓存地址...\n")
+            except Exception as e:
+                debug_logger.log_error(f"Failed to cache video: {str(e)}")
+                # 缓存失败不影响结果返回,使用原始URL
+                local_url = video_url
+                if stream:
+                    cache_error = self._normalize_error_message(e, max_length=120)
+                    yield self._create_stream_chunk(f"⚠️ 缓存失败: {cache_error}\n正在返回源链接...\n")
+        else:
+            if stream:
+                yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
+
+        # Pro(TIER_ONE) 视频去水印: 调本机常驻 ProPainter 服务; 失败回退原 URL,
+        # 绝不让生成失败。Ultra(TIER_TWO)/Free 无水印, 直接透传。
+        if config.watermark_enabled and normalize_user_paygate_tier(token.user_paygate_tier) == PAYGATE_TIER_ONE:
+            if stream:
+                yield self._create_stream_chunk("正在去除 Pro 水印...\n")
+            dewm_url = await dewatermark_video(video_url, self.file_cache, self._get_base_url(response_state))
+            if dewm_url:
+                local_url = dewm_url
+                if stream:
+                    yield self._create_stream_chunk("✅ 水印已去除\n")
+            elif stream:
+                yield self._create_stream_chunk("⚠️ 去水印未成功, 返回原视频\n")
+
+        # 更新数据库
+        task_id = operation["operation"]["name"]
+        await self.db.update_task(
+            task_id,
+            status="completed",
+            progress=100,
+            result_urls=[local_url],
+            completed_at=time.time()
+        )
+
+        # 存储URL用于日志记录
+        response_state["url"] = local_url
+        response_state["generated_assets"] = {
+            "type": "video",
+            "final_video_url": local_url
+        }
+
+        # 返回结果
+        self._mark_generation_succeeded(generation_result)
+
+        if stream:
+            yield self._create_stream_chunk(
+                f"<video src='{local_url}' controls style='max-width:100%'></video>",
+                finish_reason="stop"
+            )
+        else:
+            yield self._create_completion_response(
+                local_url,  # 直接传URL,让方法内部格式化
+                media_type="video"
+            )
+
     async def _poll_video_result(
         self,
         token,
@@ -1468,71 +1542,12 @@ class GenerationHandler:
                             if stream:
                                 yield self._create_stream_chunk(f"⚠️ 延长失败: {str(e)}，返回原始视频\n")
 
-                    # 缓存视频 (如果启用)
-                    local_url = video_url
-                    if config.cache_enabled:
-                        await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="caching_video", progress=92)
-                        try:
-                            if stream:
-                                yield self._create_stream_chunk("正在缓存视频文件...\n")
-                            cached_filename = await self.file_cache.download_and_cache(video_url, "video")
-                            local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
-                            if stream:
-                                yield self._create_stream_chunk("✅ 视频缓存成功,准备返回缓存地址...\n")
-                        except Exception as e:
-                            debug_logger.log_error(f"Failed to cache video: {str(e)}")
-                            # 缓存失败不影响结果返回,使用原始URL
-                            local_url = video_url
-                            if stream:
-                                cache_error = self._normalize_error_message(e, max_length=120)
-                                yield self._create_stream_chunk(f"⚠️ 缓存失败: {cache_error}\n正在返回源链接...\n")
-                    else:
-                        if stream:
-                            yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
-
-                    # Pro(TIER_ONE) 视频去水印: 调本机常驻 ProPainter 服务; 失败回退原 URL,
-                    # 绝不让生成失败。Ultra(TIER_TWO)/Free 无水印, 直接透传。
-                    if config.watermark_enabled and normalize_user_paygate_tier(token.user_paygate_tier) == PAYGATE_TIER_ONE:
-                        if stream:
-                            yield self._create_stream_chunk("正在去除 Pro 水印...\n")
-                        dewm_url = await dewatermark_video(video_url, self.file_cache, self._get_base_url(response_state))
-                        if dewm_url:
-                            local_url = dewm_url
-                            if stream:
-                                yield self._create_stream_chunk("✅ 水印已去除\n")
-                        elif stream:
-                            yield self._create_stream_chunk("⚠️ 去水印未成功, 返回原视频\n")
-
-                    # 更新数据库
-                    task_id = operation["operation"]["name"]
-                    await self.db.update_task(
-                        task_id,
-                        status="completed",
-                        progress=100,
-                        result_urls=[local_url],
-                        completed_at=time.time()
-                    )
-
-                    # 存储URL用于日志记录
-                    response_state["url"] = local_url
-                    response_state["generated_assets"] = {
-                        "type": "video",
-                        "final_video_url": local_url
-                    }
-
-                    # 返回结果
-                    self._mark_generation_succeeded(generation_result)
-
-                    if stream:
-                        yield self._create_stream_chunk(
-                            f"<video src='{local_url}' controls style='max-width:100%'></video>",
-                            finish_reason="stop"
-                        )
-                    else:
-                        yield self._create_completion_response(
-                            local_url,  # 直接传URL,让方法内部格式化
-                            media_type="video"
-                        )
+                    # 成功收尾(缓存 -> 去水印 -> 落库 -> 最终响应)抽成独立生成器
+                    async for _chunk in self._finalize_video_success(
+                        video_url, token, operation, stream, response_state,
+                        generation_result, request_log_state,
+                    ):
+                        yield _chunk
                     return
 
                 elif status == "MEDIA_GENERATION_STATUS_FAILED":
