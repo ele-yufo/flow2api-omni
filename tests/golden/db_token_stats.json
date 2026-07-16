@@ -1,0 +1,38 @@
+{
+  "after_reset": {
+    "consecutive_error_count": 0,
+    "error_count": 2,
+    "image_count": 2,
+    "last_success_at": null,
+    "success_count": 0,
+    "today_error_count": 2,
+    "today_image_count": 2,
+    "today_video_count": 1,
+    "token_id": 1,
+    "video_count": 1
+  },
+  "before_reset": {
+    "consecutive_error_count": 2,
+    "error_count": 2,
+    "image_count": 2,
+    "last_success_at": null,
+    "success_count": 0,
+    "today_error_count": 2,
+    "today_image_count": 2,
+    "today_video_count": 1,
+    "token_id": 1,
+    "video_count": 1
+  },
+  "final": {
+    "consecutive_error_count": 0,
+    "error_count": 2,
+    "image_count": 3,
+    "last_success_at": null,
+    "success_count": 0,
+    "today_error_count": 2,
+    "today_image_count": 3,
+    "today_video_count": 1,
+    "token_id": 1,
+    "video_count": 1
+  }
+}
