@@ -40,3 +40,18 @@ def test_runtime_error_classification_golden():
     assert out["chained"]["disconnect"] is True  # walks __cause__
     assert "browser has been closed" in _flatten_exception_text(samples["chained"])
     assert_golden("captcha_errors", out)
+
+
+def test_is_server_side_flow_error_golden():
+    from src.services.captcha.errors import is_server_side_flow_error
+
+    out = {
+        "http500": is_server_side_flow_error("HTTP Error 500"),
+        "internal": is_server_side_flow_error('{"reason":"internal"}'),
+        "public_error": is_server_side_flow_error("PUBLIC_ERROR_X"),
+        "server_error": is_server_side_flow_error("server error"),
+        "not_server": is_server_side_flow_error("403 Forbidden"),
+        "empty": is_server_side_flow_error(""),
+    }
+    assert out["http500"] is True and out["not_server"] is False
+    assert_golden("captcha_server_error", out)

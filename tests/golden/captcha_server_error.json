@@ -1,0 +1,8 @@
+{
+  "empty": false,
+  "http500": true,
+  "internal": true,
+  "not_server": false,
+  "public_error": true,
+  "server_error": true
+}
