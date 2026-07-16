@@ -6,8 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.core.config import config
-from src.services import watermark_client
-from src.services.watermark_client import dewatermark_video
+# watermark_client moved to src.shared.gpu (P3); patch its real module (httpx lives there).
+from src.shared.gpu import watermark_client
+from src.shared.gpu.watermark_client import dewatermark_video
 
 
 class WatermarkConfigTests(unittest.TestCase):
