@@ -1,0 +1,12 @@
+{
+  "err_empty": "未知错误",
+  "err_filenotfound": "本机未安装 curl",
+  "err_prefix": "real reason",
+  "ext_image_png": ".png",
+  "ext_image_unknown": ".jpg",
+  "ext_video_mp4": ".mp4",
+  "ext_video_unknown": ".mp4",
+  "headers_fp_ua": "MyUA",
+  "headers_image_dest": "image",
+  "headers_video_dest": "video"
+}
