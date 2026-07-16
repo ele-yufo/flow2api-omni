@@ -716,7 +716,7 @@ class GenerationHandler:
                                 if stream:
                                     yield self._create_stream_chunk(f"缓存 {resolution_name} 图片中...\n")
                                 cached_filename = await self.file_cache.cache_base64_image(encoded_image, resolution_name)
-                                local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
+                                local_url = self._build_tmp_url(response_state, cached_filename)
                                 response_state["url"] = local_url
                                 response_state["generated_assets"]["upscaled_image"]["local_url"] = local_url
                                 response_state["generated_assets"]["upscaled_image"]["url"] = local_url
@@ -796,7 +796,7 @@ class GenerationHandler:
                     yield self._create_stream_chunk("正在缓存 1K 图片文件...\n")
                 try:
                     cached_filename = await self.file_cache.download_and_cache(image_url, "image")
-                    local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
+                    local_url = self._build_tmp_url(response_state, cached_filename)
                     if stream:
                         yield self._create_stream_chunk("✅ 1K 图片缓存成功,准备返回缓存地址...\n")
                 except Exception as e:
@@ -1147,7 +1147,7 @@ class GenerationHandler:
                 if stream:
                     yield self._create_stream_chunk("正在缓存视频文件...\n")
                 cached_filename = await self.file_cache.download_and_cache(video_url, "video")
-                local_url = f"{self._get_base_url(response_state)}/tmp/{cached_filename}"
+                local_url = self._build_tmp_url(response_state, cached_filename)
                 if stream:
                     yield self._create_stream_chunk("✅ 视频缓存成功,准备返回缓存地址...\n")
             except Exception as e:
@@ -1522,7 +1522,7 @@ class GenerationHandler:
                                             # 几十 MB 视频写盘必须出 event loop，否则阻塞所有
                                             # 并发请求的 progress 回调、SSE writes 和轮询。
                                             await asyncio.to_thread(concat_path.write_bytes, video_data)
-                                            local_url = f"{self._get_base_url(response_state)}/tmp/{concat_filename}"
+                                            local_url = self._build_tmp_url(response_state, concat_filename)
 
                                             if stream:
                                                 yield self._create_stream_chunk("✅ 15秒视频拼接完成！\n")
@@ -1617,6 +1617,13 @@ class GenerationHandler:
     def _create_error_response(self, error_message: str, status_code: int = 500) -> str:
         """创建错误响应（委托 generation.responses）"""
         return create_error_response(error_message, status_code)
+
+    def _build_tmp_url(self, response_state: Optional[Dict[str, Any]], filename: str) -> str:
+        """拼接本机 /tmp 缓存访问 URL:{base_url}/tmp/{filename}。
+
+        从 4 处相同的 f-string 抽出,行为逐字不变。
+        """
+        return f"{self._get_base_url(response_state)}/tmp/{filename}"
 
     def _get_base_url(self, response_state: Optional[Dict[str, Any]] = None) -> str:
         """获取基础URL用于缓存文件访问(委托 generation.state,config 值就地读取)。"""
