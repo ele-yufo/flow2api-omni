@@ -8,6 +8,15 @@ import uuid
 from typing import Any, Dict, List
 
 
+def extract_video_info(operation: Dict[str, Any]) -> Dict[str, Any]:
+    """取 operation 里的 video 元数据子字典:operation['operation'].metadata.video。
+
+    与原内联 `X["operation"].get("metadata", {}).get("video", {})` 逐字等价——
+    保留 `["operation"]` 的 KeyError 语义(该键缺失时抛,而非静默 {})。
+    """
+    return operation["operation"].get("metadata", {}).get("video", {})
+
+
 def is_media_generation_failed(status: Any) -> bool:
     """媒体生成终态失败判定:显式 FAILED,或任何 MEDIA_GENERATION_STATUS_ERROR* 前缀。
 
