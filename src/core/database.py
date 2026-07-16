@@ -7,6 +7,7 @@ from pathlib import Path
 from ..shared.db import SqliteEngine
 from .repositories.token_stats_repository import TokenStatsRepository
 from .repositories.request_log_repository import RequestLogRepository
+from .repositories.project_repository import ProjectRepository
 from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig, CallLogicConfig
 
 
@@ -27,6 +28,7 @@ class Database(SqliteEngine):
         # 按实体拆分的仓储(共享本引擎的连接层),Database 逐步收敛为组合根。
         self._token_stats = TokenStatsRepository(self)
         self._request_logs = RequestLogRepository(self)
+        self._projects = ProjectRepository(self)
 
     async def _ensure_config_rows(self, db, config_dict: dict = None):
         """Ensure all config tables have their default rows
@@ -962,42 +964,20 @@ class Database(SqliteEngine):
 
     # Project operations
     async def add_project(self, project: Project) -> int:
-        """Add a new project"""
-        async with self._connect(write=True) as db:
-            cursor = await db.execute("""
-                INSERT INTO projects (project_id, token_id, project_name, tool_name, is_active)
-                VALUES (?, ?, ?, ?, ?)
-            """, (project.project_id, project.token_id, project.project_name,
-                  project.tool_name, project.is_active))
-            await db.commit()
-            return cursor.lastrowid
+        """委托 ProjectRepository。"""
+        return await self._projects.add_project(project)
 
     async def get_project_by_id(self, project_id: str) -> Optional[Project]:
-        """Get project by UUID"""
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute("SELECT * FROM projects WHERE project_id = ?", (project_id,))
-            row = await cursor.fetchone()
-            if row:
-                return Project(**dict(row))
-            return None
+        """委托 ProjectRepository。"""
+        return await self._projects.get_project_by_id(project_id)
 
     async def get_projects_by_token(self, token_id: int) -> List[Project]:
-        """Get all projects for a token"""
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                "SELECT * FROM projects WHERE token_id = ? ORDER BY created_at DESC",
-                (token_id,)
-            )
-            rows = await cursor.fetchall()
-            return [Project(**dict(row)) for row in rows]
+        """委托 ProjectRepository。"""
+        return await self._projects.get_projects_by_token(token_id)
 
     async def delete_project(self, project_id: str):
-        """Delete project"""
-        async with self._connect(write=True) as db:
-            await db.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
-            await db.commit()
+        """委托 ProjectRepository。"""
+        await self._projects.delete_project(project_id)
 
     # Task operations
     async def create_task(self, task: Task) -> int:
