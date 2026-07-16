@@ -96,6 +96,7 @@ async def stdlib_json_http_request(
     headers: Dict[str, str],
     payload: Optional[Dict[str, Any]],
     timeout: int,
+    error_prefix: str = "remote_browser 请求失败",
 ) -> tuple:
     req_headers = dict(headers or {})
     req_headers.setdefault("Accept", "application/json")
@@ -129,7 +130,7 @@ async def stdlib_json_http_request(
     try:
         status_code, text = await asyncio.to_thread(do_request)
     except Exception as e:
-        raise RuntimeError(f"remote_browser 请求失败: {e}") from e
+        raise RuntimeError(f"{error_prefix}: {e}") from e
 
     return status_code, parse_json_response_text(text), text
 
@@ -140,6 +141,7 @@ async def sync_json_http_request(
     headers: Dict[str, str],
     payload: Optional[Dict[str, Any]],
     timeout: int,
+    error_prefix: str = "remote_browser 请求失败",
 ) -> tuple:
     req_headers = dict(headers or {})
     req_headers.setdefault("Accept", "application/json")
@@ -157,13 +159,14 @@ async def sync_json_http_request(
     if httpx is None:
         return await stdlib_json_http_request(
             method=method, url=url, headers=req_headers, payload=payload, timeout=timeout,
+            error_prefix=error_prefix,
         )
 
     try:
         async with httpx.AsyncClient(follow_redirects=False, trust_env=False) as session:
             response = await session.request(method=request_method, url=url, **request_kwargs)
     except Exception as e:
-        raise RuntimeError(f"remote_browser 请求失败: {e}") from e
+        raise RuntimeError(f"{error_prefix}: {e}") from e
 
     status_code = int(getattr(response, "status_code", 0) or 0)
     text = response.text or ""
