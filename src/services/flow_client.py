@@ -18,6 +18,8 @@ from .flow.http_headers import HeaderBuilder
 from .flow.errors import is_retryable_network_error, is_timeout_error
 from .flow.request_builders import (
     build_image_request,
+    build_video_extend_request,
+    build_video_upsample_request,
     build_video_image_request,
     build_video_reference_images_request,
     build_video_text_input,
@@ -1787,32 +1789,17 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-            scene_id = str(uuid.uuid4())
-
-            json_data = {
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "resolution": resolution,
-                    "seed": random.randint(1, 99999),
-                    "videoInput": {
-                        "mediaId": video_media_id
-                    },
-                    "videoModelKey": model_key,
-                    "metadata": {
-                        "sceneId": scene_id
-                    }
-                }],
-                "clientContext": {
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    },
-                    "sessionId": session_id
-                }
-            }
+            json_data = build_video_upsample_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                seed=random.randint(1, 99999),
+                video_media_id=video_media_id,
+                model_key=model_key,
+                scene_id=str(uuid.uuid4()),
+            )
 
             try:
                 result = await self._make_request(
@@ -1912,37 +1899,19 @@ class FlowClient:
                 if should_retry:
                     continue
                 raise last_error
-            session_id = self._generate_session_id()
-
-            json_data = {
-                "mediaGenerationContext": {
-                    "batchId": str(uuid.uuid4()),
-                    "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
-                },
-                "useV2ModelConfig": True,
-                "clientContext": {
-                    "projectId": project_id,
-                    "tool": "PINHOLE",
-                    "userPaygateTier": user_paygate_tier,
-                    "sessionId": session_id,
-                    "recaptchaContext": {
-                        "token": recaptcha_token,
-                        "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-                    }
-                },
-                "requests": [{
-                    "aspectRatio": aspect_ratio,
-                    "seed": random.randint(1, 99999),
-                    "textInput": self._build_video_text_input(prompt, use_v2_model_config=True),
-                    "videoModelKey": model_key,
-                    "metadata": {
-                        "workflowId": workflow_id
-                    },
-                    "videoInput": {
-                        "mediaId": video_media_id
-                    }
-                }]
-            }
+            json_data = build_video_extend_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                text_input=self._build_video_text_input(prompt, use_v2_model_config=True),
+                model_key=model_key,
+                workflow_id=workflow_id,
+                video_media_id=video_media_id,
+                batch_id=str(uuid.uuid4()),
+            )
 
             try:
                 result = await self._make_request(

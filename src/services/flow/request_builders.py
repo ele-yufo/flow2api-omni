@@ -225,3 +225,87 @@ def build_image_request(
         "useNewMedia": True,
         "requests": [request_data]
     }
+
+
+def build_video_upsample_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    aspect_ratio: str,
+    resolution: str,
+    seed: int,
+    video_media_id: str,
+    model_key: str,
+    scene_id: str,
+) -> Dict[str, Any]:
+    """Assemble the batchAsyncGenerateVideoUpsampleVideo request body."""
+    return {
+        "requests": [{
+            "aspectRatio": aspect_ratio,
+            "resolution": resolution,
+            "seed": seed,
+            "videoInput": {
+                "mediaId": video_media_id
+            },
+            "videoModelKey": model_key,
+            "metadata": {
+                "sceneId": scene_id
+            }
+        }],
+        "clientContext": {
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            },
+            "sessionId": session_id
+        }
+    }
+
+
+def build_video_extend_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    user_paygate_tier: str,
+    aspect_ratio: str,
+    seed: int,
+    text_input: Dict[str, Any],
+    model_key: str,
+    workflow_id: str,
+    video_media_id: str,
+    batch_id: str,
+) -> Dict[str, Any]:
+    """Assemble the batchAsyncGenerateVideoExtendVideo request body (always v2)."""
+    return {
+        "mediaGenerationContext": {
+            "batchId": batch_id,
+            "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
+        },
+        "useV2ModelConfig": True,
+        "clientContext": {
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier,
+            "sessionId": session_id,
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            }
+        },
+        "requests": [{
+            "aspectRatio": aspect_ratio,
+            "seed": seed,
+            "textInput": text_input,
+            "videoModelKey": model_key,
+            "metadata": {
+                "workflowId": workflow_id
+            },
+            "videoInput": {
+                "mediaId": video_media_id
+            }
+        }]
+    }
