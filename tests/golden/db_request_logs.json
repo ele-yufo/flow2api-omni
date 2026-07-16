@@ -1,0 +1,41 @@
+{
+  "after_add": [
+    {
+      "duration": 1.5,
+      "operation": "t2v",
+      "progress": 100,
+      "response_body_excerpt": "resp",
+      "status_code": 200,
+      "status_text": "ok",
+      "token_email": "log@example.com",
+      "token_username": "logtok"
+    }
+  ],
+  "after_clear_count": 0,
+  "after_update_with_payload": [
+    {
+      "duration": 1.5,
+      "operation": "t2v",
+      "progress": 50,
+      "request_body": "req",
+      "response_body": "resp",
+      "response_body_excerpt": "resp",
+      "status_code": 200,
+      "status_text": "updated",
+      "token_email": "log@example.com",
+      "token_username": "logtok"
+    }
+  ],
+  "detail": {
+    "duration": 1.5,
+    "operation": "t2v",
+    "progress": 50,
+    "request_body": "req",
+    "response_body": "resp",
+    "status_code": 200,
+    "status_text": "updated",
+    "token_email": "log@example.com",
+    "token_username": "logtok"
+  },
+  "returned_id_is_int": true
+}
