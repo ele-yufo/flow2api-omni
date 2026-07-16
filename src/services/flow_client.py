@@ -16,6 +16,7 @@ from ..core.logger import debug_logger
 from ..core.config import config
 from .flow.http_headers import HeaderBuilder
 from .captcha.cooldown import CaptchaCooldownTracker
+from .flow.transport import sync_json_request_via_urllib
 from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
 from ..shared.storage.media_types import detect_image_mime_type
@@ -451,54 +452,8 @@ class FlowClient:
         proxy_url: Optional[str],
         timeout: int,
     ) -> Dict[str, Any]:
-        """使用 urllib 执行 JSON 请求，作为 curl_cffi 的网络回退。"""
-        request_headers = dict(headers or {})
-        request_headers.setdefault("Accept", "application/json")
-
-        data = None
-        if method.upper() != "GET" and json_data is not None:
-            data = json.dumps(json_data, ensure_ascii=False).encode("utf-8")
-            request_headers["Content-Type"] = "application/json"
-
-        handlers = [urllib.request.HTTPSHandler(context=ssl.create_default_context())]
-        if proxy_url:
-            handlers.append(
-                urllib.request.ProxyHandler(
-                    {"http": proxy_url, "https": proxy_url}
-                )
-            )
-
-        opener = urllib.request.build_opener(*handlers)
-        request = urllib.request.Request(
-            url=url,
-            data=data,
-            headers=request_headers,
-            method=method.upper(),
-        )
-
-        try:
-            with opener.open(
-                request,
-                timeout=timeout,
-            ) as response:
-                payload = response.read()
-                status_code = int(response.getcode() or 0)
-        except urllib.error.HTTPError as exc:
-            payload = exc.read() if hasattr(exc, "read") else b""
-            status_code = int(getattr(exc, "code", 500) or 500)
-            body_text = payload.decode("utf-8", errors="replace")
-            raise Exception(f"HTTP Error {status_code}: {body_text[:200]}") from exc
-        except Exception as exc:
-            raise Exception(str(exc)) from exc
-
-        body_text = payload.decode("utf-8", errors="replace")
-        if status_code >= 400:
-            raise Exception(f"HTTP Error {status_code}: {body_text[:200]}")
-
-        try:
-            return json.loads(body_text) if body_text else {}
-        except Exception as exc:
-            raise Exception(f"Invalid JSON response: {body_text[:200]}") from exc
+        """委托 flow.transport。"""
+        return sync_json_request_via_urllib(method, url, headers, json_data, proxy_url, timeout)
 
     def _is_timeout_error(self, error: Exception) -> bool:
         """委托 flow.errors。"""
