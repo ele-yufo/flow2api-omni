@@ -1,0 +1,51 @@
+{
+  "bare_host_port": [
+    "http",
+    "127.0.0.1",
+    "7890",
+    null,
+    null
+  ],
+  "empty": [
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "garbage": [
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "http_with_auth": [
+    "http",
+    "1.2.3.4",
+    "8080",
+    "user",
+    "pass"
+  ],
+  "https_auth": [
+    "https",
+    "proxy.example.com",
+    "443",
+    "u",
+    "p"
+  ],
+  "socks5": [
+    "socks5",
+    "10.0.0.1",
+    "1080",
+    null,
+    null
+  ],
+  "socks5h_normalized": [
+    "socks5",
+    "10.0.0.1",
+    "1080",
+    null,
+    null
+  ]
+}
