@@ -1,16 +1,19 @@
 """Database storage layer for Flow2API"""
-import asyncio
 import aiosqlite
 import json
-from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from ..shared.db import SqliteEngine
 from .models import Token, TokenStats, Task, RequestLog, AdminConfig, ProxyConfig, GenerationConfig, CacheConfig, Project, CaptchaConfig, PluginConfig, CallLogicConfig
 
 
-class Database:
-    """SQLite database manager"""
+class Database(SqliteEngine):
+    """SQLite database manager (flow2api schema on top of the shared SqliteEngine).
+
+    Connection/lock/pragma/schema-probe plumbing lives in SqliteEngine; this class
+    owns the flow2api tables, migrations, and CRUD.
+    """
 
     def __init__(self, db_path: str = None):
         if db_path is None:
@@ -18,51 +21,7 @@ class Database:
             data_dir = Path(__file__).parent.parent.parent / "data"
             data_dir.mkdir(exist_ok=True)
             db_path = str(data_dir / "flow.db")
-        self.db_path = db_path
-        self._write_lock = asyncio.Lock()
-        self._connect_timeout = 30
-        self._busy_timeout_ms = 30000
-
-    def db_exists(self) -> bool:
-        """Check if database file exists"""
-        return Path(self.db_path).exists()
-
-    async def _configure_connection(self, db):
-        """Apply SQLite runtime settings for better concurrent behavior."""
-        await db.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
-        await db.execute("PRAGMA foreign_keys = ON")
-
-    @asynccontextmanager
-    async def _connect(self, *, write: bool = False):
-        """Open a configured SQLite connection and optionally serialize writes."""
-        if write:
-            async with self._write_lock:
-                async with aiosqlite.connect(self.db_path, timeout=self._connect_timeout) as db:
-                    await self._configure_connection(db)
-                    yield db
-            return
-
-        async with aiosqlite.connect(self.db_path, timeout=self._connect_timeout) as db:
-            await self._configure_connection(db)
-            yield db
-
-    async def _table_exists(self, db, table_name: str) -> bool:
-        """Check if a table exists in the database"""
-        cursor = await db.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (table_name,)
-        )
-        result = await cursor.fetchone()
-        return result is not None
-
-    async def _column_exists(self, db, table_name: str, column_name: str) -> bool:
-        """Check if a column exists in a table"""
-        try:
-            cursor = await db.execute(f"PRAGMA table_info({table_name})")
-            columns = await cursor.fetchall()
-            return any(col[1] == column_name for col in columns)
-        except:
-            return False
+        super().__init__(db_path)
 
     async def _ensure_config_rows(self, db, config_dict: dict = None):
         """Ensure all config tables have their default rows
