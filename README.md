@@ -738,6 +738,29 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ---
 
+## 开发与测试
+
+代码架构与模块划分见 [`docs/architecture.md`](docs/architecture.md)。
+
+运行测试套件（全离线、锁定项目 `.venv`）：
+
+```bash
+# 安装开发依赖（pytest / pyflakes 等）
+pip install -r requirements-dev.txt
+
+# 运行全部测试
+bash scripts/test.sh
+
+# 运行单个测试文件
+bash scripts/test.sh tests/characterization/test_poll_video_result.py
+```
+
+测试以 **golden 特征化（characterization）** 为主，锁定重构前后的行为等价；另有两个架构守卫：
+`test_shared_extractability.py`（保证 `shared/` 不依赖业务模块）与 `test_no_undefined_names.py`
+（pyflakes 扫描，防止抽取模块时漏带 import）。
+
+---
+
 ## 许可证
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
