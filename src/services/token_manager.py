@@ -575,11 +575,13 @@ class TokenManager:
                 debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {new_credits}）")
                 return True
             except Exception as verify_err:
-                # AT 验证失败（可能返回 401），说明 ST 已过期
+                # AT 验证失败（get_credits 401）：ST 两行前刚成功换出 AT，ST 明明活着，
+                # 死的是 Google OAuth 授权（grant）而非 ST 撤销。标 GRANT_EXPIRED（非 ST_REVOKED），
+                # _handle_refresh_failure 据此不永久禁号，保留账号待保活器下轮续期。
                 error_msg = str(verify_err)
                 if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
-                    debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: AT 验证失败 (401)，ST 可能已过期")
-                    await self.db.update_token(token_id, ban_reason="ST_REVOKED")
+                    debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: AT 验证失败 (401)，Google 授权过期(GRANT_EXPIRED)，留给保活器续")
+                    await self.db.update_token(token_id, ban_reason="GRANT_EXPIRED")
                     return False
                 else:
                     # 其他错误（如网络问题），仍视为成功
