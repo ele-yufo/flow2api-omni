@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Veo 去水印 · 精密水印移除工作台</title>
+<meta name="description" content="贴上 Google Flow 分享链接或拖入视频，ProPainter 逐帧重建被 ✦ 星标覆盖的像素，还你一段没有印记的 720p 画面。" />
+<meta name="color-scheme" content="dark" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Mono:wght@400;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+/* ============================================================
+   VEO · 去水印 — "THE RETOUCH BENCH"
+   A precision optical instrument for lifting a single mark.
+   Dark graphite lab · incandescent signal · Instrument Serif.
+   ============================================================ */
+
+*,*::before,*::after{ box-sizing:border-box; margin:0; padding:0; }
+
+:root{
+  /* --- surface --- */
+  --ink:      #09090b;
+  --ink-2:    #0c0c0f;
+  --panel:    #131317;
+  --panel-2:  #17171c;
+  --panel-hi: #1d1d23;
+
+  /* --- ink / paper --- */
+  --paper:      #ece7dd;
+  --paper-dim:  rgba(236,231,221,.56);
+  --paper-faint:rgba(236,231,221,.30);
+  --paper-ghost:rgba(236,231,221,.12);
+
+  /* --- hairlines --- */
+  --line:       rgba(236,231,221,.09);
+  --line-strong:rgba(236,231,221,.16);
+
+  /* --- signal (incandescent filament) --- */
+  --signal:     #ff5e2c;
+  --signal-hi:  #ff7d54;
+  --signal-soft:rgba(255,94,44,.14);
+  --signal-glow:rgba(255,94,44,.42);
+
+  /* --- verified / clean --- */
+  --mint:       #8fe6b0;
+  --mint-soft:  rgba(143,230,176,.14);
+
+  /* --- alarm --- */
+  --alarm:      #ff5470;
+
+  --serif: "Instrument Serif", "Songti SC", Georgia, "Times New Roman", serif;
+  --mono:  "Space Mono", ui-monospace, "SFMono-Regular", "JetBrains Mono", "Courier New", monospace;
+  --sans:  "Hanken Grotesk", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+
+  --ease: cubic-bezier(.22,.61,.36,1);
+  --ease-out: cubic-bezier(.16,1,.3,1);
+}
+
+html{ -webkit-text-size-adjust:100%; }
+body{
+  font-family:var(--sans);
+  background:var(--ink);
+  color:var(--paper);
+  min-height:100vh;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+  position:relative;
+}
+
+/* ---------- atmosphere: engineering grid + glow + grain ---------- */
+.bg{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+.bg__grid{
+  position:absolute; inset:-2px;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size:56px 56px;
+  mask-image:radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+  -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 78%);
+  opacity:.7;
+}
+.bg__glow{
+  position:absolute; inset:0;
+  background:
+    radial-gradient(60% 42% at 50% -6%, rgba(255,94,44,.16), transparent 62%),
+    radial-gradient(48% 40% at 82% 8%, rgba(120,150,255,.06), transparent 60%),
+    radial-gradient(70% 60% at 50% 118%, rgba(255,94,44,.05), transparent 60%);
+}
+.bg__grain{
+  position:absolute; inset:0; opacity:.05; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- shell ---------- */
+.shell{
+  position:relative; z-index:1;
+  max-width:1200px;
+  margin-inline:auto;
+  padding:clamp(20px,4vw,40px) clamp(18px,4vw,44px) 60px;
+}
+
+/* ---------- masthead ---------- */
+.masthead{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:20px; padding-block:6px 4px;
+  opacity:0; animation:rise .8s var(--ease-out) .05s forwards;
+}
+.mark{ display:flex; align-items:center; gap:11px; }
+.mark__star{ width:19px; height:19px; color:var(--signal); filter:drop-shadow(0 0 7px var(--signal-glow)); }
+.mark__wm{ font-family:var(--mono); font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--paper); }
+.mark__wm b{ color:var(--paper); font-weight:700; }
+.mark__wm span{ color:var(--paper-faint); }
+
+.tag{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--paper-dim);
+  display:flex; align-items:center; gap:9px;
+  border:1px solid var(--line-strong); border-radius:100px;
+  padding:6px 13px;
+  background:linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+}
+.tag i{ width:6px; height:6px; border-radius:50%; background:var(--mint); box-shadow:0 0 8px var(--mint); animation:pulse 2.6s ease-in-out infinite; }
+
+/* ---------- hero ---------- */
+.hero{ padding:clamp(46px,9vw,104px) 0 clamp(30px,5vw,52px); max-width:940px; }
+.eyebrow{
+  font-family:var(--mono); font-size:11.5px; letter-spacing:.34em; text-transform:uppercase;
+  color:var(--signal); display:flex; align-items:center; gap:14px;
+  opacity:0; animation:rise .8s var(--ease-out) .12s forwards;
+}
+.eyebrow::before{ content:""; width:34px; height:1px; background:linear-gradient(90deg, var(--signal), transparent); }
+
+h1{
+  font-family:var(--serif); font-weight:400;
+  font-size:clamp(46px,8.4vw,104px);
+  line-height:.98; letter-spacing:-.01em;
+  margin-top:26px; color:var(--paper);
+}
+h1 em{ font-style:italic; color:var(--signal); position:relative; white-space:nowrap; }
+h1 em .sp{ display:inline-block; width:.62em; height:.62em; vertical-align:baseline; transform:translateY(.02em); }
+.hl{ display:block; overflow:hidden; }
+.hl > span{ display:block; transform:translateY(105%); animation:reveal 1s var(--ease-out) forwards; }
+.hl:nth-child(2) > span{ animation-delay:.22s; }
+.hl:nth-child(3) > span{ animation-delay:.34s; }
+
+.lede{
+  margin-top:30px; max-width:600px;
+  font-size:clamp(15px,1.7vw,17.5px); color:var(--paper-dim); line-height:1.62;
+  opacity:0; animation:rise .9s var(--ease-out) .5s forwards;
+}
+.lede b{ color:var(--paper); font-weight:600; }
+.lede .sp{ display:inline-block; width:.72em; height:.72em; color:var(--signal); transform:translateY(.06em); }
+
+/* ============================================================
+   THE BENCH — console
+   ============================================================ */
+.bench{
+  opacity:0; animation:rise 1s var(--ease-out) .62s forwards;
+}
+.console{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.02fr);
+  border:1px solid var(--line-strong);
+  border-radius:20px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.024), transparent 40%),
+    var(--panel);
+  overflow:hidden;
+  box-shadow:0 40px 90px -50px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+/* console header strip */
+.console__bar{
+  grid-column:1 / -1;
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:13px 20px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+}
+.console__bar .lights{ display:flex; gap:7px; }
+.console__bar .lights i{ width:9px; height:9px; border-radius:50%; border:1px solid var(--line-strong); }
+.console__bar .lights i:nth-child(1){ background:var(--signal-soft); border-color:rgba(255,94,44,.4); }
+.console__id{ font-family:var(--mono); font-size:11px; letter-spacing:.14em; color:var(--paper-faint); text-transform:uppercase; }
+
+/* ------ left column : IO ------ */
+.io{ padding:clamp(24px,3vw,38px); border-right:1px solid var(--line); min-height:clamp(380px,52vh,520px); display:flex; flex-direction:column; }
+
+/* section label */
+.slug{
+  font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--paper-faint); display:flex; align-items:center; gap:10px; margin-bottom:12px;
+}
+.slug b{ color:var(--signal); font-weight:700; }
+
+/* link field */
+.field{
+  display:flex; align-items:center; gap:12px;
+  border:1px solid var(--line-strong); border-radius:12px;
+  background:var(--ink-2);
+  padding:0 15px; height:56px;
+  transition:border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+.field:focus-within{ border-color:var(--signal); box-shadow:0 0 0 4px var(--signal-soft); }
+.field svg{ width:17px; height:17px; color:var(--paper-faint); flex:none; }
+.field input{
+  flex:1; background:none; border:none; outline:none;
+  font-family:var(--mono); font-size:13.5px; color:var(--paper); letter-spacing:.01em;
+}
+.field input::placeholder{ color:var(--paper-faint); }
+.console.mode-file .field{ opacity:.4; filter:saturate(.4); }
+
+/* divider */
+.or{ display:flex; align-items:center; gap:14px; margin:20px 0; color:var(--paper-faint); font-family:var(--mono); font-size:10.5px; letter-spacing:.22em; }
+.or::before,.or::after{ content:""; height:1px; flex:1; background:var(--line); }
+
+/* dropzone */
+.drop{
+  position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; gap:8px;
+  border:1.5px dashed var(--line-strong); border-radius:14px;
+  padding:26px 20px; cursor:pointer;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(255,94,44,.05), transparent 60%),
+    var(--ink-2);
+  transition:border-color .3s var(--ease), background .3s var(--ease), transform .3s var(--ease);
+}
+.drop:hover{ border-color:var(--signal); transform:translateY(-1px); }
+.drop.is-drag{ border-color:var(--signal); border-style:solid; background:var(--signal-soft); }
+.drop__ico{ width:26px; height:26px; color:var(--signal); margin-bottom:2px; }
+.drop__t{ font-size:13.5px; color:var(--paper); font-weight:500; }
+.drop__t b{ color:var(--signal); font-weight:600; }
+.drop__h{ font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; color:var(--paper-faint); text-transform:uppercase; }
+.console.mode-link .drop{ opacity:.4; filter:saturate(.4); }
+
+/* selected file chip */
+.chip{
+  display:none; align-items:center; gap:12px;
+  border:1px solid rgba(255,94,44,.32); border-radius:12px;
+  background:var(--signal-soft); padding:12px 14px; margin-top:2px;
+}
+.console.mode-file .chip{ display:flex; }
+.console.mode-file .drop{ display:none; }
+.chip__ico{ width:20px; height:20px; color:var(--signal); flex:none; }
+.chip__meta{ flex:1; min-width:0; }
+.chip__name{ font-size:13px; color:var(--paper); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.chip__size{ font-family:var(--mono); font-size:10.5px; color:var(--paper-dim); letter-spacing:.05em; }
+.chip__x{ flex:none; width:26px; height:26px; border-radius:8px; border:1px solid var(--line-strong); background:none; color:var(--paper-dim); cursor:pointer; display:grid; place-items:center; transition:.2s; }
+.chip__x:hover{ color:var(--paper); border-color:var(--paper-dim); }
+.chip__x svg{ width:13px; height:13px; }
+
+/* action */
+.action{ margin-top:auto; padding-top:24px; }
+.inline-err{
+  min-height:18px; font-family:var(--mono); font-size:11px; letter-spacing:.04em;
+  color:var(--alarm); margin-bottom:12px; opacity:0; transform:translateY(-3px);
+  transition:opacity .25s, transform .25s; display:flex; align-items:center; gap:7px;
+}
+.inline-err.show{ opacity:1; transform:none; }
+.inline-err::before{ content:"!"; width:15px; height:15px; border-radius:50%; border:1px solid var(--alarm); display:grid; place-items:center; font-size:9px; flex:none; }
+
+.btn{
+  width:100%; height:58px; border:none; border-radius:13px; cursor:pointer;
+  font-family:var(--mono); font-size:14px; font-weight:700; letter-spacing:.04em;
+  color:#180a04; background:var(--signal);
+  display:flex; align-items:center; justify-content:center; gap:11px;
+  position:relative; overflow:hidden;
+  transition:transform .18s var(--ease), box-shadow .3s var(--ease), background .3s;
+  box-shadow:0 12px 30px -14px var(--signal-glow), inset 0 1px 0 rgba(255,255,255,.34);
+}
+.btn:hover{ transform:translateY(-2px); box-shadow:0 18px 40px -14px var(--signal-glow), inset 0 1px 0 rgba(255,255,255,.4); background:var(--signal-hi); }
+.btn:active{ transform:translateY(0); }
+.btn:disabled{ cursor:progress; }
+.btn::after{ /* shimmer sweep */
+  content:""; position:absolute; inset:0; transform:translateX(-120%);
+  background:linear-gradient(100deg, transparent 30%, rgba(255,255,255,.42) 50%, transparent 70%);
+}
+.btn:not(:disabled):hover::after{ animation:sweep 1s var(--ease); }
+.btn__spin{ display:none; width:16px; height:16px; border:2px solid rgba(24,10,4,.35); border-top-color:#180a04; border-radius:50%; animation:spin .7s linear infinite; }
+.btn.busy .btn__spin{ display:block; }
+.btn.busy .btn__label{ opacity:.85; }
+
+.microcopy{
+  margin-top:14px; font-family:var(--mono); font-size:10.5px; letter-spacing:.05em;
+  color:var(--paper-faint); text-align:center; line-height:1.7;
+}
+
+/* ------ panels swap by state ------ */
+.panel{ display:none; flex-direction:column; flex:1; }
+.console[data-state="idle"] .panel-input,
+.console[data-state="submitting"] .panel-input{ display:flex; }
+.console[data-state="processing"] .panel-progress{ display:flex; }
+.console[data-state="done"] .panel-done{ display:flex; }
+.console[data-state="error"] .panel-error{ display:flex; }
+
+/* ------ progress panel ------ */
+.panel-progress{ gap:0; }
+.prog-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+.prog-stagename{ font-family:var(--serif); font-size:clamp(30px,4vw,42px); line-height:1; color:var(--paper); }
+.prog-stagesub{ font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--signal); margin-top:8px; }
+.prog-pct{ font-family:var(--mono); font-weight:700; font-size:clamp(30px,4.4vw,46px); color:var(--signal); line-height:1; font-variant-numeric:tabular-nums; }
+
+.masterbar{ height:3px; border-radius:3px; background:var(--paper-ghost); margin:26px 0 30px; overflow:hidden; position:relative; }
+.masterbar i{ position:absolute; inset:0 auto 0 0; width:0%; background:linear-gradient(90deg, var(--signal), var(--signal-hi)); border-radius:3px; transition:width .7s var(--ease); box-shadow:0 0 14px var(--signal-glow); }
+
+/* stepped rail */
+.rail{ list-style:none; display:flex; flex-direction:column; gap:2px; }
+.step{ display:flex; align-items:center; gap:14px; padding:11px 0; position:relative; opacity:.4; transition:opacity .4s var(--ease); }
+.step__dot{ position:relative; width:22px; height:22px; flex:none; border-radius:50%; border:1.5px solid var(--line-strong); display:grid; place-items:center; transition:.4s var(--ease); }
+.step__dot::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--paper-faint); transition:.3s; }
+.step__code{ font-family:var(--mono); font-size:10px; color:var(--paper-faint); width:20px; letter-spacing:.06em; }
+.step__zh{ font-size:14.5px; color:var(--paper); font-weight:500; }
+.step__en{ font-family:var(--mono); font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--paper-faint); margin-left:auto; }
+/* connector line */
+.step:not(:last-child)::after{ content:""; position:absolute; left:10.5px; top:33px; bottom:-11px; width:1.5px; background:var(--line-strong); transition:background .4s; }
+
+.step.done{ opacity:.72; }
+.step.done .step__dot{ border-color:var(--mint); background:var(--mint-soft); }
+.step.done .step__dot::before{ width:0; height:0; }
+.step.done .step__dot::after{ content:""; width:9px; height:5px; border-left:1.5px solid var(--mint); border-bottom:1.5px solid var(--mint); transform:rotate(-45deg) translateY(-1px); }
+.step.done:not(:last-child)::after{ background:var(--mint); }
+.step.done .step__en{ color:var(--mint); }
+
+.step.active{ opacity:1; }
+.step.active .step__dot{ border-color:var(--signal); box-shadow:0 0 0 5px var(--signal-soft); }
+.step.active .step__dot::before{ background:var(--signal); box-shadow:0 0 10px var(--signal); animation:pulse 1.4s ease-in-out infinite; }
+.step.active .step__en{ color:var(--signal); }
+.step.active .step__code{ color:var(--signal); }
+
+.reconnect{
+  margin-top:auto; padding-top:18px; display:none; align-items:center; gap:9px;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--paper-dim);
+}
+.reconnect.show{ display:flex; }
+.reconnect i{ width:6px; height:6px; border-radius:50%; background:var(--signal); animation:pulse 1s ease-in-out infinite; }
+
+/* ------ done panel ------ */
+.panel-done{ gap:0; }
+.done-badge{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--mint); }
+.done-badge svg{ width:16px; height:16px; }
+.panel-done h2{ font-family:var(--serif); font-weight:400; font-size:clamp(34px,4.6vw,50px); line-height:1.02; margin:16px 0 12px; color:var(--paper); }
+.panel-done p{ color:var(--paper-dim); font-size:14.5px; max-width:38ch; }
+.panel-done p .sp{ display:inline-block; width:.72em; height:.72em; color:var(--signal); transform:translateY(.06em); }
+.done-actions{ margin-top:auto; padding-top:26px; display:flex; flex-direction:column; gap:12px; }
+.btn-download{
+  height:58px; border-radius:13px; text-decoration:none;
+  display:flex; align-items:center; justify-content:center; gap:11px;
+  font-family:var(--mono); font-size:14px; font-weight:700; letter-spacing:.04em;
+  color:#052012; background:var(--mint);
+  box-shadow:0 12px 30px -14px rgba(143,230,176,.5), inset 0 1px 0 rgba(255,255,255,.4);
+  transition:transform .18s var(--ease), box-shadow .3s;
+}
+.btn-download:hover{ transform:translateY(-2px); box-shadow:0 18px 40px -14px rgba(143,230,176,.6), inset 0 1px 0 rgba(255,255,255,.5); }
+.btn-download svg{ width:17px; height:17px; }
+
+/* ------ error panel ------ */
+.panel-error{ gap:0; }
+.err-badge{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--alarm); }
+.err-badge i{ width:9px; height:9px; border-radius:50%; background:var(--alarm); box-shadow:0 0 10px var(--alarm); }
+.panel-error h2{ font-family:var(--serif); font-weight:400; font-size:clamp(34px,4.6vw,50px); line-height:1.02; margin:16px 0 14px; color:var(--paper); }
+.err-msg{
+  border-left:2px solid var(--alarm); background:rgba(255,84,112,.06);
+  padding:13px 16px; border-radius:0 10px 10px 0;
+  font-size:14px; color:var(--paper); line-height:1.55;
+}
+.err-hint{ margin-top:14px; font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; color:var(--paper-faint); line-height:1.7; }
+
+.btn-ghost{
+  margin-top:auto; height:56px; border-radius:13px; cursor:pointer;
+  border:1px solid var(--line-strong); background:var(--panel-hi); color:var(--paper);
+  font-family:var(--mono); font-size:13.5px; font-weight:700; letter-spacing:.04em;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  transition:.22s var(--ease);
+}
+.btn-ghost:hover{ border-color:var(--signal); color:var(--signal); transform:translateY(-2px); }
+.panel-done .btn-ghost, .panel-error .btn-ghost{ margin-top:12px; }
+
+/* ============================================================
+   RIGHT COLUMN — specimen / stage
+   ============================================================ */
+.stage{ padding:clamp(24px,3vw,34px); display:flex; flex-direction:column; gap:16px; background:linear-gradient(200deg, rgba(255,255,255,.015), transparent 50%); }
+.stage__slug{ display:flex; align-items:center; justify-content:space-between; }
+
+/* specimen frame (faux cinematic still + watermark) */
+.specimen{
+  position:relative; aspect-ratio:16/9; border-radius:12px; overflow:hidden;
+  border:1px solid var(--line-strong);
+  background:
+    radial-gradient(80% 70% at 22% 14%, rgba(255,180,120,.20), transparent 55%),
+    radial-gradient(70% 80% at 84% 92%, rgba(90,120,220,.22), transparent 55%),
+    radial-gradient(120% 120% at 50% 50%, #1a1c22, #0a0b0e 90%);
+  --erase:0;
+}
+.specimen::before{ /* scanlines */
+  content:""; position:absolute; inset:0;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px);
+  opacity:.5; pointer-events:none;
+}
+.specimen::after{ /* vignette */
+  content:""; position:absolute; inset:0;
+  background:radial-gradient(120% 120% at 50% 50%, transparent 55%, rgba(0,0,0,.55));
+  pointer-events:none;
+}
+/* soft drifting light */
+.specimen__light{ position:absolute; width:60%; height:60%; left:10%; top:6%; border-radius:50%; background:radial-gradient(circle, rgba(255,190,140,.16), transparent 65%); filter:blur(8px); animation:drift 12s ease-in-out infinite alternate; }
+
+/* the watermark, bottom-right */
+.wm{ position:absolute; right:6%; bottom:9%; width:15%; min-width:44px; aspect-ratio:1; }
+.wm__reticle{ position:absolute; inset:-34%; opacity:0; transition:opacity .5s; }
+.wm__reticle span{ position:absolute; width:11px; height:11px; border:1.5px solid var(--signal); }
+.wm__reticle span:nth-child(1){ left:0; top:0; border-right:0; border-bottom:0; }
+.wm__reticle span:nth-child(2){ right:0; top:0; border-left:0; border-bottom:0; }
+.wm__reticle span:nth-child(3){ left:0; bottom:0; border-right:0; border-top:0; }
+.wm__reticle span:nth-child(4){ right:0; bottom:0; border-left:0; border-top:0; }
+.wm__star{ position:absolute; inset:0; color:#fff; filter:drop-shadow(0 0 6px rgba(255,255,255,.65)); opacity:calc(1 - var(--erase)); transition:opacity .5s var(--ease); will-change:opacity; }
+/* reconstructed-pixels patch grows from top as erase advances */
+.wm__patch{ position:absolute; left:-6%; right:-6%; top:-6%; height:calc(var(--erase) * 112%); border-radius:4px; opacity:0; transition:height .5s var(--ease); overflow:hidden; }
+.wm__scan{ position:absolute; left:-8%; right:-8%; height:2px; top:calc(var(--erase) * 100%); background:linear-gradient(90deg, transparent, var(--signal), transparent); box-shadow:0 0 12px var(--signal-glow); opacity:0; transition:opacity .4s, top .5s var(--ease); }
+.wm__label{
+  position:absolute; left:-8%; bottom:-42%; transform:translateY(4px);
+  font-family:var(--mono); font-size:8.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--signal);
+  white-space:nowrap; opacity:0; transition:opacity .4s;
+}
+
+/* stage behaviours by console state */
+.console[data-state="idle"] .wm__reticle,
+.console[data-state="submitting"] .wm__reticle,
+.console[data-state="error"] .wm__reticle{ opacity:1; animation:reticle 3s ease-in-out infinite; }
+.console[data-state="idle"] .wm__label,
+.console[data-state="submitting"] .wm__label{ opacity:.9; }
+.console[data-state="processing"] .wm__reticle{ opacity:.6; }
+.console[data-state="processing"] .wm__patch{ opacity:1; background:repeating-linear-gradient(0deg, rgba(255,94,44,.12) 0 2px, rgba(255,190,150,.05) 2px 4px); border:1px solid rgba(255,94,44,.25); }
+.console[data-state="processing"] .wm__scan{ opacity:1; }
+.console[data-state="error"] .specimen{ filter:grayscale(.4) brightness(.8); }
+
+/* video result */
+.result{ display:none; width:100%; aspect-ratio:16/9; border-radius:12px; border:1px solid var(--line-strong); background:#000; object-fit:contain; }
+.console[data-state="done"] .result{ display:block; }
+.console[data-state="done"] .specimen{ display:none; }
+
+/* readout under specimen */
+.readout{ display:flex; align-items:center; justify-content:space-between; gap:12px; font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; color:var(--paper-faint); text-transform:uppercase; padding-top:2px; }
+.readout .live{ display:flex; align-items:center; gap:8px; color:var(--paper-dim); }
+.readout .live i{ width:6px; height:6px; border-radius:50%; background:var(--signal); box-shadow:0 0 8px var(--signal); animation:pulse 1.6s ease-in-out infinite; }
+.console[data-state="done"] .readout .live i{ background:var(--mint); box-shadow:0 0 8px var(--mint); animation:none; }
+.console[data-state="done"] .readout .live{ color:var(--mint); }
+
+/* ---------- colophon ---------- */
+.colophon{
+  margin-top:34px; display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--paper-faint);
+  opacity:0; animation:rise 1s var(--ease-out) .8s forwards;
+}
+.colophon a{ color:var(--paper-dim); text-decoration:none; }
+.colophon a:hover{ color:var(--signal); }
+.colophon .dot{ color:var(--paper-ghost); }
+
+/* ---------- keyframes ---------- */
+@keyframes reveal{ to{ transform:translateY(0); } }
+@keyframes rise{ from{ opacity:0; transform:translateY(16px); } to{ opacity:1; transform:none; } }
+@keyframes pulse{ 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+@keyframes spin{ to{ transform:rotate(360deg); } }
+@keyframes sweep{ to{ transform:translateX(120%); } }
+@keyframes drift{ from{ transform:translate(0,0); } to{ transform:translate(18%,12%); } }
+@keyframes reticle{ 0%,100%{ transform:scale(1); opacity:1; } 50%{ transform:scale(1.06); opacity:.7; } }
+
+/* ---------- responsive ---------- */
+@media (max-width:860px){
+  .console{ grid-template-columns:1fr; }
+  .io{ border-right:none; border-bottom:1px solid var(--line); min-height:0; }
+  .stage{ order:-1; } /* specimen on top so users see the target first */
+  .console__bar{ order:-2; }
+}
+@media (max-width:520px){
+  .shell{ padding:16px 16px 44px; }
+  .masthead .tag{ display:none; }
+  .hero{ padding-top:34px; }
+  h1{ font-size:clamp(40px,13vw,60px); }
+  .btn, .btn-download, .btn-ghost{ height:54px; }
+  .prog-head{ flex-direction:column; align-items:flex-start; gap:6px; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+  .hl > span{ transform:none; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg" aria-hidden="true">
+  <div class="bg__grid"></div>
+  <div class="bg__glow"></div>
+  <div class="bg__grain"></div>
+</div>
+
+<div class="shell">
+
+  <!-- ===== masthead ===== -->
+  <header class="masthead">
+    <div class="mark">
+      <svg class="mark__star" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6c.9 5.4 3.4 8 8.8 8.9 .3.05.3.9 0 .95 -5.4.9-7.9 3.5-8.8 8.9 -.05.3-.9.3-.95 0 -.9-5.4-3.4-8-8.8-8.9 -.3-.05-.3-.9 0-.95 5.4-.9 7.9-3.5 8.8-8.9 .05-.3.9-.3.95 0Z"/></svg>
+      <span class="mark__wm"><b>VEO</b> <span>去水印</span></span>
+    </div>
+    <div class="tag"><i></i> Engine · ProPainter · 720P Only</div>
+  </header>
+
+  <!-- ===== hero ===== -->
+  <section class="hero">
+    <div class="eyebrow">精密水印移除 · Retouch Bench</div>
+    <h1>
+      <span class="hl"><span>逐帧擦去 Veo 的</span></span>
+      <span class="hl"><span><em>星标<svg class="sp" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6c.9 5.4 3.4 8 8.8 8.9 .3.05.3.9 0 .95 -5.4.9-7.9 3.5-8.8 8.9 -.05.3-.9.3-.95 0 -.9-5.4-3.4-8-8.8-8.9 -.3-.05-.3-.9 0-.95 5.4-.9 7.9-3.5 8.8-8.9 .05-.3.9-.3.95 0Z"/></svg></em>，</span></span>
+      <span class="hl"><span>不留一丝痕迹。</span></span>
+    </h1>
+    <p class="lede">
+      贴上一个 Google Flow 分享链接，或直接拖入视频文件。<b>ProPainter</b> 会逐帧重建被
+      <svg class="sp" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6c.9 5.4 3.4 8 8.8 8.9 .3.05.3.9 0 .95 -5.4.9-7.9 3.5-8.8 8.9 -.05.3-.9.3-.95 0 -.9-5.4-3.4-8-8.8-8.9 -.3-.05-.3-.9 0-.95 5.4-.9 7.9-3.5 8.8-8.9 .05-.3.9-.3.95 0Z"/></svg>
+      星标覆盖的像素，还你一段没有印记的画面。仅支持 <b>720p</b> 的 Veo / Flow 视频。
+    </p>
+  </section>
+
+  <!-- ===== the bench ===== -->
+  <section class="bench" aria-label="去水印工作台">
+    <div class="console" id="console" data-state="idle">
+
+      <div class="console__bar">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="console__id" id="consoleId">READY · 待机</div>
+      </div>
+
+      <!-- LEFT : IO -->
+      <div class="io">
+
+        <!-- INPUT -->
+        <div class="panel panel-input">
+          <div class="slug"><b>01</b> 来源链接 · Source Link</div>
+          <label class="field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <input id="linkInput" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+                   placeholder="https://labs.google/fx/…  粘贴 Flow 分享链接" aria-label="Flow 分享链接" />
+          </label>
+
+          <div class="or">或 · OR</div>
+
+          <div class="slug"><b>02</b> 视频文件 · Drop File</div>
+          <label class="drop" id="drop" tabindex="0">
+            <svg class="drop__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 15V3m0 0 4 4m-4-4-4 4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="drop__t">点击选择，或把 <b>.mp4</b> 拖到这里</div>
+            <div class="drop__h">单文件 · 720p Veo / Flow</div>
+            <input id="fileInput" type="file" accept="video/*" hidden />
+          </label>
+
+          <div class="chip" id="chip">
+            <svg class="chip__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3V9Z" fill="currentColor" stroke="none"/></svg>
+            <div class="chip__meta">
+              <div class="chip__name" id="chipName">video.mp4</div>
+              <div class="chip__size" id="chipSize">0 MB</div>
+            </div>
+            <button class="chip__x" id="chipX" type="button" aria-label="移除文件">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+
+          <div class="action">
+            <div class="inline-err" id="inlineErr" role="alert"></div>
+            <button class="btn" id="submitBtn" type="button">
+              <span class="btn__spin"></span>
+              <span class="btn__label">开始擦除 →</span>
+            </button>
+            <div class="microcopy">GPU 串行处理，繁忙时会排队等候 · 全程在服务端完成，无需登录</div>
+          </div>
+        </div>
+
+        <!-- PROGRESS -->
+        <div class="panel panel-progress">
+          <div class="prog-head">
+            <div>
+              <div class="prog-stagename" id="stageName">排队中</div>
+              <div class="prog-stagesub" id="stageSub">Queued</div>
+            </div>
+            <div class="prog-pct" id="pct">0%</div>
+          </div>
+
+          <div class="masterbar"><i id="masterFill"></i></div>
+
+          <ul class="rail" id="rail">
+            <li class="step" data-idx="0"><span class="step__dot"></span><span class="step__code">01</span><span class="step__zh">排队</span><span class="step__en">Queued</span></li>
+            <li class="step" data-idx="1"><span class="step__dot"></span><span class="step__code">02</span><span class="step__zh">解析链接</span><span class="step__en">Resolve</span></li>
+            <li class="step" data-idx="2"><span class="step__dot"></span><span class="step__code">03</span><span class="step__zh">下载源视频</span><span class="step__en">Fetch</span></li>
+            <li class="step" data-idx="3"><span class="step__dot"></span><span class="step__code">04</span><span class="step__zh">逐帧擦除</span><span class="step__en">Erase</span></li>
+            <li class="step" data-idx="4"><span class="step__dot"></span><span class="step__code">05</span><span class="step__zh">完成</span><span class="step__en">Done</span></li>
+          </ul>
+
+          <div class="reconnect" id="reconnect"><i></i> 网络抖动，正在重连并继续读取进度…</div>
+        </div>
+
+        <!-- DONE -->
+        <div class="panel panel-done">
+          <div class="done-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            已清除 · Clean
+          </div>
+          <h2>星标已经取下。</h2>
+          <p>逐帧重建完成，右侧即为成片，画面中已无
+            <svg class="sp" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6c.9 5.4 3.4 8 8.8 8.9 .3.05.3.9 0 .95 -5.4.9-7.9 3.5-8.8 8.9 -.05.3-.9.3-.95 0 -.9-5.4-3.4-8-8.8-8.9 -.3-.05-.3-.9 0-.95 5.4-.9 7.9-3.5 8.8-8.9 .05-.3.9-.3.95 0Z"/></svg>
+            星标残留。
+          </p>
+          <div class="done-actions">
+            <a class="btn-download" id="downloadBtn" href="#" download>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke-linecap="round"/></svg>
+              下载干净视频
+            </a>
+            <button class="btn-ghost" type="button" data-reset>再擦一个 ↺</button>
+          </div>
+        </div>
+
+        <!-- ERROR -->
+        <div class="panel panel-error">
+          <div class="err-badge"><i></i> 处理中断 · Halted</div>
+          <h2>擦除失败。</h2>
+          <div class="err-msg" id="errMsg">出现未知错误，请重试。</div>
+          <div class="err-hint">提示 · 本工具只处理 720p 的 Veo / Flow 视频；请确认链接可公开访问，或换一个文件重试。</div>
+          <button class="btn-ghost" type="button" data-reset>重新开始 ↺</button>
+        </div>
+
+      </div>
+
+      <!-- RIGHT : STAGE -->
+      <div class="stage">
+        <div class="stage__slug slug"><span><b>·</b> 样本 · Specimen</span><span class="step__en" id="stageDim">1280 × 720</span></div>
+
+        <div class="specimen" id="specimen">
+          <div class="specimen__light"></div>
+          <div class="wm">
+            <div class="wm__reticle"><span></span><span></span><span></span><span></span></div>
+            <div class="wm__patch"></div>
+            <svg class="wm__star" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.6c.9 5.4 3.4 8 8.8 8.9 .3.05.3.9 0 .95 -5.4.9-7.9 3.5-8.8 8.9 -.05.3-.9.3-.95 0 -.9-5.4-3.4-8-8.8-8.9 -.3-.05-.3-.9 0-.95 5.4-.9 7.9-3.5 8.8-8.9 .05-.3.9-.3.95 0Z"/></svg>
+            <div class="wm__scan"></div>
+            <div class="wm__label">Watermark ✦ locked</div>
+          </div>
+        </div>
+
+        <video class="result" id="result" controls playsinline preload="metadata"></video>
+
+        <div class="readout">
+          <span id="readoutLeft">Target · bottom-right ✦</span>
+          <span class="live"><i></i> <span id="readoutRight">待机</span></span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- live region for a11y -->
+  <div aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);" id="live"></div>
+
+  <footer class="colophon">
+    <span>Veo 去水印 <span class="dot">/</span> ProPainter 逐帧修复</span>
+    <span>720p Veo · Flow only <span class="dot">/</span> dewm.ele-yufo.com</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- config ---------- */
+  var API = {
+    create: "/api/jobs",
+    job: function(id){ return "/api/jobs/" + encodeURIComponent(id); }
+  };
+  var POLL_MS = 1500;
+
+  var STAGES = {
+    queued:        { idx:0, zh:"排队中",   en:"Queued"  },
+    resolving:     { idx:1, zh:"解析链接", en:"Resolving"},
+    downloading:   { idx:2, zh:"下载源视频",en:"Fetching" },
+    dewatermarking:{ idx:3, zh:"逐帧擦除", en:"Erasing"  },
+    done:          { idx:4, zh:"完成",     en:"Done"     }
+  };
+  var TOTAL_STAGES = 5;
+
+  /* ---------- refs ---------- */
+  var $ = function(id){ return document.getElementById(id); };
+  var consoleEl = $("console");
+  var linkInput = $("linkInput");
+  var drop      = $("drop");
+  var fileInput = $("fileInput");
+  var chip      = $("chip");
+  var chipName  = $("chipName");
+  var chipSize  = $("chipSize");
+  var chipX     = $("chipX");
+  var submitBtn = $("submitBtn");
+  var inlineErr = $("inlineErr");
+  var stageName = $("stageName");
+  var stageSub  = $("stageSub");
+  var pct       = $("pct");
+  var masterFill= $("masterFill");
+  var rail      = $("rail");
+  var steps     = Array.prototype.slice.call(rail.querySelectorAll(".step"));
+  var reconnect = $("reconnect");
+  var specimen  = $("specimen");
+  var result    = $("result");
+  var downloadBtn = $("downloadBtn");
+  var errMsg    = $("errMsg");
+  var consoleId = $("consoleId");
+  var readoutRight = $("readoutRight");
+  var readoutLeft  = $("readoutLeft");
+  var live      = $("live");
+
+  /* ---------- state ---------- */
+  var currentFile = null;
+  var currentJobId = null;
+  var pollTimer = null;
+  var pollFails = 0;
+  var submitting = false;
+
+  function announce(m){ live.textContent = m; }
+
+  /* ---------- helpers ---------- */
+  function clamp(n){ n = Math.round(Number(n)); if(!isFinite(n)) n = 0; return Math.max(0, Math.min(100, n)); }
+  function fmtSize(bytes){
+    if(!bytes && bytes !== 0) return "";
+    var mb = bytes / (1024*1024);
+    if(mb >= 1024) return (mb/1024).toFixed(2) + " GB";
+    if(mb >= 1) return mb.toFixed(1) + " MB";
+    return Math.max(1, Math.round(bytes/1024)) + " KB";
+  }
+  function setEraseByStage(idx, progress){
+    var e = 0;
+    if(idx < 3) e = 0;
+    else if(idx === 3) e = clamp(progress)/100;
+    else e = 1;
+    specimen.style.setProperty("--erase", e.toFixed(3));
+  }
+
+  /* ---------- console state machine ---------- */
+  function setState(name){
+    consoleEl.setAttribute("data-state", name);
+  }
+
+  function setInlineErr(msg){
+    if(msg){ inlineErr.textContent = msg; inlineErr.classList.add("show"); }
+    else{ inlineErr.classList.remove("show"); }
+  }
+
+  function setSubmitting(on){
+    submitting = on;
+    submitBtn.disabled = on;
+    submitBtn.classList.toggle("busy", on);
+    submitBtn.querySelector(".btn__label").textContent = on ? "提交中…" : "开始擦除 →";
+  }
+
+  /* ---------- input mode (mutual exclusion) ---------- */
+  function updateMode(){
+    consoleEl.classList.remove("mode-file","mode-link");
+    if(currentFile){ consoleEl.classList.add("mode-file"); }
+    else if(linkInput.value.trim()){ consoleEl.classList.add("mode-link"); }
+  }
+
+  function setFile(file){
+    if(!file) return;
+    if(file.type && file.type.indexOf("video/") !== 0){
+      setInlineErr("请选择视频文件（.mp4 / .mov 等）");
+      return;
+    }
+    setInlineErr("");
+    currentFile = file;
+    linkInput.value = "";
+    chipName.textContent = file.name || "video.mp4";
+    chipSize.textContent = fmtSize(file.size) + " · 已就绪";
+    updateMode();
+  }
+  function clearFile(){
+    currentFile = null;
+    fileInput.value = "";
+    updateMode();
+  }
+
+  /* ---------- rail rendering ---------- */
+  function renderStages(activeIdx){
+    steps.forEach(function(step){
+      var i = parseInt(step.getAttribute("data-idx"), 10);
+      step.classList.remove("active","done");
+      if(activeIdx < 0) return;
+      if(i < activeIdx || (activeIdx >= TOTAL_STAGES-1 && i <= activeIdx)) step.classList.add("done");
+      else if(i === activeIdx) step.classList.add("active");
+    });
+  }
+
+  function renderProgress(stageObj, progress, idx){
+    var p = clamp(progress);
+    stageName.textContent = stageObj.zh;
+    stageSub.textContent  = stageObj.en;
+    pct.textContent = p + "%";
+    var overall = idx >= TOTAL_STAGES-1 ? 100 : Math.round(((idx + p/100) / TOTAL_STAGES) * 100);
+    masterFill.style.width = overall + "%";
+    setEraseByStage(idx, p);
+    consoleId.textContent = "JOB · " + (currentJobId ? String(currentJobId).slice(0,8) : "…") + " · " + stageObj.en.toUpperCase();
+    readoutRight.textContent = stageObj.zh + " " + p + "%";
+    readoutLeft.textContent = idx >= 3 ? "Reconstructing pixels…" : "Target · bottom-right ✦";
+  }
+
+  function showReconnect(on){ reconnect.classList.toggle("show", on); }
+
+  /* ---------- data handling ---------- */
+  function handleJobData(data){
+    var status = data && data.status;
+    if(status === "error"){
+      showError(data.error_message || "去水印处理失败，请重试。");
+      return true; // terminal
+    }
+    if(status === "done"){
+      var url = data.download_url || (API.job(currentJobId) + "/download");
+      showDone(url);
+      return true; // terminal
+    }
+    var stageObj = STAGES[status];
+    if(!stageObj){ stageObj = STAGES.queued; }
+    setState("processing");
+    renderStages(stageObj.idx);
+    renderProgress(stageObj, data.progress, stageObj.idx);
+    announce(stageObj.zh + " " + clamp(data.progress) + "%");
+    return false;
+  }
+
+  function showDone(url){
+    stopPolling();
+    setState("done");
+    renderStages(4);
+    setEraseByStage(4, 100);
+    masterFill.style.width = "100%";
+    downloadBtn.setAttribute("href", url);
+    result.src = url;
+    consoleId.textContent = "JOB · " + (currentJobId ? String(currentJobId).slice(0,8) : "…") + " · CLEAN";
+    readoutRight.textContent = "已清除";
+    readoutLeft.textContent = "Output · watermark removed";
+    announce("去水印完成，可下载干净视频。");
+  }
+
+  function showError(msg){
+    stopPolling();
+    setSubmitting(false);
+    setState("error");
+    renderStages(-1);
+    errMsg.textContent = msg;
+    consoleId.textContent = "JOB · HALTED";
+    readoutRight.textContent = "中断";
+    announce("处理失败：" + msg);
+  }
+
+  /* ---------- polling ---------- */
+  function stopPolling(){ if(pollTimer){ clearTimeout(pollTimer); pollTimer = null; } }
+
+  function pollOnce(id){
+    fetch(API.job(id), { headers:{ "Accept":"application/json" }, cache:"no-store" })
+      .then(function(res){
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function(data){
+        pollFails = 0;
+        showReconnect(false);
+        var terminal = handleJobData(data);
+        if(!terminal && id === currentJobId){
+          pollTimer = setTimeout(function(){ pollOnce(id); }, POLL_MS);
+        }
+      })
+      .catch(function(){
+        // network blip — never hard-fail; keep retrying, just surface a soft notice
+        pollFails++;
+        if(pollFails >= 2) showReconnect(true);
+        if(id === currentJobId){
+          var backoff = Math.min(POLL_MS + pollFails*400, 4000);
+          pollTimer = setTimeout(function(){ pollOnce(id); }, backoff);
+        }
+      });
+  }
+
+  function startPolling(id){
+    stopPolling();
+    pollFails = 0;
+    pollOnce(id);
+  }
+
+  /* ---------- submit ---------- */
+  function submit(){
+    if(submitting) return;
+    var link = linkInput.value.trim();
+    if(!currentFile && !link){
+      setInlineErr("先粘贴一个 Flow 链接，或拖入一个视频文件");
+      linkInput.focus();
+      return;
+    }
+    setInlineErr("");
+    setSubmitting(true);
+    announce("正在提交任务…");
+
+    var fd = new FormData();
+    if(currentFile){ fd.append("file", currentFile, currentFile.name || "video.mp4"); }
+    else{ fd.append("link", link); }
+
+    fetch(API.create, { method:"POST", body:fd })
+      .then(function(res){
+        if(res.status === 400){
+          return res.json().catch(function(){ return {}; }).then(function(j){
+            throw { inline:true, message: (j && j.detail) ? j.detail : "链接无法识别，请检查后重试。" };
+          });
+        }
+        if(res.status === 413){ throw { inline:true, message:"文件过大，超出处理上限，请压缩后重试。" }; }
+        if(!res.ok){ throw { inline:true, message:"提交失败（HTTP " + res.status + "），请稍后重试。" }; }
+        return res.json();
+      })
+      .then(function(data){
+        if(!data || !data.job_id){ throw { inline:true, message:"服务未返回任务号，请重试。" }; }
+        currentJobId = data.job_id;
+        setSubmitting(false);
+        setState("processing");
+        renderStages(0);
+        renderProgress(STAGES.queued, 0, 0);
+        showReconnect(false);
+        announce("已进入队列，开始处理。");
+        startPolling(currentJobId);
+      })
+      .catch(function(err){
+        setSubmitting(false);
+        var msg = (err && err.message) ? err.message : "网络异常，请重试。";
+        setInlineErr(msg);
+        announce("提交失败：" + msg);
+      });
+  }
+
+  /* ---------- reset ---------- */
+  function reset(){
+    stopPolling();
+    currentJobId = null;
+    pollFails = 0;
+    setSubmitting(false);
+    clearFile();
+    linkInput.value = "";
+    setInlineErr("");
+    showReconnect(false);
+    updateMode();
+    try{ result.pause(); }catch(e){}
+    result.removeAttribute("src");
+    result.load && result.load();
+    renderStages(-1);
+    specimen.style.setProperty("--erase", "0");
+    masterFill.style.width = "0%";
+    consoleId.textContent = "READY · 待机";
+    readoutRight.textContent = "待机";
+    readoutLeft.textContent = "Target · bottom-right ✦";
+    setState("idle");
+    announce("已重置，可开始新的任务。");
+    linkInput.focus();
+  }
+
+  /* ---------- wire events ---------- */
+  submitBtn.addEventListener("click", submit);
+
+  linkInput.addEventListener("input", function(){
+    if(linkInput.value.trim() && currentFile) clearFile();
+    if(linkInput.value.trim()) setInlineErr("");
+    updateMode();
+  });
+  linkInput.addEventListener("keydown", function(e){ if(e.key === "Enter"){ e.preventDefault(); submit(); } });
+
+  fileInput.addEventListener("change", function(e){
+    if(e.target.files && e.target.files[0]) setFile(e.target.files[0]);
+  });
+  drop.addEventListener("keydown", function(e){
+    if(e.key === "Enter" || e.key === " "){ e.preventDefault(); fileInput.click(); }
+  });
+  chipX.addEventListener("click", function(e){ e.preventDefault(); e.stopPropagation(); clearFile(); });
+
+  ["dragenter","dragover"].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); e.stopPropagation(); drop.classList.add("is-drag"); });
+  });
+  ["dragleave","dragend"].forEach(function(ev){
+    drop.addEventListener(ev, function(e){ e.preventDefault(); e.stopPropagation(); drop.classList.remove("is-drag"); });
+  });
+  drop.addEventListener("drop", function(e){
+    e.preventDefault(); e.stopPropagation();
+    drop.classList.remove("is-drag");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) setFile(f);
+  });
+  // block accidental full-page drops
+  window.addEventListener("dragover", function(e){ e.preventDefault(); });
+  window.addEventListener("drop", function(e){ e.preventDefault(); });
+
+  Array.prototype.slice.call(document.querySelectorAll("[data-reset]")).forEach(function(b){
+    b.addEventListener("click", reset);
+  });
+
+  // init
+  updateMode();
+})();
+</script>
+</body>
+</html>
