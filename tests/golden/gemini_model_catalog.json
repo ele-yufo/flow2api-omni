@@ -1,7 +1,4 @@
 {
-  "gemini-2.5-flash-image": "Image generation (alias) - aspects: landscape, portrait",
-  "gemini-2.5-flash-image-landscape": "Image generation - GEM_PIX",
-  "gemini-2.5-flash-image-portrait": "Image generation - GEM_PIX",
   "gemini-3.0-pro-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
   "gemini-3.0-pro-image-four-three": "Image generation - GEM_PIX_2",
   "gemini-3.0-pro-image-four-three-2k": "Image generation - GEM_PIX_2",

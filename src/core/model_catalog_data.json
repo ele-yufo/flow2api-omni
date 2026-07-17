@@ -1,14 +1,4 @@
 {
-  "gemini-2.5-flash-image-landscape": {
-    "type": "image",
-    "model_name": "GEM_PIX",
-    "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE"
-  },
-  "gemini-2.5-flash-image-portrait": {
-    "type": "image",
-    "model_name": "GEM_PIX",
-    "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT"
-  },
   "gemini-3.0-pro-image-landscape": {
     "type": "image",
     "model_name": "GEM_PIX_2",
