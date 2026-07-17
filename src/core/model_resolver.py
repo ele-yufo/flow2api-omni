@@ -19,8 +19,6 @@ from ..core.logger import debug_logger
 # 简化模型名 → 基础模型名前缀 的映射
 # ──────────────────────────────────────────────
 IMAGE_BASE_MODELS = {
-    # Gemini 2.5 Flash (GEM_PIX)
-    "gemini-2.5-flash-image": "gemini-2.5-flash-image",
     # Gemini 3.0 Pro (GEM_PIX_2)
     "gemini-3.0-pro-image": "gemini-3.0-pro-image",
     # Gemini 3.1 Flash (NARWHAL)
@@ -57,7 +55,6 @@ ASPECT_RATIO_MAP = {
 # 每个基础模型支持的 aspectRatio 列表
 # 如果请求的 ratio 不在支持列表中，降级到默认值
 MODEL_SUPPORTED_ASPECTS = {
-    "gemini-2.5-flash-image": ["landscape", "portrait"],
     "gemini-3.0-pro-image": [
         "landscape",
         "portrait",
@@ -77,7 +74,6 @@ MODEL_SUPPORTED_ASPECTS = {
 
 # 每个基础模型支持的 imageSize（分辨率）列表
 MODEL_SUPPORTED_SIZES = {
-    "gemini-2.5-flash-image": [],  # 不支持放大
     "gemini-3.0-pro-image": ["2k", "4k"],
     "gemini-3.1-flash-image": ["2k", "4k"],
     "imagen-4.0-generate-preview": [],  # 不支持放大

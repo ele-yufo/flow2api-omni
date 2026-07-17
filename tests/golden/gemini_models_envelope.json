@@ -1,5 +1,5 @@
 {
-  "count": 184,
+  "count": 181,
   "item_keys": [
     "description",
     "displayName",
@@ -11,9 +11,9 @@
   ],
   "items_key": "models",
   "sample_first_no_desc": {
-    "displayName": "gemini-2.5-flash-image",
+    "displayName": "gemini-3.0-pro-image",
     "inputTokenLimit": 0,
-    "name": "models/gemini-2.5-flash-image",
+    "name": "models/gemini-3.0-pro-image",
     "outputTokenLimit": 0,
     "supportedGenerationMethods": [
       "generateContent",

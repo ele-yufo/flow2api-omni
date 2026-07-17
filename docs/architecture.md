@@ -51,7 +51,7 @@ src/
 
 - `core/database.py`：收敛为**组合根**（schema/迁移 + config 回灌 + 薄委托）
 - `core/repositories/`（6）：`TokenStats` / `RequestLog` / `Project` / `Task` / `Config` / `Token`——各仓储共享 `SqliteEngine` 连接层
-- `core/model_catalog.py` + `core/model_catalog_data.json`：模型目录（130 手写 + omni builder 生成）
+- `core/model_catalog.py` + `core/model_catalog_data.json`：模型目录（128 手写基表 + omni builder 生成，共 160 个）
 - `core/config.py`：9 行兼容 shim，re-export `shared/config` 的单例
 
 ## `api/` —— HTTP 层

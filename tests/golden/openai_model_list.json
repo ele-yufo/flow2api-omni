@@ -1,13 +1,5 @@
 [
   {
-    "description": "Image generation - GEM_PIX",
-    "id": "gemini-2.5-flash-image-landscape"
-  },
-  {
-    "description": "Image generation - GEM_PIX",
-    "id": "gemini-2.5-flash-image-portrait"
-  },
-  {
     "description": "Image generation - GEM_PIX_2",
     "id": "gemini-3.0-pro-image-landscape"
   },
