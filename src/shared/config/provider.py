@@ -674,6 +674,47 @@ class Config:
         # 默认 False：多账号池下浏览器只登录一个号，用它刷新会把别的号 ST 写错
         return bool(self._config.get("token", {}).get("st_browser_refresh_enabled", False))
 
+    # ========== 浏览器保活器（独立进程 flow2api-keepalive.service）==========
+    # AT 直驱范式：常驻 nodriver 浏览器定期刷新 labs.google flow 页触发 OAuth 续期，
+    # 从 /fx/api/auth/session 拿新 AT(+rotated ST) 写库，主服务直接用活 AT，
+    # 绕过"旧 ST 会话 grant 已死、st_to_at 换不出活 AT"的死结。
+    # 独立进程读 toml 即可，不入 DB（部署期常量，无运行时动态改需求）。
+    @property
+    def keepalive_browser_enabled(self) -> bool:
+        return bool(self._config.get("keepalive", {}).get("browser_enabled", False))
+
+    @property
+    def keepalive_browser_interval_seconds(self) -> int:
+        try:
+            return max(60, int(self._config.get("keepalive", {}).get("browser_interval_seconds", 1200)))
+        except (TypeError, ValueError):
+            return 1200
+
+    @property
+    def keepalive_browser_token_ids(self) -> list:
+        """逗号分隔的 token id 列表，每号一个独立常驻 profile。"""
+        raw = self._config.get("keepalive", {}).get("browser_token_ids", "")
+        return [int(x.strip()) for x in str(raw).split(",") if x.strip().isdigit()]
+
+    @property
+    def keepalive_browser_profile_base(self) -> str:
+        return str(self._config.get("keepalive", {}).get("browser_profile_base", "/opt/flow2api-profiles")).strip()
+
+    @property
+    def keepalive_browser_proxy(self) -> str:
+        return str(self._config.get("keepalive", {}).get("browser_proxy", "http://127.0.0.1:7890")).strip()
+
+    @property
+    def keepalive_browser_display(self) -> str:
+        return str(self._config.get("keepalive", {}).get("browser_display", ":10")).strip()
+
+    @property
+    def keepalive_browser_settle_seconds(self) -> float:
+        try:
+            return max(0.0, float(self._config.get("keepalive", {}).get("browser_settle_seconds", 8.0)))
+        except (TypeError, ValueError):
+            return 8.0
+
     @property
     def min_credits_to_select(self) -> int:
         try:

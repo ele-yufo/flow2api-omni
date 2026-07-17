@@ -106,3 +106,17 @@ st_keepalive_enabled = true
 st_keepalive_interval_hours = 24
 # 浏览器 ST 刷新（旧机制）。多账号池下会写错号，默认关闭；单 Ultra 老部署可临时开
 st_browser_refresh_enabled = false
+
+[keepalive]
+# 浏览器保活器（独立进程 flow2api-keepalive.service）。AT 直驱范式：
+# 常驻 nodriver 浏览器定期刷新 labs.google flow 页，从 /fx/api/auth/session
+# 拿新 AT(+rotated ST) 写库，主服务直接用活 AT，绕过"死 ST 换不出活 AT"的死结。
+# 前置：每号需在 {browser_profile_base}/{token_id}/ profile 用 GUI 登录 Google 一次
+# （建立持久 .google.com 主登录态——这是唯一人工依赖，崩溃/重启都靠它）。
+browser_enabled = true
+browser_interval_seconds = 1200   # 刷新间隔（秒）；grant 寿命~1h，20min 留 3x 余量
+browser_token_ids = "23"          # 保活的 token id 列表（逗号分隔）
+browser_profile_base = "/opt/flow2api-profiles"  # 每号子目录 = {token_id}
+browser_proxy = "http://127.0.0.1:7890"          # mihomo 固定住宅 IP（必须和登录时一致）
+browser_display = ":10"           # 复用现有 Xvfb（systemd 已起，PID 2041）
+browser_settle_seconds = 8.0      # 导航后等 OAuth 静默续期的秒数
