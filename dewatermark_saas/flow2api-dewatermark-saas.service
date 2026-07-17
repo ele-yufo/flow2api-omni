@@ -1,0 +1,20 @@
+[Unit]
+Description=flow2api de-watermark SaaS demo (dewatermark_saas, FastAPI :18300)
+After=network.target flow2api-dewatermark.service
+Wants=flow2api-dewatermark.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/Projects/flow2api
+# 凭证与代理从 root-only EnvironmentFile 注入（不进 git）：
+#   DEWM_HTTP_PROXY / DEWM_BASIC_USER / DEWM_BASIC_PASS / DEWM_WORK_DIR
+EnvironmentFile=/etc/flow2api-dewm-saas.env
+# -m uvicorn + WorkingDirectory=repo 根 → src(PEP420 namespace) 与 dewatermark_saas 均可 import
+ExecStart=/opt/Projects/flow2api/.venv/bin/python -m uvicorn dewatermark_saas.app:app --host 127.0.0.1 --port 18300
+Restart=always
+RestartSec=5
+User=yufo
+Group=yufo
+
+[Install]
+WantedBy=multi-user.target

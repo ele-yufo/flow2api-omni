@@ -9,8 +9,9 @@
 
 ## 目标（一句话）
 
-新建一个独立的 FastAPI 小服务 `dewatermark_saas/`，复用 flow2api 一期抽出的 `src/shared/`（config/storage/telemetry），
-调用本机常驻 ProPainter 服务（`127.0.0.1:18290`）去除 Veo/Flow 720-tier sparkle 水印，
+新建一个独立的 FastAPI 小服务 `dewatermark_saas/`，复用 flow2api 一期抽出的 `src/shared/config`（去水印服务地址/超时；
+二次验证 shared/ 可被第二个消费者独立复用），调用本机常驻 ProPainter 服务（`127.0.0.1:18290`）去除 Veo/Flow 720-tier sparkle 水印，
+（下载源视频与 ProPainter 调用因错误语义/命名需求**自实现**，不复用 storage 的 FileCache、不复用 gpu 的 watermark_client），
 经国内网关范式发布到 `https://dewm.ele-yufo.com`（Basic Auth 网关）。
 
 ## 已验证的关键事实（写码前实测，非假设）
