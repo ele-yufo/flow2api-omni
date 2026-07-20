@@ -47,7 +47,11 @@ class PublishOutcome:
 
 
 class PublishError(Exception):
-    """Raised when ``publish_verified_account`` rejects its inputs or loses state.
+    """Raised when a lifecycle write rejects its inputs or loses state.
+
+    Raised by both ``publish_verified_account`` and ``set_desired_state``
+    (the two ``runtime_mode`` write paths in this module), so both sites
+    reject a non-``persistent`` value the same way.
 
     ``code`` is one of:
     - ``"warm_rejected"``: ``runtime_mode`` was not ``"persistent"``.
@@ -496,13 +500,23 @@ class TokenLifecycleRepository:
         runtime_mode: Optional[str] = None,
         profile_state: Optional[str] = None,
     ) -> None:
-        """Atomically update selected keepalive fields without changing business state."""
+        """Atomically update selected keepalive fields without changing business state.
+
+        ``runtime_mode`` only accepts ``"persistent"`` here too (see
+        ``publish_verified_account``): a ``warm`` one-shot destroyed a valid
+        Google session in a prior production incident by tearing down the
+        resident Chrome and re-navigating, rotating the session cookie into
+        an unauthorized state. ``create_for_token`` still seeds brand-new,
+        not-yet-onboarded rows with ``runtime_mode='warm'`` at the SQL level
+        (a legitimate default for an unprovisioned row) -- this guard only
+        rejects ``warm`` being *set* through the desired-state write path.
+        """
         if keepalive_enabled is None and runtime_mode is None and profile_state is None:
             raise ValueError("at least one desired-state field is required")
         if keepalive_enabled is not None and not isinstance(keepalive_enabled, bool):
             raise TypeError("keepalive_enabled must be a bool")
-        if runtime_mode is not None and runtime_mode not in ("persistent", "warm"):
-            raise ValueError("runtime_mode must be 'persistent' or 'warm'")
+        if runtime_mode is not None and runtime_mode != "persistent":
+            raise PublishError("warm_rejected")
         async with self._engine.transaction() as db:
             cursor = await db.execute(
                 """

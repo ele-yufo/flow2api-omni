@@ -110,23 +110,25 @@ def acquire_onboard_global_lease(base_dir: Union[Path, str]) -> ProfileLease:
         ) from error
 
 
-def _kill_process_group(proc: Any) -> None:
+def _kill_process_group(pgid: Optional[int], proc: Any) -> None:
     """SIGTERM → 5s grace → SIGKILL on the whole Chrome process group.
 
-    ``start_new_session=True`` makes Chrome its own session/group leader, so
-    ``os.getpgid(proc.pid)`` resolves to the Chrome group and ``os.killpg``
-    reaches every renderer/GPU child it forked. This mitigates the residual
-    process-tree bug documented in handoff §7.8.
+    ``pgid`` must be captured by the caller *before* ``proc.wait()`` runs.
+    ``start_new_session=True`` makes Chrome its own session/group leader, and
+    CPython's ``Popen`` blocks the parent on the child's pre-exec setup
+    (which includes ``setsid()``) before returning control, so capturing
+    ``os.getpgid(proc.pid)`` immediately after the launcher returns is always
+    safe. Re-deriving the pgid from ``proc.pid`` *after* ``proc.wait()`` has
+    already reaped the child -- what this function used to do internally --
+    makes ``os.getpgid`` raise ``ProcessLookupError`` immediately, turning
+    cleanup into a silent no-op. That was the residual process-tree bug from
+    handoff §7.8: orphaned renderer/GPU children survive every crash.
 
-    Best-effort cleanup only: if the PID has already been reaped (the crash
-    branch calls this after ``proc.wait()`` already returned) the OS may have
-    recycled it to an unrelated process by the time we signal it, so a
-    ``PermissionError`` from an unowned pgid is treated the same as an
-    already-gone process rather than escaping as a raw OS error.
+    Best-effort cleanup only: ``pgid=None`` (capture itself failed because
+    the process was already gone) and an already-gone process group both
+    return immediately without raising.
     """
-    try:
-        pgid = os.getpgid(proc.pid)
-    except (ProcessLookupError, PermissionError):
+    if pgid is None:
         return
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
@@ -140,24 +142,25 @@ def _kill_process_group(proc: Any) -> None:
             continue
 
 
-def _wait_for_chrome_exit(proc: Any, timeout_seconds: int) -> None:
+def _wait_for_chrome_exit(proc: Any, pgid: Optional[int], timeout_seconds: int) -> None:
     """Block for Chrome to exit; classify timeout/crash and clean up the group.
 
-    On timeout the process is still alive, so the group kill targets a live,
-    correctly-identified pgid. On a non-zero exit the process has already been
-    reaped by ``wait()``; cleanup there is defensive (§6.5) and best-effort.
+    ``pgid`` was captured by the caller right after launch, while the
+    process was definitely still alive, so both the timeout and the crash
+    branch kill that same correctly-identified group -- neither re-derives
+    it from ``proc.pid`` after ``wait()`` may have already reaped it.
     """
     try:
         proc.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
-        _kill_process_group(proc)
+        _kill_process_group(pgid, proc)
         raise OnboardError(
             "login_timeout", f"Chrome not closed within {timeout_seconds}s"
         )
 
     returncode = getattr(proc, "returncode", None)
     if not isinstance(returncode, int) or returncode != 0:
-        _kill_process_group(proc)
+        _kill_process_group(pgid, proc)
         raise OnboardError("browser_crashed", f"Chrome exited with code {returncode}")
 
 
@@ -177,6 +180,12 @@ def launch_chrome(
     ``subprocess.Popen`` looked up at call time (so tests may monkeypatch
     ``subprocess.Popen`` on this module). On timeout the whole group receives
     SIGTERM→SIGKILL; non-zero exit raises ``browser_crashed``.
+
+    The process group id is captured immediately after ``launcher`` returns
+    (while the process is definitely alive) and threaded through to both the
+    timeout and crash branches of ``_wait_for_chrome_exit`` -- see
+    ``_kill_process_group`` for why re-deriving it later, after ``wait()``
+    may have reaped the child, is unsafe.
 
     ``build_browser_command`` (argv construction, including proxy validation
     via ``validate_proxy_server``) runs inside this same try block: a
@@ -206,7 +215,12 @@ def launch_chrome(
             f"Chrome launch failed ({type(error).__name__})",
         ) from error
 
-    _wait_for_chrome_exit(proc, timeout_seconds)
+    try:
+        pgid: Optional[int] = os.getpgid(proc.pid)
+    except (ProcessLookupError, PermissionError):
+        pgid = None
+
+    _wait_for_chrome_exit(proc, pgid, timeout_seconds)
 
 
 async def verify_profile(
@@ -300,12 +314,27 @@ async def _insert_onboarding_token(db: Any, snapshot: VerifiedAccountSnapshot) -
 
 
 async def _run_project_pool(
-    db: Any, flow_client: Any, token_id: int, pool_size: int
+    db: Any,
+    flow_client: Any,
+    token_id: int,
+    pool_size: int,
+    snapshot: VerifiedAccountSnapshot,
 ) -> None:
-    """Provision the active project pool, translating failures to a stable code."""
+    """Provision the active project pool, translating failures to a stable code.
+
+    Uses ``snapshot.st`` -- the just-verified session token -- rather than
+    the row's DB-persisted ``st``. ``_publish_account`` (which writes
+    ``snapshot.st`` into ``tokens``) always runs *after* this call, so an
+    existing account whose ST just rotated during re-login would otherwise
+    have its pool provisioned with a dead session. Latent today because every
+    onboarded account already has a full pool (the create loop never runs),
+    but it will misfire on the first account that actually needs a new
+    project created after a re-login.
+    """
     try:
         token = await db.get_token(token_id)
-        await ensure_project_pool(db, flow_client, token, pool_size)
+        fresh_token = token.model_copy(update={"st": snapshot.st})
+        await ensure_project_pool(db, flow_client, fresh_token, pool_size)
     except Exception as error:
         raise OnboardError("project_pool_failed", str(error)) from error
 
@@ -381,7 +410,7 @@ async def onboard_new(
         _require_email_matches(snapshot, normalize_account_email(email))
 
         token_id = await _insert_onboarding_token(db, snapshot)
-        await _run_project_pool(db, flow_client, token_id, pool_size)
+        await _run_project_pool(db, flow_client, token_id, pool_size, snapshot)
 
         final_profile = canonical_profile_path(runtime.profile_base, token_id)
         os.rename(temp_profile, final_profile)
@@ -528,7 +557,7 @@ async def _onboard_existing_under_lease(
             profile_path, flow_client, runtime, display
         )
         _require_email_matches(snapshot, expected_email)
-        await _run_project_pool(db, flow_client, token_id, pool_size)
+        await _run_project_pool(db, flow_client, token_id, pool_size, snapshot)
         outcome = await _publish_account(
             db, token_id, snapshot, observed_at, business_enabled
         )

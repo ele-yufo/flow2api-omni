@@ -111,6 +111,14 @@ def test_fresh_schema_and_token_lifecycle_creation_deletion(temp_db_path):
 
 
 def test_legacy_backfill_is_idempotent_and_preserves_manual_changes(temp_db_path):
+    """Manual change simulated here is ``keepalive_enabled``/``profile_state`` only;
+
+    ``set_token_desired_state`` no longer accepts ``runtime_mode="warm"`` (a
+    ``warm`` one-shot destroyed a valid session in a prior production
+    incident -- see ``TokenLifecycleRepository.set_desired_state``), so
+    ``enabled_id``'s ``runtime_mode`` stays ``persistent`` (its legacy-backfill
+    value) across both migration runs instead of being manually flipped.
+    """
     from src.core.database import Database
 
     async def run():
@@ -146,7 +154,6 @@ def test_legacy_backfill_is_idempotent_and_preserves_manual_changes(temp_db_path
         await db.set_token_desired_state(
             enabled_id,
             keepalive_enabled=False,
-            runtime_mode="warm",
             profile_state="ready",
         )
         await db.check_and_migrate_db(config_dict)
@@ -169,7 +176,7 @@ def test_legacy_backfill_is_idempotent_and_preserves_manual_changes(temp_db_path
     assert first[manual_id].profile_state == "unprovisioned"
     assert manual_token.ban_reason == "manual_disabled"
     assert second[enabled_id].keepalive_enabled is False
-    assert second[enabled_id].runtime_mode == "warm"
+    assert second[enabled_id].runtime_mode == "persistent"
     assert second[enabled_id].profile_state == "ready"
     assert second[other_id] == first[other_id]
     assert second[manual_id] == first[manual_id]
@@ -207,6 +214,14 @@ def test_keepalive_enabled_selection_ignores_business_is_active(temp_db_path):
 
 
 def test_desired_state_partial_updates_preserve_unspecified_fields(temp_db_path):
+    """``runtime_mode`` can now only ever be ``"persistent"`` here (a ``warm``
+
+    one-shot destroyed a valid session in a prior production incident -- see
+    ``TokenLifecycleRepository.set_desired_state``), so this no longer proves
+    a ``warm`` -> ``persistent`` transition; it proves ``profile_state`` and
+    ``keepalive_enabled`` partial updates each leave the other unspecified
+    fields (including ``runtime_mode``) untouched.
+    """
     from src.core.database import Database
     from src.core.models import Token
 
@@ -219,10 +234,10 @@ def test_desired_state_partial_updates_preserve_unspecified_fields(temp_db_path)
         await db.set_token_desired_state(
             token_id,
             keepalive_enabled=True,
-            runtime_mode="warm",
+            runtime_mode="persistent",
             profile_state="ready",
         )
-        await db.set_token_desired_state(token_id, runtime_mode="persistent")
+        await db.set_token_desired_state(token_id, profile_state="failed")
         after_mode = await db.get_token_lifecycle(token_id)
         await db.set_token_desired_state(token_id, keepalive_enabled=False)
         after_toggle = await db.get_token_lifecycle(token_id)
@@ -231,10 +246,10 @@ def test_desired_state_partial_updates_preserve_unspecified_fields(temp_db_path)
     after_mode, after_toggle = asyncio.run(run())
     assert after_mode.keepalive_enabled is True
     assert after_mode.runtime_mode == "persistent"
-    assert after_mode.profile_state == "ready"
+    assert after_mode.profile_state == "failed"
     assert after_toggle.keepalive_enabled is False
     assert after_toggle.runtime_mode == "persistent"
-    assert after_toggle.profile_state == "ready"
+    assert after_toggle.profile_state == "failed"
 
 
 def test_membership_state_round_trips_canonical_state_model(temp_db_path):

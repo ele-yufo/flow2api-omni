@@ -210,19 +210,25 @@ Finalize 只停止记录的 PID，且同时校验 procfs start ticks 和 canonic
 
 主要安全端点：
 
-| 方法 | 路径 | 作用 |
-|---|---|---|
-| `GET` | `/api/onboarding/config` | 返回 UI 所需的安全显示器标识 |
-| `POST` | `/api/onboarding/jobs` | 创建 allowlisted 入库任务 |
-| `GET` | `/api/onboarding/jobs` | 按安全字段筛选任务 |
-| `GET` | `/api/onboarding/jobs/{job_id}` | 读取一个任务 |
-| `POST` | `/api/onboarding/jobs/{job_id}/start` | 启动 pending job，或安全恢复允许重新登录的 pre-migration failed job |
-| `POST` | `/api/onboarding/jobs/{job_id}/finalize` | 验证、迁移并提交账号 |
-| `POST` | `/api/onboarding/jobs/{job_id}/cancel` | 停止已验证归属的进程并取消 |
-| `POST` | `/api/onboarding/recover` | 恢复或安全收敛未完成任务 |
-| `POST` | `/api/tokens/{token_id}/validate-profile` | 只读验证 retained profile，不写 Token/lifecycle |
-| `PUT` | `/api/tokens/{token_id}/lifecycle` | 只改 keepalive desired state/mode |
-| `POST` | `/api/tokens/{token_id}/export` | 显式、不可缓存地导出凭据 |
+> 下表前 8 个 `onboarding` 状态机路由已永久禁用（固定返回 `410 Gone`，路由保留
+> 注册以避免 404 混淆，见 `src/api/admin.py::_reject_onboarding_deprecated`）——
+> 该状态机曾在生产引发事故（强制反复重新登录、销毁一个有效会话、操作了错误的
+> XRDP Chrome 窗口）。新入库、旧号重登录一律使用
+> `scripts/tokens.py onboard`（详见 `docs/operations/browser-keepalive.md` §7.5）。
+
+| 方法 | 路径 | 作用 | 状态 |
+|---|---|---|---|
+| `GET` | `/api/onboarding/config` | 返回 UI 所需的安全显示器标识 | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/onboarding/jobs` | 创建 allowlisted 入库任务 | 已禁用，固定 `410 Gone` |
+| `GET` | `/api/onboarding/jobs` | 按安全字段筛选任务 | 已禁用，固定 `410 Gone` |
+| `GET` | `/api/onboarding/jobs/{job_id}` | 读取一个任务 | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/onboarding/jobs/{job_id}/start` | 启动 pending job，或安全恢复允许重新登录的 pre-migration failed job | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/onboarding/jobs/{job_id}/finalize` | 验证、迁移并提交账号 | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/onboarding/jobs/{job_id}/cancel` | 停止已验证归属的进程并取消 | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/onboarding/recover` | 恢复或安全收敛未完成任务 | 已禁用，固定 `410 Gone` |
+| `POST` | `/api/tokens/{token_id}/validate-profile` | 只读验证 retained profile，不写 Token/lifecycle | 正常 |
+| `PUT` | `/api/tokens/{token_id}/lifecycle` | 只改 keepalive desired state/mode（`runtime_mode` 只接受 `persistent`，传 `warm` 返回 422） | 正常 |
+| `POST` | `/api/tokens/{token_id}/export` | 显式、不可缓存地导出凭据 | 正常 |
 
 普通 `GET /api/tokens` 仅返回 `has_st` / `has_at` 等状态，不返回原始凭据。
 
