@@ -4,7 +4,8 @@
 Design constraints (see docs/superpowers/specs for the full spec):
 - JSON-only output. Nothing human-readable is ever printed; every line is one
   JSON object an Agent can parse. Errors are ``{"error": {"code", "message",
-  "detail"}}``.
+  "detail"}}``. Per spec Sec 7.1, successful/phase output goes to stdout
+  (``emit_json``) while errors go to stderr (``emit_error``).
 - Stable exit codes (see ``ExitCode``) so a calling Agent can branch on
   ``returncode`` without parsing stderr.
 - Every write subcommand supports ``--dry-run`` (preview only, no writes).
@@ -19,6 +20,7 @@ import argparse
 import asyncio
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from enum import IntEnum
@@ -63,8 +65,14 @@ def emit_error(
     detail: dict | None = None,
     exit_code: ExitCode = ExitCode.INTERNAL,
 ) -> int:
-    """Print the standard JSON error envelope and return the matching exit code."""
-    emit_json({"error": {"code": code, "message": message, "detail": detail or {}}})
+    """Print the standard JSON error envelope to stderr, return the matching exit code.
+
+    Kept distinct from ``emit_json`` (stdout-only) so an Agent that separates
+    stdout/stderr streams always finds errors on stderr per spec Sec 7.1, while
+    stdout stays pure result/phase JSON.
+    """
+    payload = {"error": {"code": code, "message": message, "detail": detail or {}}}
+    print(json.dumps(payload, default=str, ensure_ascii=False), file=sys.stderr)
     return int(exit_code)
 
 
@@ -117,6 +125,11 @@ def _status_row(record, policy) -> dict:
 
     Deliberately excludes ST/AT: ``read_telemetry`` never selects them, and this
     projection only forwards the credential-free fields it returns.
+
+    Renames ``TelemetryRecord.business_enabled`` to the CLI-facing
+    ``business_active`` key so it matches ``enable``/``disable``/onboard's
+    ``published`` phase (which already emit ``business_active``, mirroring
+    ``PublishOutcome``) -- one concept, one JSON key everywhere in this CLI.
     """
     from scripts.keepalive_patrol import classify_telemetry
 
@@ -124,7 +137,7 @@ def _status_row(record, policy) -> dict:
     return {
         "token_id": record.token_id,
         "email": record.email,
-        "business_enabled": record.business_enabled,
+        "business_active": record.business_enabled,
         "ban_reason": record.ban_reason,
         "runtime_mode": record.runtime_mode,
         "profile_state": record.profile_state,
@@ -140,16 +153,65 @@ def _status_row(record, policy) -> dict:
     }
 
 
-async def _cmd_status(args, db) -> int:
-    """Report keepalive-enabled tokens' health as JSON (never business-disabled-only tokens).
+def _read_excluded_keepalive_disabled(db_path, token_id_filter: int | None) -> list[dict]:
+    """Read tokens that ``read_telemetry`` skips: ``token_lifecycle.keepalive_enabled = 0``.
 
-    Scope matches ``keepalive_patrol.read_telemetry``: only rows with
-    ``keepalive_enabled = 1`` are reported, since that is what "keepalive health"
-    means. A business-disabled-but-keepalive-enabled token still appears (its
-    ``business_enabled`` field reflects the ban).
+    A separate, read-only query against ``tokens.py``'s own DB path -- deliberately
+    NOT touching ``keepalive_patrol.py`` (a different operational tool with its own
+    semantics). Credential-free: only ``id``/``email``/``is_active``/``ban_reason``
+    are selected, never ``st``/``at``. This is how a keepalive-disabled token (bug,
+    mistaken ``tokens keepalive off``, stalled onboarding) still surfaces in
+    ``status`` instead of silently vanishing -- see Finding 2.
+    """
+    uri = f"{Path(db_path).resolve().as_uri()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True)
+    try:
+        rows = connection.execute(
+            """
+            SELECT t.id, t.email, t.is_active, t.ban_reason
+            FROM tokens AS t
+            JOIN token_lifecycle AS l ON l.token_id = t.id
+            WHERE l.keepalive_enabled = 0
+            ORDER BY t.id
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+
+    excluded = [
+        {
+            "token_id": int(row[0]),
+            "email": str(row[1] or ""),
+            "is_active": int(row[2]),
+            "ban_reason": str(row[3]) if row[3] is not None else None,
+        }
+        for row in rows
+    ]
+    if token_id_filter is not None:
+        excluded = [row for row in excluded if row["token_id"] == token_id_filter]
+    return excluded
+
+
+async def _cmd_status(args, db) -> int:
+    """Report keepalive-enabled tokens' health as JSON, plus what's excluded.
+
+    Scope matches ``keepalive_patrol.read_telemetry``: ``tokens`` only contains
+    rows with ``keepalive_enabled = 1``, since that is what "keepalive health"
+    means (a business-disabled-but-keepalive-enabled token still appears there;
+    its ``business_active`` field reflects the ban). Everything that scope skips
+    -- any token with ``keepalive_enabled = 0`` -- is reported separately under
+    ``excluded_keepalive_disabled`` so nothing goes silently invisible.
     """
     from scripts.keepalive_patrol import build_cadence_policy, read_telemetry
     from src.core.config import config
+
+    if not db.db_exists():
+        return emit_error(
+            "db_missing",
+            f"database file not found: {db.db_path}",
+            {"db_path": str(db.db_path)},
+            exit_code=ExitCode.NOT_FOUND,
+        )
 
     policy = build_cadence_policy(
         config.keepalive_browser_interval_seconds,
@@ -159,7 +221,11 @@ async def _cmd_status(args, db) -> int:
     token_id_filter = getattr(args, "token_id", None)
     if token_id_filter is not None:
         records = [record for record in records if record.token_id == token_id_filter]
-    emit_json({"tokens": [_status_row(record, policy) for record in records]})
+    excluded = _read_excluded_keepalive_disabled(db.db_path, token_id_filter)
+    emit_json({
+        "tokens": [_status_row(record, policy) for record in records],
+        "excluded_keepalive_disabled": excluded,
+    })
     return int(ExitCode.OK)
 
 
@@ -335,7 +401,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return asyncio.run(_dispatch(args))
     except KeyboardInterrupt:
-        return 130
+        # Reuses ExitCode.INTERNAL (70, already a documented code) rather than
+        # adding a new constant -- the "interrupted" error code carries the
+        # finer-grained meaning, and every line stays parseable JSON (Finding 4).
+        return emit_error(
+            "interrupted", "interrupted by signal (SIGINT)", exit_code=ExitCode.INTERNAL
+        )
     except Exception as error:
         return emit_error(
             "internal", f"{type(error).__name__}: {error}", exit_code=ExitCode.INTERNAL
