@@ -14,9 +14,12 @@ so the onboarding argv stays identical to the verified setup helper.
 from __future__ import annotations
 
 import os
+import secrets
+import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Union
 
@@ -24,16 +27,28 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.core.account_identity import VerifiedAccountSnapshot  # noqa: E402
+from src.core.account_identity import (  # noqa: E402
+    VerifiedAccountSnapshot,
+    normalize_account_email,
+)
+from src.core.models import Token  # noqa: E402
+from src.core.repositories.token_lifecycle_repository import (  # noqa: E402
+    PublishOutcome,
+    TokenLifecycleRepository,
+)
+from src.core.token_states import TOKEN_REASON_ONBOARDING_PENDING  # noqa: E402
 from src.services.keepalive.profile import (  # noqa: E402
     ProfileLease,
     ProfileLeaseBusyError,
+    acquire_profile_lease,
     acquire_profile_path_lease,
+    canonical_profile_path,
     read_session_token,
 )
 from src.services.tokens.account_identity import (  # noqa: E402
     inspect_account_identity,
 )
+from src.services.tokens.project_pool import ensure_project_pool  # noqa: E402
 from scripts.setup_keepalive_profile import (  # noqa: E402
     SetupRuntime,
     build_browser_command,
@@ -46,6 +61,9 @@ __all__ = [
     "acquire_onboard_global_lease",
     "launch_chrome",
     "verify_profile",
+    "try_readonly_validate",
+    "onboard_new",
+    "onboard_existing",
 ]
 
 ONBOARD_GLOBAL_LOCK_NAME = "onboarding-global"
@@ -223,3 +241,259 @@ async def verify_profile(
         raise OnboardError(code, str(error) or code) from error
 
     return snapshot
+
+
+# ---------------------------------------------------------------------------
+# onboard_new / onboard_existing: end-user onboarding flows (Task 3)
+#
+# Both flows always publish with runtime_mode="persistent" (spec: 只发
+# persistent) and keepalive_enabled=True. Any verification/publish failure
+# must leave the DB and the profile directory exactly as they were before the
+# call started (spec: 验证不过 = 什么都不改) -- see ``_compensate_new_account``
+# and ``_restore_keepalive_state`` below.
+# ---------------------------------------------------------------------------
+
+
+async def try_readonly_validate(
+    profile_path: Path, flow_client: Any
+) -> Optional[VerifiedAccountSnapshot]:
+    """Validate a profile's saved session without launching Chrome.
+
+    Reuses ``verify_profile`` as-is: a still-valid cookie yields a snapshot,
+    any ``OnboardError`` (missing cookie, rejected session, expired grant,
+    ...) is swallowed and reported as ``None`` so the caller can fall back to
+    an interactive re-login instead of treating it as fatal.
+    """
+    try:
+        return await verify_profile(profile_path, flow_client)
+    except OnboardError:
+        return None
+
+
+def _require_email_matches(
+    snapshot: VerifiedAccountSnapshot, expected_normalized_email: str
+) -> None:
+    """Reject a login whose account does not match the expected identity."""
+    if normalize_account_email(snapshot.email) != expected_normalized_email:
+        raise OnboardError(
+            "identity_mismatch",
+            "logged-in account email does not match the expected account",
+        )
+
+
+async def _insert_onboarding_token(db: Any, snapshot: VerifiedAccountSnapshot) -> int:
+    """INSERT the token + lifecycle skeleton using the real ST from the browser.
+
+    ``tokens.st`` is ``NOT NULL UNIQUE`` -- this must only ever be called with
+    a real, verified ST, never a placeholder. ``Database.add_token`` performs
+    the tokens/token_stats/token_lifecycle inserts atomically.
+    """
+    return await db.add_token(
+        Token(
+            st=snapshot.st,
+            email=snapshot.email,
+            name=snapshot.name or "",
+            is_active=False,
+            ban_reason=TOKEN_REASON_ONBOARDING_PENDING,
+        )
+    )
+
+
+async def _run_project_pool(
+    db: Any, flow_client: Any, token_id: int, pool_size: int
+) -> None:
+    """Provision the active project pool, translating failures to a stable code."""
+    try:
+        token = await db.get_token(token_id)
+        await ensure_project_pool(db, flow_client, token, pool_size)
+    except Exception as error:
+        raise OnboardError("project_pool_failed", str(error)) from error
+
+
+async def _publish_account(
+    db: Any,
+    token_id: int,
+    snapshot: VerifiedAccountSnapshot,
+    observed_at: Any,
+    business_enabled: bool,
+) -> PublishOutcome:
+    """Publish through ``TokenLifecycleRepository``, always persistent + keepalive on."""
+    repo = TokenLifecycleRepository(db)
+    try:
+        return await repo.publish_verified_account(
+            token_id=token_id,
+            snapshot=snapshot,
+            runtime_mode="persistent",
+            keepalive_enabled=True,
+            business_enabled=business_enabled,
+            observed_at=observed_at,
+        )
+    except Exception as error:
+        raise OnboardError("publish_failed", str(error)) from error
+
+
+async def _compensate_new_account(
+    db: Any, token_id: Optional[int], profile_path: Optional[Path]
+) -> None:
+    """Undo a failed new-account onboard: drop the placeholder row + profile dir.
+
+    Best-effort: a failed ``delete_token`` here leaves a stray
+    ``onboarding_pending`` row rather than raising over the top of the
+    original failure, since the original error is the one the caller needs.
+    """
+    if token_id is not None:
+        try:
+            await db.delete_token(token_id)
+        except Exception:
+            pass
+    if profile_path is not None:
+        shutil.rmtree(profile_path, ignore_errors=True)
+
+
+async def onboard_new(
+    *,
+    email: str,
+    runtime: SetupRuntime,
+    display: str,
+    db: Any,
+    flow_client: Any,
+    pool_size: int = 4,
+    observed_at: Any,
+    business_enabled: bool = True,
+) -> PublishOutcome:
+    """New-account onboarding: temp-profile login -> INSERT -> pool -> rename -> publish.
+
+    Login happens in a throwaway ``.onboarding/<random>`` profile so the real
+    ST can be read before any DB row is created. Only after identity and
+    project-pool provisioning both succeed is the profile renamed to its
+    canonical ``<profile_base>/<token_id>`` path and the account published. A
+    failure at any step compensates by deleting the placeholder token row and
+    removing the profile directory (temp or renamed, whichever exists).
+    """
+    global_lease = acquire_onboard_global_lease(runtime.profile_base)
+    temp_profile = Path(runtime.profile_base) / ".onboarding" / secrets.token_hex(16)
+    token_id: Optional[int] = None
+    profile_path: Optional[Path] = temp_profile
+    try:
+        temp_profile.mkdir(mode=0o700, parents=True, exist_ok=True)
+        launch_chrome(runtime, temp_profile, display, FLOW_ROOT_URL)
+        snapshot = await verify_profile(temp_profile, flow_client)
+        _require_email_matches(snapshot, normalize_account_email(email))
+
+        token_id = await _insert_onboarding_token(db, snapshot)
+        await _run_project_pool(db, flow_client, token_id, pool_size)
+
+        final_profile = canonical_profile_path(runtime.profile_base, token_id)
+        os.rename(temp_profile, final_profile)
+        profile_path = final_profile
+
+        return await _publish_account(db, token_id, snapshot, observed_at, business_enabled)
+    except Exception:
+        await _compensate_new_account(db, token_id, profile_path)
+        raise
+    finally:
+        global_lease.release()
+
+
+async def _pause_keepalive_if_enabled(db: Any, token_id: int) -> bool:
+    """Disable keepalive so the sidecar releases the profile lease in time.
+
+    Returns whether it was previously enabled, so a failed onboard can
+    restore the exact prior state (spec: 验证不过 = 什么都不改).
+    """
+    lifecycle = await db.get_token_lifecycle(token_id)
+    was_enabled = bool(lifecycle and lifecycle.keepalive_enabled)
+    if was_enabled:
+        await db.set_token_desired_state(token_id, keepalive_enabled=False)
+    return was_enabled
+
+
+async def _restore_keepalive_state(
+    db: Any, token_id: int, previous_keepalive: bool
+) -> None:
+    """Best-effort restore of the pre-onboard keepalive flag after a failure."""
+    if not previous_keepalive:
+        return
+    try:
+        await db.set_token_desired_state(token_id, keepalive_enabled=True)
+    except Exception:
+        pass
+
+
+def _poll_profile_lease(
+    base_dir: Union[Path, str], token_id: int, timeout_seconds: int
+) -> ProfileLease:
+    """Poll ``acquire_profile_lease`` every second until the sidecar releases it.
+
+    The real upper bound on sidecar release is 15s reconcile + 20s shutdown
+    timeout = 35s; ``timeout_seconds`` defaults to 40s to clear that with margin.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            return acquire_profile_lease(base_dir, token_id)
+        except ProfileLeaseBusyError as error:
+            if time.monotonic() >= deadline:
+                raise OnboardError(
+                    "profile_busy", f"profile lease busy for token {token_id}"
+                ) from error
+            time.sleep(1)
+
+
+async def _revalidate_or_relogin(
+    profile_path: Path, flow_client: Any, runtime: SetupRuntime, display: str
+) -> VerifiedAccountSnapshot:
+    """Try the read-only path first; only launch Chrome if that path fails."""
+    snapshot = await try_readonly_validate(profile_path, flow_client)
+    if snapshot is not None:
+        return snapshot
+    launch_chrome(runtime, profile_path, display, FLOW_ROOT_URL)
+    return await verify_profile(profile_path, flow_client)
+
+
+async def onboard_existing(
+    *,
+    token_id: int,
+    runtime: SetupRuntime,
+    display: str,
+    db: Any,
+    flow_client: Any,
+    pool_size: int = 4,
+    observed_at: Any,
+    business_enabled: bool = True,
+    lease_wait_seconds: int = 40,
+) -> PublishOutcome:
+    """Existing-account onboarding: readonly-validate first, re-login only if needed.
+
+    Re-login (when required) happens IN the account's own canonical profile --
+    never archived, renamed, or replaced (spec: 旧号不 archive/不覆盖). Keepalive
+    is paused before the profile lease is acquired so the sidecar has time to
+    release its lock, and restored on any failure so the account's keepalive
+    state ends up exactly as this call found it.
+    """
+    global_lease = acquire_onboard_global_lease(runtime.profile_base)
+    try:
+        token = await db.get_token(token_id)
+        if token is None:
+            raise OnboardError("not_found", f"token {token_id} not found")
+        expected_email = normalize_account_email(token.email)
+
+        previous_keepalive = await _pause_keepalive_if_enabled(db, token_id)
+        profile_path = canonical_profile_path(runtime.profile_base, token_id)
+        lease = _poll_profile_lease(runtime.profile_base, token_id, lease_wait_seconds)
+        try:
+            snapshot = await _revalidate_or_relogin(
+                profile_path, flow_client, runtime, display
+            )
+            _require_email_matches(snapshot, expected_email)
+            await _run_project_pool(db, flow_client, token_id, pool_size)
+            return await _publish_account(
+                db, token_id, snapshot, observed_at, business_enabled
+            )
+        except Exception:
+            await _restore_keepalive_state(db, token_id, previous_keepalive)
+            raise
+        finally:
+            lease.release()
+    finally:
+        global_lease.release()
