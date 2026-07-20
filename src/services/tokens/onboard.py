@@ -159,15 +159,22 @@ def launch_chrome(
     ``subprocess.Popen`` looked up at call time (so tests may monkeypatch
     ``subprocess.Popen`` on this module). On timeout the whole group receives
     SIGTERM→SIGKILL; non-zero exit raises ``browser_crashed``.
+
+    ``build_browser_command`` (argv construction, including proxy validation
+    via ``validate_proxy_server``) runs inside this same try block: a
+    malformed ``runtime.proxy`` (e.g. embedded userinfo) raises a raw
+    ``ValueError`` there, which must surface as ``OnboardError("browser_launch")``
+    like any other launch failure rather than escaping unwrapped. The error
+    message never echoes the proxy string, since it may carry credentials.
     """
     if launcher is None:
         launcher = subprocess.Popen
 
     env = os.environ.copy()
     env["DISPLAY"] = display
-    command = build_browser_command(runtime, profile_path, flow_url)
 
     try:
+        command = build_browser_command(runtime, profile_path, flow_url)
         proc = launcher(
             command,
             env=env,

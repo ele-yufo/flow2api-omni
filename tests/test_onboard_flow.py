@@ -193,6 +193,8 @@ def test_launch_chrome_crash_raises_browser_crashed(tmp_path, monkeypatch):
             flow_url=FLOW_URL,
         )
     assert exc.value.code == "browser_crashed"
+    assert killed["pgid"] == 1
+    assert killed["sig"] == signal.SIGTERM
 
 
 def test_launch_chrome_launch_failure_raises_browser_launch(tmp_path, monkeypatch):
@@ -213,6 +215,48 @@ def test_launch_chrome_launch_failure_raises_browser_launch(tmp_path, monkeypatc
             flow_url=FLOW_URL,
         )
     assert exc.value.code == "browser_launch"
+
+
+def test_launch_chrome_bad_proxy_raises_browser_launch_without_leaking_credentials(
+    tmp_path, monkeypatch
+):
+    """``build_browser_command`` runs inside the try block too.
+
+    A proxy string with embedded userinfo (a plausible operator mistake, e.g.
+    copy-pasting an authenticated-proxy URL straight into config) makes
+    ``validate_proxy_server`` raise a raw ``ValueError`` *before* Chrome is
+    ever launched. That must still surface as the stable
+    ``OnboardError('browser_launch')`` code -- not an unwrapped ValueError --
+    and the raised message must never echo the proxy string, since it may
+    carry a password.
+    """
+    from scripts.setup_keepalive_profile import SetupRuntime
+
+    secret_proxy = "http://user:pass@host:8080"
+    runtime = SetupRuntime(
+        profile_base=tmp_path,
+        proxy=secret_proxy,
+        browser_executable=tmp_path / "chrome",
+    )
+
+    def fake_popen(*args, **kwargs):
+        raise AssertionError("Chrome must not be launched with an invalid proxy")
+
+    monkeypatch.setattr(
+        "src.services.tokens.onboard.subprocess.Popen", fake_popen
+    )
+
+    with pytest.raises(OnboardError) as exc:
+        launch_chrome(
+            runtime=runtime,
+            profile_path=tmp_path / "p",
+            display=":11",
+            flow_url=FLOW_URL,
+        )
+    assert exc.value.code == "browser_launch"
+    message = str(exc.value)
+    assert "pass" not in message
+    assert secret_proxy not in message
 
 
 # ---------------------------------------------------------------------------
