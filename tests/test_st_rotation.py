@@ -87,10 +87,28 @@ class FakeDB:
         self._token.ban_reason = None
         self._token.banned_at = None
 
+    async def apply_verified_account_snapshot(self, token_id, snapshot):
+        if snapshot.normalized_email != self._token.email.strip().casefold():
+            raise ValueError("account identity mismatch")
+        fields = {
+            "st": snapshot.st,
+            "at": snapshot.at,
+            "at_expires": snapshot.at_expires,
+            "credits": snapshot.credits,
+            "user_paygate_tier": snapshot.user_paygate_tier,
+        }
+        self.updates.append(fields)
+        for key, value in fields.items():
+            setattr(self._token, key, value)
+        if self._token.ban_reason in ("ST_REVOKED", "GRANT_EXPIRED"):
+            self.ban_cleared += 1
+            self._token.ban_reason = None
+            self._token.banned_at = None
+
 
 class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
     def _make_manager(self, rotated_st):
-        token = Token(id=7, st="old-st", email="ruby@gmail.com", at="old-at", credits=1000)
+        token = Token(id=7, st=LONG_ST, email="ruby@gmail.com", at="old-at", credits=1000)
         db = FakeDB(token)
         tm = TokenManager(db=db, flow_client=None)
         fake_flow = AsyncMock()
@@ -107,20 +125,21 @@ class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
     async def test_do_refresh_at_persists_rotated_st(self):
         new_st = "eyJ" + "D" * 1100
         tm, db = self._make_manager(new_st)
-        ok = await tm._do_refresh_at(7, "old-st")
+        ok = await tm._do_refresh_at(7, LONG_ST)
         self.assertTrue(ok)
         self.assertTrue(any(u.get("st") == new_st for u in db.updates))
 
-    async def test_do_refresh_at_skips_when_rotated_equals_current(self):
-        tm, db = self._make_manager("old-st")  # 与当前相同
-        await tm._do_refresh_at(7, "old-st")
-        self.assertFalse(any("st" in u for u in db.updates))
+    async def test_do_refresh_at_keeps_current_when_rotated_equals_current(self):
+        tm, db = self._make_manager(LONG_ST)  # 与当前相同
+        ok = await tm._do_refresh_at(7, LONG_ST)
+        self.assertTrue(ok)
+        self.assertEqual(db._token.st, LONG_ST)
 
     async def test_do_refresh_at_clears_stale_revoked_on_success(self):
         # 历史遗留 ST_REVOKED 的账号，一旦刷新成功应被自动清除标记
         tm, db = self._make_manager("eyJ" + "E" * 1100)
         db._token.ban_reason = "ST_REVOKED"
-        ok = await tm._do_refresh_at(7, "old-st")
+        ok = await tm._do_refresh_at(7, LONG_ST)
         self.assertTrue(ok)
         self.assertEqual(db.ban_cleared, 1)
         self.assertIsNone(db._token.ban_reason)
@@ -129,7 +148,7 @@ class PersistRotatedStTests(unittest.IsolatedAsyncioTestCase):
         # 仅清 ST_REVOKED；429 等其它禁用原因不应被后台 AT 刷新误清
         tm, db = self._make_manager("eyJ" + "F" * 1100)
         db._token.ban_reason = "429_rate_limit"
-        ok = await tm._do_refresh_at(7, "old-st")
+        ok = await tm._do_refresh_at(7, LONG_ST)
         self.assertTrue(ok)
         self.assertEqual(db.ban_cleared, 0)
         self.assertEqual(db._token.ban_reason, "429_rate_limit")

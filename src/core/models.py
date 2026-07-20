@@ -4,6 +4,12 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Union, Any, Literal
 from datetime import datetime
 
+from .token_states import (
+    AccountLifecycleState,
+    AccountLifecycleStatus,
+    TierClassification,
+)
+
 
 class Token(BaseModel):
     """Token model for Flow2API"""
@@ -46,6 +52,123 @@ class Token(BaseModel):
     # 429禁用相关
     ban_reason: Optional[str] = None  # 禁用原因: "429_rate_limit" 或 None
     banned_at: Optional[datetime] = None  # 禁用时间
+
+
+class TokenLifecycle(BaseModel):
+    """Lifecycle, keepalive configuration, and keepalive telemetry for one token."""
+
+    token_id: int
+    membership_confirmed_status: AccountLifecycleStatus = AccountLifecycleStatus.ACTIVE
+    membership_candidate: TierClassification = TierClassification.UNKNOWN
+    membership_candidate_count: int = 0
+    keepalive_enabled: bool = False
+    runtime_mode: Literal["persistent", "warm"] = "warm"
+    profile_state: str = "unprovisioned"
+    verified_email: Optional[str] = None
+    last_keepalive_at: Optional[datetime] = None
+    last_keepalive_success_at: Optional[datetime] = None
+    last_keepalive_status: Optional[str] = None
+    last_keepalive_error: Optional[str] = None
+    keepalive_failure_count: int = 0
+    next_due_at: Optional[datetime] = None
+    last_failure_at: Optional[datetime] = None
+    last_failure_code: Optional[str] = None
+    last_failure_detail: Optional[str] = None
+    last_observed_tier: Optional[str] = None
+    last_observed_at: Optional[datetime] = None
+    retired_at: Optional[datetime] = None
+    restored_at: Optional[datetime] = None
+    last_alert_code: Optional[str] = None
+    last_alert_at: Optional[datetime] = None
+    alert_episode: int = 0
+    alerted: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    @property
+    def account_lifecycle_state(self) -> AccountLifecycleState:
+        """Return the canonical immutable membership state used by lifecycle policy."""
+        return AccountLifecycleState(
+            confirmed_status=self.membership_confirmed_status,
+            candidate=self.membership_candidate,
+            candidate_count=self.membership_candidate_count,
+        )
+
+
+class KeepaliveToken(Token):
+    """Token credentials joined with lifecycle fields needed by keepalive workers."""
+
+    membership_confirmed_status: AccountLifecycleStatus
+    membership_candidate: TierClassification
+    membership_candidate_count: int
+    keepalive_enabled: bool
+    runtime_mode: Literal["persistent", "warm"]
+    profile_state: str
+    verified_email: Optional[str] = None
+    last_keepalive_at: Optional[datetime] = None
+    last_keepalive_success_at: Optional[datetime] = None
+    last_keepalive_status: Optional[str] = None
+    last_keepalive_error: Optional[str] = None
+    keepalive_failure_count: int = 0
+    next_due_at: Optional[datetime] = None
+    last_failure_at: Optional[datetime] = None
+    last_failure_code: Optional[str] = None
+    last_failure_detail: Optional[str] = None
+    last_observed_tier: Optional[str] = None
+    last_observed_at: Optional[datetime] = None
+    retired_at: Optional[datetime] = None
+    restored_at: Optional[datetime] = None
+    last_alert_code: Optional[str] = None
+    last_alert_at: Optional[datetime] = None
+    alert_episode: int = 0
+    alerted: bool = False
+
+
+class OnboardingJob(BaseModel):
+    """Resumable onboarding metadata with no credentials, commands, or paths."""
+
+    id: Optional[int] = None
+    job_id: Optional[str] = None
+    target_token_id: Optional[int] = None
+    resolved_token_id: Optional[int] = None
+    phase: str = "created"
+    state: str = "pending"
+    browser_pid: Optional[int] = None
+    browser_start_ticks: Optional[int] = None
+    discovered_email: Optional[str] = None
+    discovered_tier: Optional[str] = None
+    discovered_credits: Optional[int] = None
+    discovered_at_expires: Optional[datetime] = None
+    project_count: Optional[int] = None
+    profile_ready: Optional[bool] = None
+    conflict_status: Optional[str] = None
+    conflict_policy: str = "reject"
+    requested_business_enabled: bool = False
+    requested_keepalive_enabled: bool = False
+    requested_runtime_mode: Literal["persistent", "warm"] = "warm"
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProfileValidationResult(BaseModel):
+    """Credential-free read-only validation result for one retained profile."""
+
+    email: str
+    tier: Optional[str] = None
+    credits: int
+    expiry: Optional[datetime] = None
+    project_count: int
+    profile_ready: bool
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class Project(BaseModel):

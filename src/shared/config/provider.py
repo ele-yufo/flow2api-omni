@@ -4,6 +4,8 @@ import tomli
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from .cors import CorsConfigMixin
+
 
 def _default_config_path() -> Path:
     """Resolve config/setting.toml by walking up from this file — location-independent.
@@ -19,7 +21,7 @@ def _default_config_path() -> Path:
     return here.parents[3] / "config" / "setting.toml"
 
 
-class Config:
+class Config(CorsConfigMixin):
     """Application configuration"""
 
     def __init__(self, config_path: Optional[str] = None):
@@ -675,6 +677,20 @@ class Config:
         return bool(self._config.get("token", {}).get("st_browser_refresh_enabled", False))
 
     # ========== 浏览器保活器（独立进程 flow2api-keepalive.service）==========
+    def _keepalive_int(
+        self,
+        key: str,
+        default: int,
+        minimum: int,
+        maximum: int = None,
+    ) -> int:
+        try:
+            value = int(self._config.get("keepalive", {}).get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        value = max(minimum, value)
+        return min(maximum, value) if maximum is not None else value
+
     # AT 直驱范式：常驻 nodriver 浏览器定期刷新 labs.google flow 页触发 OAuth 续期，
     # 从 /fx/api/auth/session 拿新 AT(+rotated ST) 写库，主服务直接用活 AT，
     # 绕过"旧 ST 会话 grant 已死、st_to_at 换不出活 AT"的死结。
@@ -685,10 +701,48 @@ class Config:
 
     @property
     def keepalive_browser_interval_seconds(self) -> int:
-        try:
-            return max(60, int(self._config.get("keepalive", {}).get("browser_interval_seconds", 1200)))
-        except (TypeError, ValueError):
-            return 1200
+        return self._keepalive_int("browser_interval_seconds", 1200, 60)
+
+    @property
+    def keepalive_browser_initial_delay_seconds(self) -> int:
+        return self._keepalive_int("browser_initial_delay_seconds", 120, 0, 3600)
+
+    @property
+    def keepalive_browser_retired_interval_seconds(self) -> int:
+        return self._keepalive_int("browser_retired_interval_seconds", 43200, 3600)
+
+    @property
+    def keepalive_browser_reconcile_interval_seconds(self) -> int:
+        return self._keepalive_int("browser_reconcile_interval_seconds", 15, 5, 300)
+
+    @property
+    def keepalive_browser_max_concurrent_refreshes(self) -> int:
+        return self._keepalive_int("browser_max_concurrent_refreshes", 1, 1, 10)
+
+    @property
+    def keepalive_browser_max_concurrent_launches(self) -> int:
+        return self._keepalive_int("browser_max_concurrent_launches", 1, 1, 10)
+
+    @property
+    def keepalive_browser_retry_base_seconds(self) -> int:
+        return self._keepalive_int("browser_retry_base_seconds", 60, 10, 3600)
+
+    @property
+    def keepalive_browser_retry_max_seconds(self) -> int:
+        return self._keepalive_int("browser_retry_max_seconds", 1800, 30, 21600)
+
+    @property
+    def keepalive_browser_human_retry_seconds(self) -> int:
+        return self._keepalive_int("browser_human_retry_seconds", 21600, 300, 86400)
+
+    @property
+    def keepalive_onboarding_display(self) -> str:
+        value = str(self._config.get("keepalive", {}).get("onboarding_display", ":11")).strip()
+        return value or ":11"
+
+    @property
+    def keepalive_onboarding_session_ttl_seconds(self) -> int:
+        return self._keepalive_int("onboarding_session_ttl_seconds", 1800, 300, 7200)
 
     @property
     def keepalive_browser_token_ids(self) -> list:

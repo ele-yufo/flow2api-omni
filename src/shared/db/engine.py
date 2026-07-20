@@ -42,6 +42,30 @@ class SqliteEngine:
             await self._configure_connection(db)
             yield db
 
+    @asynccontextmanager
+    async def transaction(self):
+        """Run a write transaction that acquires SQLite's lock immediately.
+
+        The in-process lock serializes writers sharing this engine instance. ``BEGIN
+        IMMEDIATE`` additionally serializes separate ``SqliteEngine`` instances and
+        processes through SQLite's own busy timeout.
+        """
+        async with self._connect(write=True) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                yield db
+            except BaseException:
+                await db.rollback()
+                raise
+            else:
+                await db.commit()
+
+    @asynccontextmanager
+    async def _transaction(self):
+        """Compatibility alias for repository code using private engine helpers."""
+        async with self.transaction() as db:
+            yield db
+
     async def _table_exists(self, db, table_name: str) -> bool:
         """Check if a table exists in the database"""
         cursor = await db.execute(

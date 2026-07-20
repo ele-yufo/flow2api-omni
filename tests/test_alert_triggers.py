@@ -5,6 +5,9 @@ from src.services.token_manager import TokenManager
 from src.core.models import Token
 
 
+LONG_ST = "eyJ" + "k" * 1100
+
+
 class FakeDB:
     def __init__(self, tokens):
         self._tokens = {t.id: t for t in tokens}
@@ -16,6 +19,16 @@ class FakeDB:
     async def reset_error_count(self, tid): pass
     async def clear_token_ban(self, tid):
         self._tokens[tid].ban_reason = None
+        self._tokens[tid].banned_at = None
+    async def apply_verified_account_snapshot(self, tid, snapshot):
+        token = self._tokens[tid]
+        if snapshot.normalized_email != token.email.strip().casefold():
+            raise ValueError("account identity mismatch")
+        token.st = snapshot.st
+        token.at = snapshot.at
+        token.at_expires = snapshot.at_expires
+        token.credits = snapshot.credits
+        token.user_paygate_tier = snapshot.user_paygate_tier
 
 
 def _tm(db):
@@ -62,22 +75,22 @@ class PoolLowAlertTests(unittest.IsolatedAsyncioTestCase):
 
 class CreditsDrainedAlertTests(unittest.IsolatedAsyncioTestCase):
     def _make(self, prev_credits, new_credits):
-        tok = Token(id=7, st="old", email="a@b.com", at="x", credits=prev_credits)
+        tok = Token(id=7, st=LONG_ST, email="a@b.com", at="x", credits=prev_credits)
         db = FakeDB([tok]); tm = _tm(db)
         ff = AsyncMock()
-        ff.st_to_at = AsyncMock(return_value={"access_token": "at", "expires": "2026-07-16T00:00:00.000Z", "user": {}})
+        ff.st_to_at = AsyncMock(return_value={"access_token": "at", "expires": "2026-07-16T00:00:00.000Z", "user": {"email": "a@b.com"}})
         ff.get_credits = AsyncMock(return_value={"credits": new_credits, "userPaygateTier": "PAYGATE_TIER_ONE"})
         tm.flow_client = ff
         return tm
 
     async def test_crossing_to_drained_alerts(self):
         tm = self._make(prev_credits=50, new_credits=0)  # floor 默认 1
-        await tm._do_refresh_at(7, "old")
+        await tm._do_refresh_at(7, LONG_ST)
         self.assertEqual(tm._alert.await_count, 1)
 
     async def test_already_drained_does_not_realert(self):
         tm = self._make(prev_credits=0, new_credits=0)
-        await tm._do_refresh_at(7, "old")
+        await tm._do_refresh_at(7, LONG_ST)
         self.assertEqual(tm._alert.await_count, 0)
 
 
