@@ -1,0 +1,30 @@
+[Unit]
+Description=Flow2API headed browser keepalive supervisor
+Wants=network-online.target
+After=network-online.target xvfb@10.service flow2api.service
+Requires=xvfb@10.service flow2api.service
+
+[Service]
+Type=simple
+User=yufo
+WorkingDirectory=/opt/Projects/flow2api
+UMask=0077
+EnvironmentFile=-/etc/flow2api-keepalive.env
+Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:10
+Environment=BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStartPre=/opt/Projects/flow2api/.venv/bin/python /opt/Projects/flow2api/scripts/keepalive_browser.py --preflight
+ExecStart=/opt/Projects/flow2api/.venv/bin/python /opt/Projects/flow2api/scripts/keepalive_browser.py --daemon
+# always (not on-failure): a clean exit (e.g. the user-session teardown on
+# 2026-07-20 that SIGTERM'd dozens of services) left the sidecar dead for hours
+# because status=0 does not trigger on-failure. Keepalive must always come back.
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=45s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
