@@ -56,7 +56,7 @@ video_timeout = 1500
 [call_logic]
 call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
 # 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
-min_credits_to_select = 1
+min_credits_to_select = 20
 
 [admin]
 error_ban_threshold = 3
