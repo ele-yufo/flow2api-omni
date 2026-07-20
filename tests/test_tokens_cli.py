@@ -85,12 +85,15 @@ def test_exit_code_constants():
     assert ExitCode.INTERNAL == 70
 
 
-def test_emit_error_prints_json_error_envelope_and_returns_exit_code(capsys):
+def test_emit_error_prints_json_error_envelope_to_stderr_and_returns_exit_code(capsys):
+    """Errors go to stderr (spec Sec 7.1) so stdout stays pure result/phase JSON."""
     from scripts.tokens import ExitCode, emit_error
 
     rc = emit_error("not_found", "token 9 not found", {"token_id": 9}, exit_code=ExitCode.NOT_FOUND)
     assert rc == int(ExitCode.NOT_FOUND)
-    payload = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
     assert payload == {
         "error": {"code": "not_found", "message": "token 9 not found", "detail": {"token_id": 9}}
     }
@@ -103,6 +106,23 @@ def test_emit_json_prints_one_json_line(capsys):
     out = capsys.readouterr().out
     assert out.count("\n") == 1
     assert json.loads(out) == {"a": 1, "b": [1, 2, 3]}
+
+
+def test_main_keyboard_interrupt_emits_json_error_on_stderr_and_returns_internal(monkeypatch, capsys):
+    """KeyboardInterrupt must still emit parseable JSON and a documented exit code."""
+    from scripts.tokens import ExitCode, main
+
+    def _raise_keyboard_interrupt(coro):
+        coro.close()  # never awaited -- close it to avoid a "never awaited" warning
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("scripts.tokens.asyncio.run", _raise_keyboard_interrupt)
+    rc = main(["status"])
+    assert rc == int(ExitCode.INTERNAL)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["code"] == "interrupted"
 
 
 # ---------------------------------------------------------------------------
@@ -127,12 +147,17 @@ async def _get_lifecycle(db, token_id):
 
 
 def test_status_emits_empty_tokens_when_none_keepalive_enabled(tmp_path, capsys):
+    """The one token here is business-active but keepalive-disabled by default, so
+    it must be absent from ``tokens`` -- see
+    ``test_status_lists_keepalive_disabled_token_in_excluded_not_in_tokens`` for
+    where it does surface.
+    """
     from scripts.tokens import ExitCode, _cmd_status
 
     db, _token_id = _make_db_with_token(tmp_path, keepalive_enabled=False)
     rc = asyncio.run(_cmd_status(_ns(token_id=None), db))
     assert rc == int(ExitCode.OK)
-    assert json.loads(capsys.readouterr().out) == {"tokens": []}
+    assert json.loads(capsys.readouterr().out)["tokens"] == []
 
 
 def test_status_emits_enabled_token_health_without_credentials(tmp_path, capsys):
@@ -147,8 +172,11 @@ def test_status_emits_enabled_token_health_without_credentials(tmp_path, capsys)
     assert row["token_id"] == token_id
     assert row["email"] == "alice@example.com"
     assert row["runtime_mode"] == "persistent"
+    assert row["business_active"] is True
+    assert "business_enabled" not in row  # CLI-facing name is business_active everywhere
     assert row["health"] in {"HEALTHY", "UNHEALTHY", "PROBE_ERROR"}
     assert "st" not in row and "at" not in row and "cookie" not in row
+    assert payload["excluded_keepalive_disabled"] == []
 
 
 def test_status_filters_by_token_id(tmp_path, capsys):
@@ -157,7 +185,53 @@ def test_status_filters_by_token_id(tmp_path, capsys):
     db, token_id = _make_db_with_token(tmp_path, keepalive_enabled=True)
     rc = asyncio.run(_cmd_status(_ns(token_id=token_id + 999), db))
     assert rc == int(ExitCode.OK)
-    assert json.loads(capsys.readouterr().out) == {"tokens": []}
+    assert json.loads(capsys.readouterr().out) == {"tokens": [], "excluded_keepalive_disabled": []}
+
+
+def test_status_lists_keepalive_disabled_token_in_excluded_not_in_tokens(tmp_path, capsys):
+    """Finding 2: a business-active token whose keepalive got disabled must not
+    silently vanish from ``status`` -- it should surface under
+    ``excluded_keepalive_disabled`` instead, credential-free, and NOT in ``tokens``.
+    """
+    from scripts.tokens import ExitCode, _cmd_status
+
+    db, token_id = _make_db_with_token(tmp_path, keepalive_enabled=False, is_active=True)
+    rc = asyncio.run(_cmd_status(_ns(token_id=None), db))
+    assert rc == int(ExitCode.OK)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["tokens"] == []
+    assert len(payload["excluded_keepalive_disabled"]) == 1
+    excluded = payload["excluded_keepalive_disabled"][0]
+    assert excluded == {
+        "token_id": token_id, "email": "alice@example.com", "is_active": 1, "ban_reason": None,
+    }
+    assert "st" not in excluded and "at" not in excluded
+
+
+def test_status_excluded_keepalive_disabled_respects_token_id_filter(tmp_path, capsys):
+    from scripts.tokens import ExitCode, _cmd_status
+
+    db, token_id = _make_db_with_token(tmp_path, keepalive_enabled=False, is_active=True)
+    rc = asyncio.run(_cmd_status(_ns(token_id=token_id + 999), db))
+    assert rc == int(ExitCode.OK)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["excluded_keepalive_disabled"] == []
+
+
+def test_status_missing_db_file_returns_db_missing_error(tmp_path, capsys):
+    """Finding 5: a not-yet-created DB must surface a clear ``db_missing`` error
+    on stderr with exit code NOT_FOUND, not a generic internal-error crash.
+    """
+    from scripts.tokens import ExitCode, _cmd_status
+    from src.core.database import Database
+
+    db = Database(db_path=str(tmp_path / "does-not-exist.db"))
+    rc = asyncio.run(_cmd_status(_ns(token_id=None), db))
+    assert rc == int(ExitCode.NOT_FOUND)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = json.loads(captured.err)
+    assert payload["error"]["code"] == "db_missing"
 
 
 def test_enable_dry_run_does_not_write(tmp_path, capsys):
