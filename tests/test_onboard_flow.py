@@ -782,6 +782,47 @@ def test_old_token_lease_busy_raises_profile_busy(tmp_path, monkeypatch):
     assert exc.value.code == "profile_busy"
 
 
+def test_old_token_lease_busy_restores_keepalive(tmp_path, monkeypatch):
+    """keepalive 原本开启 + lease 一直抢不到超时 -> profile_busy, 且 keepalive 必须恢复为 True。
+
+    Regression for the critical finding where ``_pause_keepalive_if_enabled``
+    and ``_poll_profile_lease`` ran OUTSIDE the inner try/except that calls
+    ``_restore_keepalive_state``: a lease-poll timeout propagated straight
+    through the outer ``finally`` and left keepalive disabled forever. See
+    ``test_old_token_lease_busy_raises_profile_busy`` above for why real
+    ``time.monotonic``/``time.sleep`` (not a monkeypatched ``time`` module)
+    are used to force the timeout deterministically.
+    """
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path, keepalive_enabled=True)
+    runtime = _fake_runtime(tmp_path)
+
+    from src.services.keepalive.profile import ProfileLeaseBusyError
+
+    def fake_acquire(base_dir, requested_token_id):
+        raise ProfileLeaseBusyError(Path(base_dir) / str(requested_token_id))
+
+    monkeypatch.setattr("src.services.tokens.onboard.acquire_profile_lease", fake_acquire)
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_existing(
+                token_id=token_id,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+                lease_wait_seconds=0,
+            )
+        )
+    assert exc.value.code == "profile_busy"
+
+    lifecycle = asyncio.run(db.get_token_lifecycle(token_id))
+    assert lifecycle.keepalive_enabled is True  # 必须恢复,不能永久停在 False
+
+
 def test_try_readonly_validate_returns_none_on_failure(tmp_path, monkeypatch):
     """底层 verify_profile 抛 OnboardError -> try_readonly_validate 吞掉返回 None。"""
 

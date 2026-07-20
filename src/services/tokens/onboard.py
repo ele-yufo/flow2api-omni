@@ -468,8 +468,11 @@ async def onboard_existing(
     Re-login (when required) happens IN the account's own canonical profile --
     never archived, renamed, or replaced (spec: 旧号不 archive/不覆盖). Keepalive
     is paused before the profile lease is acquired so the sidecar has time to
-    release its lock, and restored on any failure so the account's keepalive
-    state ends up exactly as this call found it.
+    release its lock. From that pause onward -- including a profile-lease-poll
+    timeout, which previously escaped uncompensated -- every exit path restores
+    the pre-call keepalive flag (spec: 验证不过 = 什么都不改) except a successful
+    publish, which already sets ``keepalive_enabled=True`` itself and must not
+    have that overwritten by a restore of the (possibly ``False``) prior value.
     """
     global_lease = acquire_onboard_global_lease(runtime.profile_base)
     try:
@@ -479,21 +482,25 @@ async def onboard_existing(
         expected_email = normalize_account_email(token.email)
 
         previous_keepalive = await _pause_keepalive_if_enabled(db, token_id)
-        profile_path = canonical_profile_path(runtime.profile_base, token_id)
-        lease = _poll_profile_lease(runtime.profile_base, token_id, lease_wait_seconds)
+        published = False
+        lease: Optional[ProfileLease] = None
         try:
+            profile_path = canonical_profile_path(runtime.profile_base, token_id)
+            lease = _poll_profile_lease(runtime.profile_base, token_id, lease_wait_seconds)
             snapshot = await _revalidate_or_relogin(
                 profile_path, flow_client, runtime, display
             )
             _require_email_matches(snapshot, expected_email)
             await _run_project_pool(db, flow_client, token_id, pool_size)
-            return await _publish_account(
+            outcome = await _publish_account(
                 db, token_id, snapshot, observed_at, business_enabled
             )
-        except Exception:
-            await _restore_keepalive_state(db, token_id, previous_keepalive)
-            raise
+            published = True
+            return outcome
         finally:
-            lease.release()
+            if lease is not None:
+                lease.release()
+            if not published:
+                await _restore_keepalive_state(db, token_id, previous_keepalive)
     finally:
         global_lease.release()
