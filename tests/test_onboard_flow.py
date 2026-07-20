@@ -369,3 +369,437 @@ def test_verify_profile_defaults_to_session_body_when_inspector_raises_plain_err
             )
         )
     assert exc.value.code == "session_body"
+
+
+# ---------------------------------------------------------------------------
+# onboard_new / onboard_existing / try_readonly_validate (Task 3 flows)
+#
+# These compose launch_chrome/verify_profile (monkeypatched at the module
+# level they are called from) with a real Database on a tmp_path SQLite file,
+# so the INSERT/rename/publish/compensation behavior is exercised for real.
+# ---------------------------------------------------------------------------
+
+from src.core.database import Database
+from src.core.models import Token
+from src.services.tokens.onboard import onboard_existing, onboard_new, try_readonly_validate
+
+OLD_TOKEN_EMAIL = "old@example.com"
+NEW_TOKEN_EMAIL = "new@example.com"
+
+
+def _make_db(tmp_path: Path) -> Database:
+    db = Database(db_path=str(tmp_path / "flow.db"))
+    asyncio.run(db.init_db())
+    return db
+
+
+def _make_old_token(db: Database, tmp_path: Path, *, keepalive_enabled: bool = False) -> int:
+    token_id = asyncio.run(
+        db.add_token(
+            Token(
+                st="placeholder-" + "x" * 1100,
+                email=OLD_TOKEN_EMAIL,
+                name="Old",
+                is_active=True,
+            )
+        )
+    )
+    if keepalive_enabled:
+        asyncio.run(db.set_token_desired_state(token_id, keepalive_enabled=True))
+    (tmp_path / str(token_id)).mkdir(parents=True)
+    return token_id
+
+
+async def _async_none(*_args, **_kwargs):
+    return None
+
+
+def test_new_token_uses_temp_profile_then_rename(tmp_path, monkeypatch):
+    """新号: temp profile 登录 -> INSERT token -> rename 到 base/<id>, DB 无 placeholder 残留。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    async def fake_verify(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email=NEW_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+
+    outcome = asyncio.run(
+        onboard_new(
+            email=NEW_TOKEN_EMAIL,
+            runtime=runtime,
+            display=":11",
+            db=db,
+            flow_client=object(),
+            pool_size=4,
+            observed_at=datetime.now(timezone.utc),
+        )
+    )
+
+    assert outcome.keepalive_enabled is True
+    assert outcome.runtime_mode == "persistent"
+
+    onboarding_dir = tmp_path / ".onboarding"
+    assert list(onboarding_dir.glob("*")) == []  # temp profile 已清空
+
+    tokens = asyncio.run(db.get_all_tokens())
+    assert len(tokens) == 1
+    assert tokens[0].st == "x" * 1100  # 真实 ST 落库,无 placeholder
+    assert (tmp_path / str(tokens[0].id)).is_dir()  # 已 rename 到 base/<id>
+
+
+def test_new_token_failure_cleans_temp_profile_and_no_db_row(tmp_path, monkeypatch):
+    """新号 verify 失败 -> temp profile rm + 无 token 行残留。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    async def fake_verify_fail(profile_path, flow_client, **kw):
+        raise OnboardError("cookie_missing")
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify_fail)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+
+    with pytest.raises(OnboardError):
+        asyncio.run(
+            onboard_new(
+                email=NEW_TOKEN_EMAIL,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+
+    onboarding_dir = tmp_path / ".onboarding"
+    assert list(onboarding_dir.glob("*")) == []
+    assert asyncio.run(db.get_all_tokens()) == []
+
+
+def test_new_token_identity_mismatch_cleans_up(tmp_path, monkeypatch):
+    """登录后邮箱与请求邮箱不符 -> identity_mismatch, 清 temp profile, 无 token 行。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    async def fake_verify(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email="someone-else@example.com")
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_new(
+                email=NEW_TOKEN_EMAIL,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+    assert exc.value.code == "identity_mismatch"
+    assert list((tmp_path / ".onboarding").glob("*")) == []
+    assert asyncio.run(db.get_all_tokens()) == []
+
+
+def test_new_token_project_pool_failure_cleans_up(tmp_path, monkeypatch):
+    """项目池 provisioning 失败 -> 删 token 行 + rm temp profile,编码为 project_pool_failed。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    async def fake_verify(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email=NEW_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+
+    async def fake_pool_fail(*_a, **_kw):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", fake_pool_fail)
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_new(
+                email=NEW_TOKEN_EMAIL,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+    assert exc.value.code == "project_pool_failed"
+    assert asyncio.run(db.get_all_tokens()) == []
+
+
+def test_new_token_publish_failure_cleans_up_renamed_profile(tmp_path, monkeypatch):
+    """rename 之后 publish 失败 -> 删 token 行 + rm 已 rename 的 final profile。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    async def fake_verify(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email=NEW_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+
+    class _FailingRepo:
+        def __init__(self, _db):
+            pass
+
+        async def publish_verified_account(self, **_kw):
+            raise RuntimeError("db exploded")
+
+    monkeypatch.setattr(
+        "src.services.tokens.onboard.TokenLifecycleRepository", _FailingRepo
+    )
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_new(
+                email=NEW_TOKEN_EMAIL,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+    assert exc.value.code == "publish_failed"
+    assert asyncio.run(db.get_all_tokens()) == []
+    assert list((tmp_path / ".onboarding").glob("*")) == []
+    # No leftover numeric profile directory anywhere under tmp_path either.
+    assert not any(p.is_dir() and p.name.isdigit() for p in tmp_path.iterdir())
+
+
+def test_old_token_readonly_validate_skips_login(tmp_path, monkeypatch):
+    """旧号 profile 活着 -> 只读验证通过 -> 免登录发布,profile 未被替换。"""
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path)
+    runtime = _fake_runtime(tmp_path)
+    profile_path = tmp_path / str(token_id)
+
+    async def fake_verify(profile_path_arg, flow_client, **kw):
+        assert profile_path_arg == profile_path
+        return _make_snapshot("x" * 1100, email=OLD_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+
+    launched = {"n": 0}
+
+    def fake_launch(*a, **kw):
+        launched["n"] += 1
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", fake_launch)
+
+    outcome = asyncio.run(
+        onboard_existing(
+            token_id=token_id,
+            runtime=runtime,
+            display=":11",
+            db=db,
+            flow_client=object(),
+            pool_size=4,
+            observed_at=datetime.now(timezone.utc),
+        )
+    )
+
+    assert outcome.keepalive_enabled is True
+    assert launched["n"] == 0  # 免登录
+    assert profile_path.is_dir()  # 原 profile 未被 archive/替换
+
+
+def test_old_token_relogin_when_readonly_fails(tmp_path, monkeypatch):
+    """旧号只读验证失败 -> 触发重登录,在同一个原 profile 里(非 temp)。"""
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path)
+    runtime = _fake_runtime(tmp_path)
+    profile_path = tmp_path / str(token_id)
+
+    calls = {"n": 0}
+
+    async def fake_verify(profile_path_arg, flow_client, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OnboardError("cookie_missing")
+        return _make_snapshot("x" * 1100, email=OLD_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+
+    launched_paths = []
+
+    def fake_launch(runtime_arg, profile_path_arg, display_arg, flow_url_arg, **kw):
+        launched_paths.append(profile_path_arg)
+        assert flow_url_arg == FLOW_URL
+
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", fake_launch)
+
+    outcome = asyncio.run(
+        onboard_existing(
+            token_id=token_id,
+            runtime=runtime,
+            display=":11",
+            db=db,
+            flow_client=object(),
+            pool_size=4,
+            observed_at=datetime.now(timezone.utc),
+        )
+    )
+    assert outcome.keepalive_enabled is True
+    assert launched_paths == [profile_path]  # 复登在原 profile,非 temp/rename
+
+
+def test_old_token_keepalive_paused_and_restored_on_failure(tmp_path, monkeypatch):
+    """旧号先停 keepalive; 若最终失败, 必须恢复原 keepalive 状态(验证不过=什么都不改)。"""
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path, keepalive_enabled=True)
+    runtime = _fake_runtime(tmp_path)
+
+    async def fake_verify_fail(profile_path, flow_client, **kw):
+        raise OnboardError("session_rejected")
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify_fail)
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    with pytest.raises(OnboardError):
+        asyncio.run(
+            onboard_existing(
+                token_id=token_id,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+
+    lifecycle = asyncio.run(db.get_token_lifecycle(token_id))
+    assert lifecycle.keepalive_enabled is True  # 恢复原状态
+    assert (tmp_path / str(token_id)).is_dir()  # 原 profile 分毫未动
+
+
+def test_old_token_identity_mismatch_restores_keepalive(tmp_path, monkeypatch):
+    """旧号重登后邮箱不符预期账号 -> identity_mismatch, 恢复 keepalive。"""
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path, keepalive_enabled=True)
+    runtime = _fake_runtime(tmp_path)
+
+    async def fake_verify(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email="wrong-account@example.com")
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", _async_none)
+    monkeypatch.setattr("src.services.tokens.onboard.launch_chrome", lambda *a, **kw: None)
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_existing(
+                token_id=token_id,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+    assert exc.value.code == "identity_mismatch"
+    lifecycle = asyncio.run(db.get_token_lifecycle(token_id))
+    assert lifecycle.keepalive_enabled is True
+
+
+def test_old_token_not_found_raises(tmp_path):
+    """不存在的 token_id -> OnboardError('not_found'),不触碰任何 profile。"""
+    db = _make_db(tmp_path)
+    runtime = _fake_runtime(tmp_path)
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_existing(
+                token_id=999,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+            )
+        )
+    assert exc.value.code == "not_found"
+
+
+def test_old_token_lease_busy_raises_profile_busy(tmp_path, monkeypatch):
+    """profile lease 一直抢不到 -> 超时后 OnboardError('profile_busy')。
+
+    Uses ``lease_wait_seconds=0`` with the real ``time.monotonic``/``time.sleep``
+    rather than monkeypatching the global ``time`` module: ``time`` is a
+    process-wide singleton, so patching ``time.monotonic`` there (even via the
+    onboard-module path) mutates it for every consumer in the process --
+    including asyncio's own event-loop scheduling -- which was observed to
+    hang the test run instead of raising promptly.
+    """
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path)
+    runtime = _fake_runtime(tmp_path)
+
+    from src.services.keepalive.profile import ProfileLeaseBusyError
+
+    def fake_acquire(base_dir, requested_token_id):
+        raise ProfileLeaseBusyError(Path(base_dir) / str(requested_token_id))
+
+    monkeypatch.setattr("src.services.tokens.onboard.acquire_profile_lease", fake_acquire)
+
+    with pytest.raises(OnboardError) as exc:
+        asyncio.run(
+            onboard_existing(
+                token_id=token_id,
+                runtime=runtime,
+                display=":11",
+                db=db,
+                flow_client=object(),
+                pool_size=4,
+                observed_at=datetime.now(timezone.utc),
+                lease_wait_seconds=0,
+            )
+        )
+    assert exc.value.code == "profile_busy"
+
+
+def test_try_readonly_validate_returns_none_on_failure(tmp_path, monkeypatch):
+    """底层 verify_profile 抛 OnboardError -> try_readonly_validate 吞掉返回 None。"""
+
+    async def fake_verify_fail(profile_path, flow_client, **kw):
+        raise OnboardError("cookie_missing")
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify_fail)
+    result = asyncio.run(try_readonly_validate(tmp_path, object()))
+    assert result is None
+
+
+def test_try_readonly_validate_returns_snapshot_on_success(tmp_path, monkeypatch):
+    """底层 verify_profile 成功 -> try_readonly_validate 原样返回 snapshot。"""
+
+    async def fake_verify_ok(profile_path, flow_client, **kw):
+        return _make_snapshot("x" * 1100, email=OLD_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify_ok)
+    result = asyncio.run(try_readonly_validate(tmp_path, object()))
+    assert result is not None
+    assert result.email == OLD_TOKEN_EMAIL
