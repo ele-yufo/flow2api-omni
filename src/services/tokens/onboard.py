@@ -482,25 +482,60 @@ async def onboard_existing(
         expected_email = normalize_account_email(token.email)
 
         previous_keepalive = await _pause_keepalive_if_enabled(db, token_id)
-        published = False
-        lease: Optional[ProfileLease] = None
-        try:
-            profile_path = canonical_profile_path(runtime.profile_base, token_id)
-            lease = _poll_profile_lease(runtime.profile_base, token_id, lease_wait_seconds)
-            snapshot = await _revalidate_or_relogin(
-                profile_path, flow_client, runtime, display
-            )
-            _require_email_matches(snapshot, expected_email)
-            await _run_project_pool(db, flow_client, token_id, pool_size)
-            outcome = await _publish_account(
-                db, token_id, snapshot, observed_at, business_enabled
-            )
-            published = True
-            return outcome
-        finally:
-            if lease is not None:
-                lease.release()
-            if not published:
-                await _restore_keepalive_state(db, token_id, previous_keepalive)
+        return await _onboard_existing_under_lease(
+            token_id=token_id,
+            runtime=runtime,
+            display=display,
+            db=db,
+            flow_client=flow_client,
+            pool_size=pool_size,
+            observed_at=observed_at,
+            business_enabled=business_enabled,
+            lease_wait_seconds=lease_wait_seconds,
+            expected_email=expected_email,
+            previous_keepalive=previous_keepalive,
+        )
     finally:
         global_lease.release()
+
+
+async def _onboard_existing_under_lease(
+    *,
+    token_id: int,
+    runtime: SetupRuntime,
+    display: str,
+    db: Any,
+    flow_client: Any,
+    pool_size: int,
+    observed_at: Any,
+    business_enabled: bool,
+    lease_wait_seconds: int,
+    expected_email: str,
+    previous_keepalive: bool,
+) -> PublishOutcome:
+    """Run the lease-guarded body of :func:`onboard_existing`.
+
+    Keepalive was already paused by the caller, so every exit path here -- including
+    a profile-lease-poll timeout -- restores the pre-call flag, except a successful
+    publish (which sets ``keepalive_enabled=True`` itself and must not be reverted).
+    """
+    published = False
+    lease: Optional[ProfileLease] = None
+    try:
+        profile_path = canonical_profile_path(runtime.profile_base, token_id)
+        lease = _poll_profile_lease(runtime.profile_base, token_id, lease_wait_seconds)
+        snapshot = await _revalidate_or_relogin(
+            profile_path, flow_client, runtime, display
+        )
+        _require_email_matches(snapshot, expected_email)
+        await _run_project_pool(db, flow_client, token_id, pool_size)
+        outcome = await _publish_account(
+            db, token_id, snapshot, observed_at, business_enabled
+        )
+        published = True
+        return outcome
+    finally:
+        if lease is not None:
+            lease.release()
+        if not published:
+            await _restore_keepalive_state(db, token_id, previous_keepalive)
