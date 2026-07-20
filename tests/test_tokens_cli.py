@@ -260,3 +260,189 @@ def test_keepalive_not_found_returns_exit_3(tmp_path):
     db, token_id = _make_db_with_token(tmp_path)
     rc = asyncio.run(_cmd_keepalive(_ns(token_id=token_id + 999, state="on", dry_run=False), db))
     assert rc == int(ExitCode.NOT_FOUND)
+
+
+# ---------------------------------------------------------------------------
+# Task 6: onboard subcommand — phased JSON + OnboardError -> exit-code mapping
+# ---------------------------------------------------------------------------
+
+
+def _fake_runtime(tmp_path: Path):
+    from scripts.setup_keepalive_profile import SetupRuntime
+
+    return SetupRuntime(profile_base=tmp_path, proxy="", browser_executable=tmp_path / "chrome")
+
+
+def _fake_publish_outcome(token_id=25):
+    from src.core.repositories.token_lifecycle_repository import PublishOutcome
+
+    return PublishOutcome(
+        token_id=token_id,
+        membership_status="active",
+        pool_transition=None,
+        business_active=True,
+        ban_reason=None,
+        keepalive_enabled=True,
+        runtime_mode="persistent",
+        profile_state="ready",
+    )
+
+
+def test_onboard_dry_run_new_account_does_not_call_onboard_new(tmp_path, capsys, monkeypatch):
+    from scripts.tokens import ExitCode, _cmd_onboard
+
+    async def _must_not_run(**kw):
+        raise AssertionError("onboard_new must not run under --dry-run")
+
+    monkeypatch.setattr("scripts.tokens.onboard_new", _must_not_run)
+    args = _ns(email="new@example.com", token_id=None, display=None, dry_run=True)
+    rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
+    assert rc == int(ExitCode.OK)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["would_do"][0]["action"] == "onboard_new"
+    assert payload["would_do"][0]["target"] == "new@example.com"
+
+
+def test_onboard_dry_run_existing_account_does_not_call_onboard_existing(tmp_path, capsys, monkeypatch):
+    from scripts.tokens import ExitCode, _cmd_onboard
+
+    async def _must_not_run(**kw):
+        raise AssertionError("onboard_existing must not run under --dry-run")
+
+    monkeypatch.setattr("scripts.tokens.onboard_existing", _must_not_run)
+    args = _ns(email=None, token_id=7, display=None, dry_run=True)
+    rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
+    assert rc == int(ExitCode.OK)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["dry_run"] is True
+    assert payload["would_do"][0]["action"] == "onboard_existing"
+    assert payload["would_do"][0]["target"] == 7
+
+
+def test_onboard_new_account_emits_awaiting_login_then_published(tmp_path, capsys, monkeypatch):
+    from scripts.tokens import ExitCode, _cmd_onboard
+
+    captured = {}
+
+    async def fake_onboard_new(**kw):
+        captured.update(kw)
+        return _fake_publish_outcome(token_id=25)
+
+    monkeypatch.setattr("scripts.tokens.onboard_new", fake_onboard_new)
+    args = _ns(email="new@example.com", token_id=None, display=None, dry_run=False)
+    rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
+    assert rc == int(ExitCode.OK)
+    assert captured["email"] == "new@example.com"
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert lines[0]["phase"] == "awaiting_login"
+    assert lines[0]["target"] == "new@example.com"
+    assert lines[-1] == {
+        "phase": "published", "token_id": 25, "membership_status": "active",
+        "pool_transition": None, "business_active": True, "ban_reason": None,
+        "keepalive_enabled": True, "runtime_mode": "persistent", "profile_state": "ready",
+    }
+
+
+def test_onboard_existing_account_calls_onboard_existing_not_onboard_new(tmp_path, capsys, monkeypatch):
+    from scripts.tokens import ExitCode, _cmd_onboard
+
+    async def _must_not_run(**kw):
+        raise AssertionError("onboard_new must not run for a --token-id relogin")
+
+    captured = {}
+
+    async def fake_onboard_existing(**kw):
+        captured.update(kw)
+        return _fake_publish_outcome(token_id=7)
+
+    monkeypatch.setattr("scripts.tokens.onboard_new", _must_not_run)
+    monkeypatch.setattr("scripts.tokens.onboard_existing", fake_onboard_existing)
+    args = _ns(email=None, token_id=7, display=None, dry_run=False)
+    rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
+    assert rc == int(ExitCode.OK)
+    assert captured["token_id"] == 7
+
+
+@pytest.mark.parametrize(
+    ("code", "expected_exit"),
+    [
+        ("onboard_busy", "BUSY"),
+        ("profile_busy", "BUSY"),
+        ("not_found", "NOT_FOUND"),
+        ("publish_failed", "PUBLISH_FAILED"),
+        ("cookie_missing", "VALIDATION_FAILED"),
+        ("identity_mismatch", "VALIDATION_FAILED"),
+        ("project_pool_failed", "VALIDATION_FAILED"),
+        ("browser_launch", "VALIDATION_FAILED"),
+        ("login_timeout", "VALIDATION_FAILED"),
+        ("browser_crashed", "VALIDATION_FAILED"),
+        ("invalid_account", "VALIDATION_FAILED"),
+        ("session_rejected", "VALIDATION_FAILED"),
+        ("session_error", "VALIDATION_FAILED"),
+        ("grant_expired", "VALIDATION_FAILED"),
+        ("credits_error", "VALIDATION_FAILED"),
+    ],
+)
+def test_onboard_error_codes_map_to_stable_exit_codes(tmp_path, capsys, monkeypatch, code, expected_exit):
+    from scripts.tokens import ExitCode, _cmd_onboard
+    from src.services.tokens.onboard import OnboardError
+
+    async def fake_onboard_new(**kw):
+        raise OnboardError(code, f"boom {code}")
+
+    monkeypatch.setattr("scripts.tokens.onboard_new", fake_onboard_new)
+    args = _ns(email="new@example.com", token_id=None, display=None, dry_run=False)
+    rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
+    assert rc == int(getattr(ExitCode, expected_exit))
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    assert lines[-1] == {"phase": "failed", "error": {"code": code, "message": f"boom {code}"}}
+
+
+# ---------------------------------------------------------------------------
+# Task 6: _dispatch routing (real Database() construction is inert; --dry-run
+# short-circuits every write subcommand before any I/O, so this is safe to run
+# against the CLI's real default DB path without touching it).
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_routes_enable_dry_run():
+    from scripts.tokens import ExitCode, build_parser, _dispatch
+
+    args = build_parser().parse_args(["enable", "--token-id", "1", "--dry-run"])
+    assert asyncio.run(_dispatch(args)) == int(ExitCode.OK)
+
+
+def test_dispatch_routes_disable_dry_run():
+    from scripts.tokens import ExitCode, build_parser, _dispatch
+
+    args = build_parser().parse_args(["disable", "--token-id", "1", "--dry-run"])
+    assert asyncio.run(_dispatch(args)) == int(ExitCode.OK)
+
+
+def test_dispatch_routes_keepalive_dry_run():
+    from scripts.tokens import ExitCode, build_parser, _dispatch
+
+    args = build_parser().parse_args(["keepalive", "--token-id", "1", "on", "--dry-run"])
+    assert asyncio.run(_dispatch(args)) == int(ExitCode.OK)
+
+
+def test_dispatch_routes_onboard_dry_run():
+    from scripts.tokens import ExitCode, build_parser, _dispatch
+
+    args = build_parser().parse_args(
+        ["onboard", "--email", "new@example.com", "--display", ":99", "--dry-run"]
+    )
+    assert asyncio.run(_dispatch(args)) == int(ExitCode.OK)
+
+
+def test_cli_enable_dry_run_via_subprocess_prints_json_and_exits_0():
+    r = _run(["enable", "--token-id", "1", "--dry-run"])
+    assert r.returncode == 0
+    assert json.loads(r.stdout)["dry_run"] is True
+
+
+def test_cli_onboard_dry_run_via_subprocess_prints_json_and_exits_0():
+    r = _run(["onboard", "--email", "new@example.com", "--display", ":99", "--dry-run"])
+    assert r.returncode == 0
+    assert json.loads(r.stdout)["dry_run"] is True
