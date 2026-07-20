@@ -1,10 +1,10 @@
 """Admin API routes"""
 import asyncio
 import json
-from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, model_validator
+from typing import Optional, List, Dict, Any, Literal
 import secrets
 import time
 import re
@@ -15,10 +15,13 @@ from curl_cffi.requests import AsyncSession
 from ..core.auth import AuthManager
 from ..core.database import Database
 from ..core.config import config
-from ..services.token_manager import TokenManager
+from ..services.token_manager import TokenDeletionConflictError, TokenManager
 from ..services.proxy_manager import ProxyManager
 from ..services.concurrency_manager import ConcurrencyManager
+from ..services.onboarding import OnboardingService, OnboardingServiceError
 from ..core.cookie_extractor import extract_session_token
+from ..core.models import OnboardingJob
+from ..core.token_states import TOKEN_REASON_MANUAL_DISABLED
 
 try:
     import httpx
@@ -43,10 +46,11 @@ from .admin_helpers import (
 router = APIRouter()
 
 # Dependency injection
-token_manager: TokenManager = None
-proxy_manager: ProxyManager = None
-db: Database = None
+token_manager: Optional[TokenManager] = None
+proxy_manager: Optional[ProxyManager] = None
+db: Optional[Database] = None
 concurrency_manager: Optional[ConcurrencyManager] = None
+onboarding_service: Optional[OnboardingService] = None
 
 # Store active admin session tokens (in production, use Redis or database)
 active_admin_tokens = set()
@@ -238,13 +242,20 @@ async def _score_test_with_remote_browser_service(
     return response_payload
 
 
-def set_dependencies(tm: TokenManager, pm: ProxyManager, database: Database, cm: Optional[ConcurrencyManager] = None):
-    """Set service instances"""
-    global token_manager, proxy_manager, db, concurrency_manager
+def set_dependencies(
+    tm: Optional[TokenManager],
+    pm: Optional[ProxyManager],
+    database: Optional[Database],
+    cm: Optional[ConcurrencyManager] = None,
+    onboarding: Optional[OnboardingService] = None,
+):
+    """Set service instances used by the admin router."""
+    global token_manager, proxy_manager, db, concurrency_manager, onboarding_service
     token_manager = tm
     proxy_manager = pm
     db = database
     concurrency_manager = cm
+    onboarding_service = onboarding
 
 
 # ========== Request Models ==========
@@ -277,7 +288,7 @@ def resolve_st_from_request(st: Optional[str], raw: Optional[str]) -> str:
 
 
 class UpdateTokenRequest(BaseModel):
-    st: str  # Session Token (必填，用于刷新AT)
+    st: Optional[str] = None  # 留空时仅更新元数据；提供时必须通过账号身份验证
     project_id: Optional[str] = None  # 用户可选输入project_id
     project_name: Optional[str] = None
     remark: Optional[str] = None
@@ -359,6 +370,29 @@ class ImportTokensRequest(BaseModel):
     tokens: List[ImportTokenItem]
 
 
+class CreateOnboardingJobRequest(BaseModel):
+    """Create a server-side XRDP onboarding job from allowlisted choices."""
+
+    target_token_id: Optional[int] = None
+    conflict_policy: Literal["reject", "archive_and_replace"] = "reject"
+    requested_business_enabled: bool = False
+    requested_keepalive_enabled: bool = False
+    requested_runtime_mode: Literal["persistent", "warm"] = "warm"
+
+
+class UpdateTokenLifecycleRequest(BaseModel):
+    """Update one or more keepalive fields without changing business ownership."""
+
+    keepalive_enabled: Optional[bool] = None
+    runtime_mode: Optional[Literal["persistent", "warm"]] = None
+
+    @model_validator(mode="after")
+    def require_change(self):
+        if self.keepalive_enabled is None and self.runtime_mode is None:
+            raise ValueError("at least one lifecycle field is required")
+        return self
+
+
 # ========== Auth Middleware ==========
 
 async def verify_admin_token(authorization: str = Header(None)):
@@ -373,6 +407,128 @@ async def verify_admin_token(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Invalid or expired admin token")
 
     return token
+
+
+def _set_private_response_headers(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _onboarding_job_payload(job: OnboardingJob) -> Dict[str, Any]:
+    """Return only UI-safe onboarding metadata, excluding process identity fields."""
+    return job.model_dump(
+        mode="json",
+        exclude={"id", "browser_pid", "browser_start_ticks"},
+    )
+
+
+def _raise_onboarding_http_error(error: Exception) -> None:
+    if not isinstance(error, OnboardingServiceError):
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "internal_error",
+                "message": "Onboarding operation failed safely.",
+            },
+        ) from None
+
+    status_code = 500
+    if error.code in {"job_not_found", "target_not_found"}:
+        status_code = 404
+    elif error.code in {
+        "invalid_job_state",
+        "active_job_exists",
+        "target_identity_mismatch",
+        "profile_identity_mismatch",
+        "duplicate_email",
+        "login_required",
+        "account_inspection_failed",
+        "process_ownership_mismatch",
+        "destination_conflict",
+        "archive_conflict",
+        "profile_not_found",
+        "unsafe_profile_path",
+        "final_validation_failed",
+    }:
+        status_code = 409
+    elif error.code in {"process_launch_failed", "process_identity_unavailable"}:
+        status_code = 503
+
+    raise HTTPException(
+        status_code=status_code,
+        detail={"code": error.code, "message": str(error)},
+    ) from None
+
+
+def _require_onboarding_service() -> OnboardingService:
+    if onboarding_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "onboarding_unavailable",
+                "message": "Onboarding service is not initialized.",
+            },
+        )
+    return onboarding_service
+
+
+def _reject_onboarding_deprecated() -> None:
+    """Reject all onboarding state-machine routes with 410 Gone.
+
+    The 2810-line ``OnboardingService`` state machine caused a production
+    incident (forced re-logins, a destroyed valid session, the wrong XRDP
+    Chrome window operated) and is permanently disabled. Routes stay
+    registered (not removed) so misdirected clients get 410 instead of a
+    404 that would look like a deploy regression. Use
+    ``scripts/tokens.py onboard`` instead.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "onboarding_deprecated",
+            "message": (
+                "onboarding state machine is deprecated; "
+                "use 'scripts/tokens.py onboard' instead"
+            ),
+        },
+    )
+
+
+def _account_lifecycle_payload(account, lifecycle) -> Dict[str, Any]:
+    """Build the credential-free account/lifecycle view used by management UI."""
+    to_iso = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
+    return {
+        "id": account.id,
+        "email": account.email,
+        "name": account.name,
+        "remark": account.remark,
+        "is_active": account.is_active,
+        "ban_reason": account.ban_reason,
+        "banned_at": to_iso(account.banned_at) if account.banned_at else None,
+        "credits": account.credits,
+        "user_paygate_tier": account.user_paygate_tier,
+        "membership_confirmed_status": lifecycle.membership_confirmed_status.value,
+        "membership_candidate": lifecycle.membership_candidate.value,
+        "membership_candidate_count": lifecycle.membership_candidate_count,
+        "keepalive_enabled": lifecycle.keepalive_enabled,
+        "runtime_mode": lifecycle.runtime_mode,
+        "profile_state": lifecycle.profile_state,
+        "verified_email": lifecycle.verified_email,
+        "last_keepalive_success_at": to_iso(lifecycle.last_keepalive_success_at)
+        if lifecycle.last_keepalive_success_at
+        else None,
+        "last_keepalive_status": lifecycle.last_keepalive_status,
+        "next_due_at": to_iso(lifecycle.next_due_at) if lifecycle.next_due_at else None,
+        "last_failure_at": to_iso(lifecycle.last_failure_at)
+        if lifecycle.last_failure_at
+        else None,
+        "last_failure_code": lifecycle.last_failure_code,
+        "last_observed_tier": lifecycle.last_observed_tier,
+        "last_observed_at": to_iso(lifecycle.last_observed_at)
+        if lifecycle.last_observed_at
+        else None,
+        "retired_at": to_iso(lifecycle.retired_at) if lifecycle.retired_at else None,
+        "restored_at": to_iso(lifecycle.restored_at) if lifecycle.restored_at else None,
+    }
 
 
 # ========== Auth Endpoints ==========
@@ -443,21 +599,22 @@ async def get_tokens(token: str = Depends(verify_admin_token)):
 
     return [{
         "id": row.get("id"),
-        "st": row.get("st"),  # Session Token for editing
-        "at": row.get("at"),  # Access Token for editing (从ST转换而来)
-        "at_expires": to_iso(row.get("at_expires")) if row.get("at_expires") else None,  # 🆕 AT过期时间
-        "token": row.get("at"),  # 兼容前端 token.token 的访问方式
+        "has_st": bool(row.get("st")),
+        "has_at": bool(row.get("at")),
+        "at_expires": to_iso(row.get("at_expires")) if row.get("at_expires") else None,
         "email": row.get("email"),
         "name": row.get("name"),
         "remark": row.get("remark"),
         "is_active": bool(row.get("is_active")),
+        "ban_reason": row.get("ban_reason"),
+        "banned_at": to_iso(row.get("banned_at")) if row.get("banned_at") else None,
         "created_at": to_iso(row.get("created_at")) if row.get("created_at") else None,
         "last_used_at": to_iso(row.get("last_used_at")) if row.get("last_used_at") else None,
         "use_count": row.get("use_count"),
-        "credits": row.get("credits"),  # 🆕 余额
+        "credits": row.get("credits"),
         "user_paygate_tier": row.get("user_paygate_tier"),
-        "current_project_id": row.get("current_project_id"),  # 🆕 项目ID
-        "current_project_name": row.get("current_project_name"),  # 🆕 项目名称
+        "current_project_id": row.get("current_project_id"),
+        "current_project_name": row.get("current_project_name"),
         "captcha_proxy_url": row.get("captcha_proxy_url") or "",
         "image_enabled": bool(row.get("image_enabled")),
         "video_enabled": bool(row.get("video_enabled")),
@@ -465,8 +622,55 @@ async def get_tokens(token: str = Depends(verify_admin_token)):
         "video_concurrency": row.get("video_concurrency"),
         "image_count": row.get("image_count", 0),
         "video_count": row.get("video_count", 0),
-        "error_count": row.get("error_count", 0)
-    } for row in token_rows]  # 直接返回数组,兼容前端
+        "error_count": row.get("error_count", 0),
+        "membership_confirmed_status": row.get("membership_confirmed_status") or "active",
+        "membership_candidate": row.get("membership_candidate") or "unknown",
+        "membership_candidate_count": row.get("membership_candidate_count") or 0,
+        "keepalive_enabled": bool(row.get("keepalive_enabled")),
+        "runtime_mode": row.get("runtime_mode") or "warm",
+        "profile_state": row.get("profile_state") or "unprovisioned",
+        "verified_email": row.get("verified_email"),
+        "last_keepalive_success_at": to_iso(row.get("last_keepalive_success_at")) if row.get("last_keepalive_success_at") else None,
+        "last_keepalive_status": row.get("last_keepalive_status"),
+        "next_due_at": to_iso(row.get("next_due_at")) if row.get("next_due_at") else None,
+        "last_failure_at": to_iso(row.get("last_failure_at")) if row.get("last_failure_at") else None,
+        "last_failure_code": row.get("last_failure_code"),
+        "last_observed_tier": row.get("last_observed_tier"),
+        "last_observed_at": to_iso(row.get("last_observed_at")) if row.get("last_observed_at") else None,
+        "retired_at": to_iso(row.get("retired_at")) if row.get("retired_at") else None,
+        "restored_at": to_iso(row.get("restored_at")) if row.get("restored_at") else None,
+    } for row in token_rows]
+
+
+@router.post("/api/tokens/{token_id}/export")
+async def export_token_credentials(
+    token_id: int,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """Explicitly export one account's credentials with cache prevention."""
+    _set_private_response_headers(response)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not initialized")
+    account = await db.get_token(token_id)
+    if account is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Token not found",
+            headers={"Cache-Control": "no-store"},
+        )
+    return {
+        "success": True,
+        "token": {
+            "id": account.id,
+            "email": account.email,
+            "st": account.st,
+            "at": account.at,
+            "at_expires": account.at_expires.isoformat()
+            if account.at_expires
+            else None,
+        },
+    }
 
 
 @router.post("/api/tokens")
@@ -522,28 +726,11 @@ async def update_token(
     request: UpdateTokenRequest,
     token: str = Depends(verify_admin_token)
 ):
-    """Update token - 使用ST自动刷新AT"""
+    """Update token metadata and optionally replace credentials after verification."""
     try:
-        # 先ST转AT
-        result = await token_manager.flow_client.st_to_at(request.st)
-        at = result["access_token"]
-        expires = result.get("expires")
-
-        # 解析过期时间
-        from datetime import datetime
-        at_expires = None
-        if expires:
-            try:
-                at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-            except:
-                pass
-
-        # 更新token (包含AT、ST、AT过期时间、project_id和project_name)
         await token_manager.update_token(
             token_id=token_id,
-            st=request.st,
-            at=at,
-            at_expires=at_expires,  # 🆕 更新AT过期时间
+            st=request.st.strip() if request.st and request.st.strip() else None,
             project_id=request.project_id,
             project_name=request.project_name,
             remark=request.remark,
@@ -565,6 +752,8 @@ async def update_token(
                 )
 
         return {"success": True, "message": "Token更新成功"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -580,6 +769,16 @@ async def delete_token(
         if concurrency_manager:
             await concurrency_manager.remove_token(token_id)
         return {"success": True, "message": "Token删除成功"}
+    except TokenDeletionConflictError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": error.code,
+                "message": "Token deletion is blocked by an active onboarding job.",
+                "job_id": error.job_id,
+                "job_state": error.job_state,
+            },
+        ) from None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -697,98 +896,44 @@ async def import_tokens(
     request: ImportTokensRequest,
     token: str = Depends(verify_admin_token)
 ):
-    """批量导入Token"""
-    from datetime import datetime, timezone
-
+    """批量导入并严格验证每个账号的真实身份与 credits。"""
     added = 0
     updated = 0
     errors = []
-    # 保持与历史逻辑一致：按 created_at DESC 的结果中，优先命中同邮箱“最新一条”
-    existing_by_email = {}
-    for existing_token in await token_manager.get_all_tokens():
-        if existing_token.email and existing_token.email not in existing_by_email:
-            existing_by_email[existing_token.email] = existing_token
 
     for idx, item in enumerate(request.tokens):
         try:
-            st = item.session_token
-
+            st = str(item.session_token or "").strip()
             if not st:
-                errors.append(f"第{idx+1}项: 缺少 session_token")
-                continue
+                raise ValueError("缺少 session_token")
 
-            # 使用 ST 转 AT 获取用户信息
-            try:
-                result = await token_manager.flow_client.st_to_at(st)
-                at = result["access_token"]
-                email = result.get("user", {}).get("email")
-                expires = result.get("expires")
+            snapshot = await token_manager.inspect_account(st)
+            existing = await token_manager.find_token_by_email(snapshot.email)
+            common_fields = {
+                "captcha_proxy_url": item.captcha_proxy_url.strip() if item.captcha_proxy_url is not None else None,
+                "image_enabled": item.image_enabled,
+                "video_enabled": item.video_enabled,
+                "image_concurrency": item.image_concurrency,
+                "video_concurrency": item.video_concurrency,
+            }
 
-                if not email:
-                    errors.append(f"第{idx+1}项: 无法获取邮箱信息")
-                    continue
-
-                # 解析过期时间
-                at_expires = None
-                is_expired = False
-                if expires:
-                    try:
-                        at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-                        # 判断是否过期
-                        now = datetime.now(timezone.utc)
-                        is_expired = at_expires <= now
-                    except:
-                        pass
-
-                # 使用邮箱检查是否已存在
-                existing = existing_by_email.get(email)
-
-                if existing:
-                    # 更新现有Token
-                    await token_manager.update_token(
-                        token_id=existing.id,
-                        st=st,
-                        at=at,
-                        at_expires=at_expires,
-                        captcha_proxy_url=item.captcha_proxy_url.strip() if item.captcha_proxy_url is not None else None,
-                        image_enabled=item.image_enabled,
-                        video_enabled=item.video_enabled,
-                        image_concurrency=item.image_concurrency,
-                        video_concurrency=item.video_concurrency
-                    )
-                    # 如果过期则禁用
-                    if is_expired:
-                        await token_manager.disable_token(existing.id)
-                        existing.is_active = False
-                    existing.st = st
-                    existing.at = at
-                    existing.at_expires = at_expires
-                    existing.captcha_proxy_url = item.captcha_proxy_url
-                    existing.image_enabled = item.image_enabled
-                    existing.video_enabled = item.video_enabled
-                    existing.image_concurrency = item.image_concurrency
-                    existing.video_concurrency = item.video_concurrency
-                    updated += 1
-                else:
-                    # 添加新Token
-                    new_token = await token_manager.add_token(
-                        st=st,
-                        captcha_proxy_url=item.captcha_proxy_url.strip() if item.captcha_proxy_url is not None else None,
-                        image_enabled=item.image_enabled,
-                        video_enabled=item.video_enabled,
-                        image_concurrency=item.image_concurrency,
-                        video_concurrency=item.video_concurrency
-                    )
-                    # 如果过期则禁用
-                    if is_expired:
-                        await token_manager.disable_token(new_token.id)
-                        new_token.is_active = False
-                    existing_by_email[email] = new_token
-                    added += 1
-
-            except Exception as e:
-                errors.append(f"第{idx+1}项: {str(e)}")
-
+            if existing:
+                await token_manager.update_token(
+                    token_id=existing.id,
+                    verified_snapshot=snapshot,
+                    allow_auth_reactivate=False,
+                    **common_fields,
+                )
+                updated += 1
+            else:
+                await token_manager.add_token(
+                    st=snapshot.st,
+                    verified_snapshot=snapshot,
+                    is_active=item.is_active,
+                    ban_reason=None if item.is_active else TOKEN_REASON_MANUAL_DISABLED,
+                    **common_fields,
+                )
+                added += 1
         except Exception as e:
             errors.append(f"第{idx+1}项: {str(e)}")
 
@@ -798,6 +943,145 @@ async def import_tokens(
         "updated": updated,
         "errors": errors if errors else None,
         "message": f"导入完成: 新增 {added} 个, 更新 {updated} 个" + (f", {len(errors)} 个失败" if errors else "")
+    }
+
+
+# ========== XRDP Onboarding and Account Lifecycle ==========
+
+@router.get("/api/onboarding/config")
+async def get_onboarding_config(
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.post("/api/tokens/{token_id}/validate-profile")
+async def validate_token_profile(
+    token_id: int,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """Read and verify one retained browser profile without persisting credentials."""
+    _set_private_response_headers(response)
+    try:
+        profile = await _require_onboarding_service().validate_profile(token_id)
+    except Exception as error:
+        _raise_onboarding_http_error(error)
+    return {"success": True, "profile": profile.model_dump(mode="json")}
+
+
+@router.post("/api/onboarding/jobs")
+async def create_onboarding_job(
+    request: CreateOnboardingJobRequest,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.get("/api/onboarding/jobs")
+async def list_onboarding_jobs(
+    response: Response,
+    target_token_id: Optional[int] = None,
+    resolved_token_id: Optional[int] = None,
+    state: Optional[str] = None,
+    phase: Optional[str] = None,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.get("/api/onboarding/jobs/{job_id}")
+async def get_onboarding_job(
+    job_id: str,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.post("/api/onboarding/jobs/{job_id}/start")
+async def start_onboarding_job(
+    job_id: str,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.post("/api/onboarding/jobs/{job_id}/finalize")
+async def finalize_onboarding_job(
+    job_id: str,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.post("/api/onboarding/jobs/{job_id}/cancel")
+async def cancel_onboarding_job(
+    job_id: str,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.post("/api/onboarding/recover")
+async def recover_onboarding_jobs(
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """[DEPRECATED] Onboarding state machine is disabled; always returns 410."""
+    _set_private_response_headers(response)
+    _reject_onboarding_deprecated()
+
+
+@router.put("/api/tokens/{token_id}/lifecycle")
+async def update_token_lifecycle(
+    token_id: int,
+    request: UpdateTokenLifecycleRequest,
+    response: Response,
+    token: str = Depends(verify_admin_token),
+):
+    """Update keepalive desired state without enabling or disabling business traffic."""
+    _set_private_response_headers(response)
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not initialized")
+    account = await db.get_token(token_id)
+    lifecycle = await db.get_token_lifecycle(token_id)
+    if account is None or lifecycle is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    try:
+        await db.set_token_desired_state(
+            token_id,
+            **request.model_dump(exclude_none=True),
+        )
+        lifecycle = await db.get_token_lifecycle(token_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Token not found") from None
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    except Exception:
+        raise HTTPException(status_code=500, detail="Lifecycle update failed safely") from None
+    return {
+        "success": True,
+        "account": _account_lifecycle_payload(account, lifecycle),
     }
 
 
@@ -1446,24 +1730,9 @@ async def get_plugin_config(request: Request, token: str = Depends(verify_admin_
     """Get plugin configuration"""
     plugin_config = await db.get_plugin_config()
 
-    # Get the actual domain and port from the request
-    # This allows the connection URL to reflect the user's actual access path
-    host_header = request.headers.get("host", "")
-
-    # Generate connection URL based on actual request
-    if host_header:
-        # Use the actual domain/IP and port from the request
-        connection_url = f"http://{host_header}/api/plugin/update-token"
-    else:
-        # Fallback to config-based URL
-        from ..core.config import config
-        server_host = config.server_host
-        server_port = config.server_port
-
-        if server_host == "0.0.0.0":
-            connection_url = f"http://127.0.0.1:{server_port}/api/plugin/update-token"
-        else:
-            connection_url = f"http://{server_host}:{server_port}/api/plugin/update-token"
+    # Preserve the browser-visible scheme, host, port, and root path. Trusted proxy
+    # headers are applied to the ASGI request scope before URL generation.
+    connection_url = str(request.url_for("plugin_update_token"))
 
     return {
         "success": True,
@@ -1525,73 +1794,47 @@ async def plugin_update_token(request: dict, authorization: Optional[str] = Head
     if not session_token:
         raise HTTPException(status_code=400, detail="Missing session_token")
 
-    # Step 1: Convert ST to AT to get user info (including email)
     try:
-        result = await token_manager.flow_client.st_to_at(session_token)
-        at = result["access_token"]
-        expires = result.get("expires")
-        user_info = result.get("user", {})
-        email = user_info.get("email", "")
-
-        if not email:
-            raise HTTPException(status_code=400, detail="Failed to get email from session token")
-
-        # Parse expiration time
-        from datetime import datetime
-        at_expires = None
-        if expires:
-            try:
-                at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-            except:
-                pass
-
+        snapshot = await token_manager.inspect_account(str(session_token).strip())
+        existing_token = await token_manager.find_token_by_email(snapshot.email)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid session token: {str(e)}")
 
-    # Step 2: Check if token with this email exists
-    existing_token = await db.get_token_by_email(email)
-
     if existing_token:
-        # Update existing token
         try:
-            # Update token
+            was_inactive = not existing_token.is_active
             await token_manager.update_token(
                 token_id=existing_token.id,
-                st=session_token,
-                at=at,
-                at_expires=at_expires
+                verified_snapshot=snapshot,
+                allow_auth_reactivate=plugin_config.auto_enable_on_update,
             )
-
-            # Check if auto-enable is enabled and token is disabled
-            if plugin_config.auto_enable_on_update and not existing_token.is_active:
-                await token_manager.enable_token(existing_token.id)
-                return {
-                    "success": True,
-                    "message": f"Token updated and auto-enabled for {email}",
-                    "action": "updated",
-                    "auto_enabled": True
-                }
-
+            refreshed = await token_manager.get_token(existing_token.id)
+            auto_enabled = bool(was_inactive and refreshed and refreshed.is_active)
             return {
                 "success": True,
-                "message": f"Token updated for {email}",
-                "action": "updated"
+                "message": (
+                    f"Token updated and authentication-recovered for {snapshot.email}"
+                    if auto_enabled
+                    else f"Token updated for {snapshot.email}"
+                ),
+                "action": "updated",
+                "token_id": existing_token.id,
+                "auto_enabled": auto_enabled,
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to update token: {str(e)}")
-    else:
-        # Add new token
-        try:
-            new_token = await token_manager.add_token(
-                st=session_token,
-                remark="Added by Chrome Extension"
-            )
 
-            return {
-                "success": True,
-                "message": f"Token added for {new_token.email}",
-                "action": "added",
-                "token_id": new_token.id
-            }
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to add token: {str(e)}")
+    try:
+        new_token = await token_manager.add_token(
+            st=snapshot.st,
+            verified_snapshot=snapshot,
+            remark="Added by Chrome Extension",
+        )
+        return {
+            "success": True,
+            "message": f"Token added for {new_token.email}",
+            "action": "added",
+            "token_id": new_token.id,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add token: {str(e)}")
