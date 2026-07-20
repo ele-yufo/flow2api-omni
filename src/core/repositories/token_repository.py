@@ -11,34 +11,47 @@ import aiosqlite
 from ..models import Token
 
 
+_BLOCKING_ONBOARDING_STATES = ("pending", "running", "failed")
+
+
+class TokenDeletionBlockedError(RuntimeError):
+    """Raised when a resumable onboarding job still owns a token reference."""
+
+    def __init__(self, *, token_id: int, job_id: str, job_state: str):
+        self.token_id = token_id
+        self.job_id = job_id
+        self.job_state = job_state
+        super().__init__(
+            f"Token {token_id} cannot be deleted while onboarding job "
+            f"{job_id} is {job_state}."
+        )
+
+
 class TokenRepository:
     """CRUD + read aggregates for the tokens table."""
 
-    def __init__(self, engine):
+    def __init__(self, engine, lifecycle_repository):
         self._engine = engine
+        self._lifecycle = lifecycle_repository
 
     async def add_token(self, token: Token) -> int:
-            """Add a new token"""
-            async with self._engine._connect(write=True) as db:
+            """Add a token, stats, and its lifecycle row atomically."""
+            async with self._engine.transaction() as db:
                 cursor = await db.execute("""
                     INSERT INTO tokens (st, at, at_expires, email, name, remark, is_active,
                                        credits, user_paygate_tier, current_project_id, current_project_name,
-                                       image_enabled, video_enabled, image_concurrency, video_concurrency, captcha_proxy_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       image_enabled, video_enabled, image_concurrency, video_concurrency,
+                                       captcha_proxy_url, ban_reason, banned_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (token.st, token.at, token.at_expires, token.email, token.name, token.remark,
                       token.is_active, token.credits, token.user_paygate_tier,
                       token.current_project_id, token.current_project_name,
                       token.image_enabled, token.video_enabled,
-                      token.image_concurrency, token.video_concurrency, token.captcha_proxy_url))
-                await db.commit()
+                      token.image_concurrency, token.video_concurrency, token.captcha_proxy_url,
+                      token.ban_reason, token.banned_at))
                 token_id = cursor.lastrowid
-
-                # Create stats entry
-                await db.execute("""
-                    INSERT INTO token_stats (token_id) VALUES (?)
-                """, (token_id,))
-                await db.commit()
-
+                await db.execute("INSERT INTO token_stats (token_id) VALUES (?)", (token_id,))
+                await self._lifecycle.create_for_token(token_id, db=db)
                 return token_id
 
     async def get_token(self, token_id: int) -> Optional[Token]:
@@ -88,9 +101,26 @@ class TokenRepository:
                         t.*,
                         COALESCE(ts.image_count, 0) AS image_count,
                         COALESCE(ts.video_count, 0) AS video_count,
-                        COALESCE(ts.error_count, 0) AS error_count
+                        COALESCE(ts.error_count, 0) AS error_count,
+                        l.membership_confirmed_status,
+                        l.membership_candidate,
+                        l.membership_candidate_count,
+                        l.keepalive_enabled,
+                        l.runtime_mode,
+                        l.profile_state,
+                        l.verified_email,
+                        l.last_keepalive_success_at,
+                        l.last_keepalive_status,
+                        l.next_due_at,
+                        l.last_failure_at,
+                        l.last_failure_code,
+                        l.last_observed_tier,
+                        l.last_observed_at,
+                        l.retired_at,
+                        l.restored_at
                     FROM tokens t
                     LEFT JOIN token_stats ts ON ts.token_id = t.id
+                    LEFT JOIN token_lifecycle l ON l.token_id = t.id
                     ORDER BY t.created_at DESC
                 """)
                 rows = await cursor.fetchall()
@@ -192,11 +222,39 @@ class TokenRepository:
                 await db.commit()
 
     async def delete_token(self, token_id: int):
-            """Delete token and related data"""
-            async with self._engine._connect(write=True) as db:
+            """Delete a token unless a resumable onboarding job still references it."""
+            async with self._engine.transaction() as db:
+                blocking_cursor = await db.execute(
+                    """
+                    SELECT job_id, state
+                    FROM onboarding_jobs
+                    WHERE (target_token_id = ? OR resolved_token_id = ?)
+                      AND state IN (?, ?, ?)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                    """,
+                    (token_id, token_id, *_BLOCKING_ONBOARDING_STATES),
+                )
+                blocking_job = await blocking_cursor.fetchone()
+                if blocking_job is not None:
+                    raise TokenDeletionBlockedError(
+                        token_id=token_id,
+                        job_id=blocking_job[0],
+                        job_state=blocking_job[1],
+                    )
+
                 await db.execute("UPDATE request_logs SET token_id = NULL WHERE token_id = ?", (token_id,))
+                await db.execute(
+                    """
+                    UPDATE onboarding_jobs
+                    SET target_token_id = CASE WHEN target_token_id = ? THEN NULL ELSE target_token_id END,
+                        resolved_token_id = CASE WHEN resolved_token_id = ? THEN NULL ELSE resolved_token_id END
+                    WHERE target_token_id = ? OR resolved_token_id = ?
+                    """,
+                    (token_id, token_id, token_id, token_id),
+                )
                 await db.execute("DELETE FROM tasks WHERE token_id = ?", (token_id,))
                 await db.execute("DELETE FROM token_stats WHERE token_id = ?", (token_id,))
                 await db.execute("DELETE FROM projects WHERE token_id = ?", (token_id,))
+                await self._lifecycle.delete_for_token(token_id, db=db)
                 await db.execute("DELETE FROM tokens WHERE id = ?", (token_id,))
-                await db.commit()

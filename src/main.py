@@ -1,4 +1,6 @@
 """FastAPI application initialization"""
+import os
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,12 +16,15 @@ from .services.token_manager import TokenManager
 from .services.load_balancer import LoadBalancer
 from .services.concurrency_manager import ConcurrencyManager
 from .services.generation_handler import GenerationHandler
+from .services.onboarding import OnboardingService
 from .api import routes, admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
+    global onboarding_service
+
     # Startup
     print("=" * 60)
     print("Flow2API Starting...")
@@ -46,6 +51,50 @@ async def lifespan(app: FastAPI):
 
     # 启动时统一把数据库配置同步到内存，避免 personal/brower 相关运行时配置遗漏。
     await db.reload_config_to_memory()
+
+    browser_executable = (
+        os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip()
+        or "/usr/bin/google-chrome-stable"
+    )
+    try:
+        onboarding_service = OnboardingService(
+            db=db,
+            token_manager=token_manager,
+            profile_base=config.keepalive_browser_profile_base,
+            browser_executable=browser_executable,
+            display=config.keepalive_onboarding_display,
+            proxy=config.keepalive_browser_proxy,
+            session_ttl_seconds=config.keepalive_onboarding_session_ttl_seconds,
+        )
+        recovered_onboarding_jobs = await onboarding_service.recover_incomplete()
+        admin.set_dependencies(
+            token_manager,
+            proxy_manager,
+            db,
+            concurrency_manager,
+            onboarding_service,
+        )
+        if recovered_onboarding_jobs:
+            print(
+                "✓ XRDP onboarding recovery checked "
+                f"({len(recovered_onboarding_jobs)} incomplete job(s))"
+            )
+        else:
+            print("✓ XRDP onboarding service initialized")
+    except Exception as error:
+        onboarding_service = None
+        admin.set_dependencies(
+            token_manager,
+            proxy_manager,
+            db,
+            concurrency_manager,
+            None,
+        )
+        print(
+            "⚠ XRDP onboarding service unavailable: "
+            f"{type(error).__name__}"
+        )
+
     generation_handler.file_cache.set_timeout(config.cache_timeout)
     cache_cleanup_enabled = await generation_handler.file_cache.refresh_cleanup_task()
     captcha_config = await db.get_captcha_config()
@@ -144,7 +193,7 @@ async def lifespan(app: FastAPI):
                 print(f"❌ ST keepalive task error: {e}")
 
     st_keepalive_handle = None
-    if config.st_keepalive_enabled:
+    if config.st_keepalive_enabled and not config.keepalive_browser_enabled:
         st_keepalive_handle = asyncio.create_task(st_keepalive_task())
 
     print(f"✓ Database initialized")
@@ -155,7 +204,10 @@ async def lifespan(app: FastAPI):
     else:
         print("✓ File cache cleanup task disabled (timeout <= 0)")
     print(f"✓ 429 auto-unban task started (runs every hour)")
-    print(f"✓ ST keepalive task: {'started' if config.st_keepalive_enabled else 'disabled'} (every {config.st_keepalive_interval_hours}h)")
+    st_keepalive_status = "started" if st_keepalive_handle is not None else "disabled"
+    if config.st_keepalive_enabled and config.keepalive_browser_enabled:
+        st_keepalive_status = "disabled (browser supervisor is authoritative)"
+    print(f"✓ ST keepalive task: {st_keepalive_status} (every {config.st_keepalive_interval_hours}h)")
     print(f"✓ Server running on http://{config.server_host}:{config.server_port}")
     print("=" * 60)
 
@@ -201,10 +253,22 @@ generation_handler = GenerationHandler(
     concurrency_manager,
     proxy_manager  # 添加 proxy_manager 参数
 )
+onboarding_service = None
 
 # Set dependencies
 routes.set_generation_handler(generation_handler)
 admin.set_dependencies(token_manager, proxy_manager, db, concurrency_manager)
+
+def add_configured_cors(application: FastAPI, allowed_origins: list[str]) -> None:
+    """Allow only explicit browser origins while preserving bearer preflights."""
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -214,26 +278,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Same-origin browser requests need no CORS headers. Cross-origin web consoles and
+# Chrome extensions must opt in with an exact configured origin.
+add_configured_cors(app, config.server_cors_allowed_origins)
 
 # Include routers
 app.include_router(routes.router)
 app.include_router(admin.router)
 
-# Static files - serve tmp directory for cached files
-tmp_dir = Path(__file__).parent.parent / "tmp"
+# Static files - serve cached media and management-console assets.
+project_root = Path(__file__).parent.parent
+tmp_dir = project_root / "tmp"
+static_path = project_root / "static"
 tmp_dir.mkdir(exist_ok=True)
 app.mount("/tmp", StaticFiles(directory=str(tmp_dir)), name="tmp")
+app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
 
 # HTML routes for frontend
-static_path = Path(__file__).parent.parent / "static"
 
 
 @app.get("/", response_class=HTMLResponse)

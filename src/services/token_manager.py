@@ -6,11 +6,41 @@ from ..core.database import Database
 from ..core.config import config
 from ..core.models import Token, Project
 from ..core.logger import debug_logger
+from ..core.repositories.token_repository import TokenDeletionBlockedError
+from ..core.token_states import (
+    TOKEN_REASON_429_RATE_LIMIT,
+    TOKEN_REASON_CONSECUTIVE_ERRORS,
+    TOKEN_REASON_GRANT_EXPIRED,
+    TOKEN_REASON_MANUAL_DISABLED,
+    TOKEN_REASON_ST_REVOKED,
+)
+from .tokens.account_identity import (
+    AccountIdentityError,
+    VerifiedAccountSnapshot,
+    inspect_account_identity,
+    normalize_account_email,
+)
 from .tokens.at_refresh import should_refresh_at
 from .tokens.locks import get_keyed_lock
 from .tokens.project_naming import build_project_name, normalize_project_name_base
+from .tokens.project_pool import ensure_project_pool as provision_project_pool
 from .flow_client import FlowClient
 from .proxy_manager import ProxyManager
+
+
+class TokenDeletionConflictError(RuntimeError):
+    """Service-layer conflict for a token owned by resumable onboarding."""
+
+    code = "onboarding_job_blocks_token_deletion"
+
+    def __init__(self, *, token_id: int, job_id: str, job_state: str):
+        self.token_id = token_id
+        self.job_id = job_id
+        self.job_state = job_state
+        super().__init__(
+            f"Token {token_id} cannot be deleted while onboarding job "
+            f"{job_id} is {job_state}. Complete or cancel the job first."
+        )
 
 
 class TokenManager:
@@ -154,7 +184,14 @@ class TokenManager:
             if project_id and project_id not in project_ids:
                 project_ids.append(project_id)
 
-        await self.db.delete_token(token_id)
+        try:
+            await self.db.delete_token(token_id)
+        except TokenDeletionBlockedError as error:
+            raise TokenDeletionConflictError(
+                token_id=error.token_id,
+                job_id=error.job_id,
+                job_state=error.job_state,
+            ) from error
 
         refresh_task = self._refresh_futures.pop(token_id, None)
         if refresh_task and not refresh_task.done():
@@ -178,17 +215,43 @@ class TokenManager:
                 debug_logger.log_warning(f"[DELETE_TOKEN] 清理 personal 浏览器状态失败: {e}")
 
     async def enable_token(self, token_id: int):
-        """Enable a token and reset error count"""
-        # Enable the token
+        """Explicitly enable a token and clear its prior business-disable reason."""
         await self.db.update_token(token_id, is_active=True)
-        # Reset error count when enabling (only reset total error_count, keep today_error_count)
+        await self.db.clear_token_ban(token_id)
         await self.db.reset_error_count(token_id)
-        # 活跃数回升后可能跨过阈值，复位池告急去重标志
         await self._check_pool_low()
 
-    async def disable_token(self, token_id: int):
-        """Disable a token"""
-        await self.db.update_token(token_id, is_active=False)
+    async def disable_token(
+        self,
+        token_id: int,
+        reason: str = TOKEN_REASON_MANUAL_DISABLED,
+    ):
+        """Disable a token with an explicit owner for the business-pool state."""
+        await self.db.update_token(
+            token_id,
+            is_active=False,
+            ban_reason=reason,
+            banned_at=datetime.now(timezone.utc),
+        )
+        await self._check_pool_low()
+
+    async def finalize_onboarding_account_state(
+        self,
+        token_id: int,
+        *,
+        keepalive_enabled: bool,
+        runtime_mode: str,
+        enable_business_if_pending: bool,
+        completed_at: Optional[datetime] = None,
+    ) -> None:
+        """Atomically publish onboarding state without clearing externally owned bans."""
+        await self.db.finalize_onboarding_account_state(
+            token_id,
+            keepalive_enabled=keepalive_enabled,
+            runtime_mode=runtime_mode,
+            enable_business_if_pending=enable_business_if_pending,
+            completed_at=completed_at,
+        )
         await self._check_pool_low()
 
     async def _check_pool_low(self) -> None:
@@ -211,6 +274,25 @@ class TokenManager:
         except Exception as e:
             debug_logger.log_warning(f"[ALERT] 池告急检测异常被忽略: {e}")
 
+    async def inspect_account(self, st: str) -> VerifiedAccountSnapshot:
+        """Resolve real account identity, credentials, credits, and tier from Google."""
+        return await inspect_account_identity(self.flow_client, st)
+
+    async def _find_token_by_normalized_email(self, email: str) -> Optional[Token]:
+        normalized = normalize_account_email(email)
+        matches = [
+            token
+            for token in await self.db.get_all_tokens()
+            if normalize_account_email(token.email) == normalized
+        ]
+        if len(matches) > 1:
+            raise ValueError(f"账号邮箱存在重复记录: {email}")
+        return matches[0] if matches else None
+
+    async def find_token_by_email(self, email: str) -> Optional[Token]:
+        """Find one exact normalized account or fail on ambiguous legacy rows."""
+        return await self._find_token_by_normalized_email(email)
+
     # ========== Token添加 (支持Project创建) ==========
 
     async def add_token(
@@ -223,37 +305,28 @@ class TokenManager:
         video_enabled: bool = True,
         image_concurrency: int = -1,
         video_concurrency: int = -1,
-        captcha_proxy_url: Optional[str] = None
+        captcha_proxy_url: Optional[str] = None,
+        is_active: bool = True,
+        ban_reason: Optional[str] = None,
+        verified_snapshot: Optional[VerifiedAccountSnapshot] = None,
     ) -> Token:
         """Add a new token and prepare its pooled projects."""
         existing_token = await self.db.get_token_by_st(st)
         if existing_token:
-            raise ValueError(f"Token ??????: {existing_token.email}?")
+            raise ValueError(f"Session Token 已属于账号: {existing_token.email}")
 
-        debug_logger.log_info(f"[ADD_TOKEN] Converting ST to AT...")
+        debug_logger.log_info("[ADD_TOKEN] Validating account identity and credits...")
         try:
-            result = await self.flow_client.st_to_at(st)
-            at = result["access_token"]
-            expires = result.get("expires")
-            user_info = result.get("user", {})
-            email = user_info.get("email", "")
-            name = user_info.get("name", email.split("@")[0] if email else "")
-            at_expires = None
-            if expires:
-                try:
-                    at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-                except Exception:
-                    pass
-        except Exception as e:
-            raise ValueError(f"ST?AT??: {str(e)}")
+            snapshot = verified_snapshot or await self.inspect_account(st)
+        except AccountIdentityError as exc:
+            raise ValueError(f"账号验证失败: {exc}") from exc
 
-        try:
-            credits_result = await self.flow_client.get_credits(at)
-            credits = credits_result.get("credits", 0)
-            user_paygate_tier = credits_result.get("userPaygateTier")
-        except Exception:
-            credits = 0
-            user_paygate_tier = None
+        existing_email = await self._find_token_by_normalized_email(snapshot.email)
+        if existing_email:
+            raise ValueError(f"账号邮箱已存在: {existing_email.email}")
+        rotated_owner = await self.db.get_token_by_st(snapshot.st)
+        if rotated_owner:
+            raise ValueError(f"轮换后的 Session Token 已属于账号: {rotated_owner.email}")
 
         base_project_name = self._normalize_project_name_base(project_name)
         project_pool_size = self._get_project_pool_size()
@@ -271,7 +344,7 @@ class TokenManager:
         else:
             try:
                 first_project_name = self._build_project_name(1, base_project_name)
-                first_project_id = await self.flow_client.create_project(st, first_project_name)
+                first_project_id = await self.flow_client.create_project(snapshot.st, first_project_name)
                 debug_logger.log_info(f"[ADD_TOKEN] Created pooled project #1: {first_project_name} (ID: {first_project_id})")
                 pooled_projects.append(Project(
                     project_id=first_project_id,
@@ -283,22 +356,24 @@ class TokenManager:
                 raise ValueError(f"??????: {str(e)}")
 
         token = Token(
-            st=st,
-            at=at,
-            at_expires=at_expires,
-            email=email,
-            name=name,
+            st=snapshot.st,
+            at=snapshot.at,
+            at_expires=snapshot.at_expires,
+            email=snapshot.email,
+            name=snapshot.name,
             remark=remark,
-            is_active=True,
-            credits=credits,
-            user_paygate_tier=user_paygate_tier,
+            is_active=is_active,
+            credits=snapshot.credits,
+            user_paygate_tier=snapshot.user_paygate_tier,
             current_project_id=pooled_projects[0].project_id,
             current_project_name=pooled_projects[0].project_name,
             image_enabled=image_enabled,
             video_enabled=video_enabled,
             image_concurrency=image_concurrency,
             video_concurrency=video_concurrency,
-            captcha_proxy_url=captcha_proxy_url
+            captcha_proxy_url=captcha_proxy_url,
+            ban_reason=ban_reason,
+            banned_at=datetime.now(timezone.utc) if ban_reason else None,
         )
 
         token_id = await self.db.add_token(token)
@@ -312,7 +387,7 @@ class TokenManager:
             pooled_projects.append(new_project)
 
         debug_logger.log_info(
-            f"[ADD_TOKEN] Token added successfully (ID: {token_id}, Email: {email}, pooled_projects={len(pooled_projects)})"
+            f"[ADD_TOKEN] Token added successfully (ID: {token_id}, Email: {snapshot.email}, pooled_projects={len(pooled_projects)})"
         )
         # 新增账号后活跃数可能回升至阈值之上，复位池告急去重标志
         await self._check_pool_low()
@@ -330,20 +405,27 @@ class TokenManager:
         video_enabled: Optional[bool] = None,
         image_concurrency: Optional[int] = None,
         video_concurrency: Optional[int] = None,
-        captcha_proxy_url: Optional[str] = None
+        captcha_proxy_url: Optional[str] = None,
+        verified_snapshot: Optional[VerifiedAccountSnapshot] = None,
+        allow_auth_reactivate: bool = True,
     ):
-        """Update token (支持修改project_id和project_name)
+        """Update metadata and apply credential changes only after identity verification."""
+        if not await self.db.get_token(token_id):
+            raise ValueError("Token not found")
 
-        当用户编辑保存token时，如果token未过期，自动清空429禁用状态
-        """
+        snapshot = verified_snapshot
+        if st is not None and snapshot is None:
+            snapshot = await self.inspect_account(st)
+        if snapshot is not None:
+            await self.db.apply_verified_account_snapshot(
+                token_id,
+                snapshot,
+                allow_auth_reactivate=allow_auth_reactivate,
+            )
+        elif at is not None or at_expires is not None:
+            raise ValueError("AT fields require an identity-verified account snapshot")
+
         update_fields = {}
-
-        if st is not None:
-            update_fields["st"] = st
-        if at is not None:
-            update_fields["at"] = at
-        if at_expires is not None:
-            update_fields["at_expires"] = at_expires
         if project_id is not None:
             update_fields["current_project_id"] = project_id
         if project_name is not None:
@@ -360,25 +442,6 @@ class TokenManager:
             update_fields["video_concurrency"] = video_concurrency
         if captcha_proxy_url is not None:
             update_fields["captcha_proxy_url"] = captcha_proxy_url
-
-        # 检查token是否因429被禁用，如果是且未过期，则清空429状态
-        token = await self.db.get_token(token_id)
-        if token and token.ban_reason == "429_rate_limit":
-            # 检查token是否过期
-            is_expired = False
-            if token.at_expires:
-                now = datetime.now(timezone.utc)
-                if token.at_expires.tzinfo is None:
-                    at_expires_aware = token.at_expires.replace(tzinfo=timezone.utc)
-                else:
-                    at_expires_aware = token.at_expires
-                is_expired = at_expires_aware <= now
-
-            # 如果未过期，清空429禁用状态
-            if not is_expired:
-                debug_logger.log_info(f"[UPDATE_TOKEN] Token {token_id} 编辑保存，清空429禁用状态")
-                update_fields["ban_reason"] = None
-                update_fields["banned_at"] = None
 
         if update_fields:
             await self.db.update_token(token_id, **update_fields)
@@ -434,7 +497,7 @@ class TokenManager:
             token = await self.db.get_token(token_id)
             if not token:
                 return False
-            was_revoked_before = token.ban_reason == "ST_REVOKED"
+            was_revoked_before = token.ban_reason == TOKEN_REASON_ST_REVOKED
 
             result = await self._do_refresh_at(token_id, token.st)
             if result:
@@ -460,7 +523,7 @@ class TokenManager:
         refreshed = await self.db.get_token(token_id)
         newly_revoked = (
             refreshed is not None
-            and refreshed.ban_reason == "ST_REVOKED"
+            and refreshed.ban_reason == TOKEN_REASON_ST_REVOKED
             and not was_revoked_before
         )
         if newly_revoked:
@@ -473,7 +536,7 @@ class TokenManager:
                         ("建议操作", "登录 labs.google/fx/tools/flow，在后台「添加账号」粘贴该号 cookies.txt", False)],
                 severity="critical",
             )
-            await self.disable_token(token_id)
+            await self.disable_token(token_id, reason=TOKEN_REASON_ST_REVOKED)
         else:
             debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: 刷新失败(疑似瞬时)，保留账号待重试")
 
@@ -495,105 +558,69 @@ class TokenManager:
         self._refresh_futures[token_id] = task
         return await task
 
-    async def _do_refresh_at(self, token_id: int, st: str) -> bool:
-        """执行 AT 刷新的核心逻辑
-
-        Args:
-            token_id: Token ID
-            st: Session Token
-
-        Returns:
-            True if refresh successful AND AT is valid, False otherwise
-        """
+    async def _alert_if_credit_crossed(
+        self,
+        email: str,
+        previous_credits: Optional[int],
+        new_credits: int,
+    ) -> None:
+        floor = config.min_credits_to_select
+        if previous_credits is None or previous_credits <= floor or new_credits > floor:
+            return
         try:
-            debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 开始刷新AT...")
-
-            # 使用ST转AT
-            result = await self.flow_client.st_to_at(st)
-            new_at = result["access_token"]
-            expires = result.get("expires")
-
-            # 捕获并回写轮换后的新 ST（滚动续期 ~30 天的关键）
-            from ..core.cookie_extractor import MIN_ST_LEN
-            rotated_st = result.get("rotated_st")
-            if rotated_st and rotated_st != st and len(rotated_st) >= MIN_ST_LEN:
-                await self.db.update_token(token_id, st=rotated_st)
-                debug_logger.log_info(f"[ST_ROTATE] Token {token_id}: ST 已滚动续期并回写库")
-
-            # 解析过期时间
-            new_at_expires = None
-            if expires:
-                try:
-                    new_at_expires = datetime.fromisoformat(expires.replace('Z', '+00:00'))
-                except:
-                    pass
-
-            # 更新数据库
-            await self.db.update_token(
-                token_id,
-                at=new_at,
-                at_expires=new_at_expires
+            await self._alert(
+                title="单账号额度耗尽",
+                description=f"账号 {email} 剩余额度已降至 {new_credits}（阈值 {floor}），将不再被调度。",
+                fields=[
+                    ("账号", email, True),
+                    ("剩余额度", str(new_credits), True),
+                    ("建议操作", "为该账号充值或更换新号", False),
+                ],
+                severity="warning",
             )
+        except Exception as alert_err:
+            debug_logger.log_warning(f"[ALERT] 额度耗尽告警异常被忽略: {alert_err}")
 
-            debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT刷新成功")
-            debug_logger.log_info(f"  - 新过期时间: {new_at_expires}")
-
-            # 验证 AT 有效性：通过 get_credits 测试
-            try:
-                # 更新 credits 之前读一次快照，同时用于额度跨越判定与 ST_REVOKED 清除
-                before = await self.db.get_token(token_id)
-                prev_credits = before.credits if before else None
-                credits_result = await self.flow_client.get_credits(new_at)
-                new_credits = credits_result.get("credits", 0)
-                await self.db.update_token(
-                    token_id,
-                    credits=new_credits,
-                    user_paygate_tier=credits_result.get("userPaygateTier"),
-                )
-                # ST 证明仍健康：清除可能遗留的 ST_REVOKED（仅清这一种，勿动 429 等其它原因）
-                # 更新 credits 不改 ban_reason，故用 before 的快照判定与原"更新后再读"等价
-                if before and before.ban_reason == "ST_REVOKED":
-                    await self.db.clear_token_ban(token_id)
-                    debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 健康恢复，已清除 ST_REVOKED 标记")
-                # 额度从"足"跨越到"不足"时告警一次（仅在跨越的那次，已不足则不重发）
-                from ..core.config import config as _cfg
-                floor = _cfg.min_credits_to_select
-                if prev_credits is not None and prev_credits > floor >= new_credits:
-                    # 额外包一层 try：让"刷新成功/失败"的返回判定与告警彻底解耦，
-                    # 即使将来 _alert 的内部保护被改动也绝不会把成功误判（防御性冗余）。
-                    try:
-                        email = before.email if before else str(token_id)
-                        await self._alert(
-                            title="单账号额度耗尽",
-                            description=f"账号 {email} 剩余额度已降至 {new_credits}（阈值 {floor}），将不再被调度。",
-                            fields=[("账号", email, True), ("剩余额度", str(new_credits), True),
-                                    ("建议操作", "为该账号充值或更换新号", False)],
-                            severity="warning",
-                        )
-                    except Exception as alert_err:
-                        debug_logger.log_warning(f"[ALERT] 额度耗尽告警异常被忽略: {alert_err}")
-                debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: AT 验证成功（余额: {new_credits}）")
-                return True
-            except Exception as verify_err:
-                # AT 验证失败（get_credits 401）：ST 两行前刚成功换出 AT，ST 明明活着，
-                # 死的是 Google OAuth 授权（grant）而非 ST 撤销。标 GRANT_EXPIRED（非 ST_REVOKED），
-                # _handle_refresh_failure 据此不永久禁号，保留账号待保活器下轮续期。
-                error_msg = str(verify_err)
-                if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
-                    debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: AT 验证失败 (401)，Google 授权过期(GRANT_EXPIRED)，留给保活器续")
-                    await self.db.update_token(token_id, ban_reason="GRANT_EXPIRED")
-                    return False
-                else:
-                    # 其他错误（如网络问题），仍视为成功
-                    debug_logger.log_warning(f"[AT_REFRESH] Token {token_id}: AT 验证时发生非认证错误: {error_msg}")
-                    return True
-
-        except Exception as e:
-            error_msg = str(e)
-            if "401" in error_msg or "UNAUTHENTICATED" in error_msg:
-                await self.db.update_token(token_id, ban_reason="ST_REVOKED")
-            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: AT刷新失败 - {error_msg}")
+    async def _do_refresh_at(self, token_id: int, st: str) -> bool:
+        """Refresh and persist ST/AT only after identity and credits verification."""
+        before = await self.db.get_token(token_id)
+        if before is None:
             return False
+        previous_credits = before.credits
+        account_email = before.email
+        try:
+            debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 开始严格账号验证...")
+            snapshot = await self.inspect_account(st)
+            await self.db.apply_verified_account_snapshot(token_id, snapshot)
+        except AccountIdentityError as exc:
+            if exc.code == "session_rejected":
+                await self.db.update_token(token_id, ban_reason=TOKEN_REASON_ST_REVOKED)
+            elif exc.code == "grant_expired":
+                await self.db.update_token(token_id, ban_reason=TOKEN_REASON_GRANT_EXPIRED)
+            debug_logger.log_error(
+                f"[AT_REFRESH] Token {token_id}: 验证失败 ({exc.code}) - {exc}"
+            )
+            return False
+        except (KeyError, ValueError) as exc:
+            debug_logger.log_error(f"[AT_REFRESH] Token {token_id}: 身份写入被拒绝 - {exc}")
+            return False
+        except Exception as exc:
+            debug_logger.log_error(
+                f"[AT_REFRESH] Token {token_id}: 刷新异常 - {type(exc).__name__}: {exc}"
+            )
+            return False
+
+        if snapshot.st != st:
+            debug_logger.log_info(f"[ST_ROTATE] Token {token_id}: ST 已滚动续期并原子写入")
+        await self._alert_if_credit_crossed(
+            account_email,
+            previous_credits,
+            snapshot.credits,
+        )
+        debug_logger.log_info(
+            f"[AT_REFRESH] Token {token_id}: 身份及 AT 验证成功（余额: {snapshot.credits}）"
+        )
+        return True
 
     async def _try_refresh_st(self, token_id: int, token) -> Optional[str]:
         """尝试通过浏览器刷新 Session Token
@@ -643,10 +670,16 @@ class TokenManager:
                 )
                 return None
             if new_st and new_st != token.st:
-                # 更新数据库中的 ST
-                await self.db.update_token(token_id, st=new_st)
-                debug_logger.log_info(f"[ST_REFRESH] Token {token_id}: ST 已自动更新")
-                return new_st
+                try:
+                    snapshot = await self.inspect_account(new_st)
+                    await self.db.apply_verified_account_snapshot(token_id, snapshot)
+                except (AccountIdentityError, KeyError, ValueError) as exc:
+                    debug_logger.log_error(
+                        f"[ST_REFRESH] Token {token_id}: 新 ST 身份验证失败 - {exc}"
+                    )
+                    return None
+                debug_logger.log_info(f"[ST_REFRESH] Token {token_id}: ST 已验证并原子更新")
+                return snapshot.st
             elif new_st == token.st:
                 debug_logger.log_warning(f"[ST_REFRESH] Token {token_id}: 获取到的 ST 与原 ST 相同，可能登录已失效")
                 return None
@@ -678,7 +711,7 @@ class TokenManager:
         if not token or not token.is_active:
             return False
         # 快照刷新前的 ban_reason，交给共用的失败处置逻辑判定是否"本次新确认撤销"。
-        was_revoked_before = token.ban_reason == "ST_REVOKED"
+        was_revoked_before = token.ban_reason == TOKEN_REASON_ST_REVOKED
         ok = await self._do_refresh_at(token_id, token.st)
         if ok:
             return True
@@ -705,8 +738,12 @@ class TokenManager:
             if inter_delay > 0 and idx < len(tokens) - 1:
                 await asyncio.sleep(inter_delay)
 
-    async def ensure_project_exists(self, token_id: int) -> str:
-        """Ensure a token has a pooled set of projects and return one in round-robin order."""
+    async def ensure_project_pool(
+        self,
+        token_id: int,
+        base_name: Optional[str] = None,
+    ) -> List[Project]:
+        """Idempotently provision the configured pool without rotating its pointer."""
         project_lock = await self._get_token_lock(
             self._project_locks,
             self._project_lock_guard,
@@ -716,19 +753,33 @@ class TokenManager:
             token = await self.db.get_token(token_id)
             if not token:
                 raise ValueError("Token not found")
+            return await provision_project_pool(
+                self.db,
+                self.flow_client,
+                token,
+                self._get_project_pool_size(),
+                base_name=base_name,
+            )
 
-            projects = [project for project in await self.db.get_projects_by_token(token_id) if project.is_active]
-            projects = self._sort_projects(projects)
-
+    async def ensure_project_exists(self, token_id: int) -> str:
+        """Ensure the project pool exists and select its next project."""
+        project_lock = await self._get_token_lock(
+            self._project_locks,
+            self._project_lock_guard,
+            token_id,
+        )
+        async with project_lock:
+            token = await self.db.get_token(token_id)
+            if not token:
+                raise ValueError("Token not found")
             try:
-                project_pool_size = self._get_project_pool_size()
-                while len(projects) < project_pool_size:
-                    new_project = await self._create_project_for_token(token, len(projects) + 1)
-                    projects.append(new_project)
-                    projects = self._sort_projects(projects)
-
-                selectable_projects = projects[:project_pool_size]
-                selected_project = self._select_next_project(token, selectable_projects)
+                projects = await provision_project_pool(
+                    self.db,
+                    self.flow_client,
+                    token,
+                    self._get_project_pool_size(),
+                )
+                selected_project = self._select_next_project(token, projects)
                 await self.db.update_token(
                     token_id,
                     current_project_id=selected_project.project_id,
@@ -736,7 +787,7 @@ class TokenManager:
                 )
                 return selected_project.project_id
             except Exception as e:
-                raise ValueError(f"Failed to prepare project pool: {str(e)}")
+                raise ValueError(f"Failed to prepare project pool: {str(e)}") from e
 
     async def record_usage(self, token_id: int, is_video: bool = False):
         """Record token usage"""
@@ -760,7 +811,7 @@ class TokenManager:
                 f"[TOKEN_BAN] Token {token_id} consecutive error count ({stats.consecutive_error_count}) "
                 f"reached threshold ({admin_config.error_ban_threshold}), auto-disabling"
             )
-            await self.disable_token(token_id)
+            await self.disable_token(token_id, reason=TOKEN_REASON_CONSECUTIVE_ERRORS)
 
     async def record_success(self, token_id: int):
         """Record successful request (reset consecutive error count)
@@ -780,7 +831,7 @@ class TokenManager:
         await self.db.update_token(
             token_id,
             is_active=False,
-            ban_reason="429_rate_limit",
+            ban_reason=TOKEN_REASON_429_RATE_LIMIT,
             banned_at=datetime.now(timezone.utc)
         )
         # 429 也会让可用账号变少：触发池告急检测（任何禁用都要查）
@@ -799,7 +850,7 @@ class TokenManager:
 
         for token in all_tokens:
             # 跳过非429禁用的token
-            if token.ban_reason != "429_rate_limit":
+            if token.ban_reason != TOKEN_REASON_429_RATE_LIMIT:
                 continue
 
             # 跳过未禁用的token
@@ -836,12 +887,8 @@ class TokenManager:
                     f"[AUTO_UNBAN] 解禁Token {token.id} (禁用时间: {banned_at_aware}, "
                     f"已过 {time_since_ban.total_seconds() / 3600:.1f} 小时)"
                 )
-                await self.db.update_token(
-                    token.id,
-                    is_active=True,
-                    ban_reason=None,
-                    banned_at=None
-                )
+                await self.db.update_token(token.id, is_active=True)
+                await self.db.clear_token_ban(token.id)
                 # 重置错误计数
                 await self.db.reset_error_count(token.id)
                 # 池恢复后复位池告急标志（解禁绕过了 enable_token）

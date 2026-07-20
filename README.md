@@ -20,8 +20,8 @@
 - **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
 - **Gemini Omni Flash (abra)** — 新一代视频模型，T2V/R2V × 4 个时长档位（4/6/8/10s）× 横竖屏 × 原版/1080P 上采样，共 32 个变体
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
-- **ST 纯 HTTP 自更新** — 每次刷新 AT 时 labs.google 自动下发轮转后的 ST，服务器即时写回 DB；每账号 ST 只需注入一次，此后无限自续期，无需常驻浏览器
-- **每日保活巡检** — 后台定时任务（默认 24h）对全部活跃 Token 主动续期，确保空闲账号也不过期；仅 401 确认失效才标记 `ST_REVOKED` 并禁用
+- **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
+- **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
 - **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 1）的账号，多账号池耗尽账号自动退出轮询
 - **Discord 运维告警** — 账号失效需重登 / 账号池告急 / 单账号额度耗尽时主动推送到 Discord webhook（带去重），无需盯日志
 - **余额显示** - 实时查询和显示 VideoFX Credits
@@ -44,7 +44,7 @@
 - 默认 `docker-compose.yml` 建议搭配第三方打码（yescaptcha/capmonster/ezcaptcha/capsolver）。
 如需 Docker 内有头打码（browser/personal），请使用下方 `docker-compose.headed.yml`。
 
-- Chrome 扩展（**可选 / 一次性**）：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater) — 现在服务端已支持 ST 自更新，扩展仅在首次注入 ST 时可按需辅助使用，不再需要持续运行
+- Chrome 扩展（**可选**）：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater) 可用于显式提交账号凭据，但不替代每账号浏览器保活 profile。跨域调用 `/api/plugin/update-token` 时，必须把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 CORS allowlist，并继续使用插件 connection token 的 Bearer 认证。
 
 ### 方式一：Docker 部署（推荐）
 
@@ -182,58 +182,98 @@ sudo systemctl start flow2api
 
 在 logs.txt 里搜 `Token 获取成功 (长度: NNNN)` 即可判断。如果开启了持久化但长度仍 ≤ 2240，说明 cookie 没生效或 profile 缺关键 token（SID/HSID/SAPISID/__Secure-1PSID 等），需要重新 GUI 登录。
 
-### ST 自更新与多账号 Token 管理
+### 浏览器保活与多账号生命周期
 
-#### 工作原理
+#### 为什么不能把纯 HTTP 轮换视为永久保活
 
-服务每次通过 `st_to_at` 刷新 Google Access Token 时，labs.google 会在响应里下发一个轮转后的 `__Secure-next-auth.session-token`（有效期约 30 天）。服务器自动捕获并写回数据库——因此**每个账号的 ST 只需注入一次，此后在纯 HTTP 请求中无限续期，无需为每账号保持任何浏览器进程**。
+`st_to_at` 在 Google 授权仍有效时可以轮换 ST，但它不能保证背后的 Google OAuth 授权无限存活。授权过期时可能出现“ST 仍可兑换响应，但 `get_credits` 返回 401”的 `GRANT_EXPIRED` 状态；ST 本身被撤销则是 `ST_REVOKED`。因此生产保活采用**浏览器支持、身份验证后再写库**的流程，而不是把一次 ST 注入视为永久凭据。
 
-> **注意：** 若服务连续停机超过 30 天，所有 ST 将自然过期，需重新登录并注入。正常运行不会触发此情况。
+每个保活账号使用独立目录 `<browser_profile_base>/<token_id>`。有头 Chrome 访问账号的 Flow 项目与 `/fx/api/auth/session`，服务随后：
 
-#### 添加 Token（智能粘贴）
+1. 校验浏览器会话邮箱与 Token 邮箱、`verified_email` 绑定一致；
+2. 从该 profile 的 Chrome SQLite cookie 库读取长度合格的轮换 ST；
+3. 用浏览器会话 AT 调用真实 credits 接口并读取精确 tier；
+4. 在 `BEGIN IMMEDIATE` 事务中原子写入 ST、AT、有效期、credits、tier 和生命周期遥测。
 
-进入管理后台 → Token 管理 → 添加 Token。粘贴框支持以下任意格式，服务端自动提取 `__Secure-next-auth.session-token`：
+身份不匹配、ST 与其他账号冲突、cookie 缺失、credits 验证失败时不会写入部分凭据。保活也不会修改业务请求统计 `last_used_at` / `use_count`。
 
-| 格式 | 示例 |
-|------|------|
-| 浏览器 `cookies.txt` 全文（含换行或空格分隔） | 直接复制 `cookies.txt` 内容粘贴 |
-| Cookie 请求头 | `Cookie: __Secure-next-auth.session-token=eyJ...` |
-| DevTools JSON 导出 | `[{"name":"__Secure-next-auth.session-token","value":"eyJ..."}]` |
-| 裸 ST 值 | `eyJ...`（仅 token 值本身） |
+#### 业务池与保活 desired state 分离
 
-登录地址：`https://labs.google/fx/tools/flow`（管理界面添加 Token 表单内有直达链接和一键复制按钮）。粘贴内容无效时返回 400 错误，不会静默失败。
+- `tokens.is_active` 与 `tokens.ban_reason` 决定账号是否进入图片/视频业务负载均衡。
+- `token_lifecycle.keepalive_enabled` 决定浏览器 sidecar 是否继续维护该账号，即使账号已退出业务池。
+- `token_lifecycle.runtime_mode` 支持两种浏览器生命周期：
+  - `persistent`：刷新后保留浏览器和 profile lease，适用于已验证的兼容基线账号。
+  - `warm`：到期时启动，完成一次刷新后关闭浏览器并释放 lease，适用于普通多账号运行。
+- 默认成功周期为活跃会员 **1200 秒**；已退休会员仍以 **43200 秒**低频维护登录态。sidecar 默认每 15 秒从数据库动态 reconcile，启停或切换模式不需要重启 systemd。
 
-原有 Chrome 扩展（[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater)）现为**可选 / 一次性**工具，仅在首次注入时按需使用，不再需要为 keep-alive 持续运行。
+业务“禁用”不会自动关闭保活；保活成功也不会清除 `manual_disabled`、`429_rate_limit` 或 `consecutive_errors` 等由其他策略拥有的禁用原因。管理 API `PUT /api/tokens/{token_id}/lifecycle` 只修改保活 desired state，不等价于 `/enable` 或 `/disable`。
 
-#### 每日保活巡检
+#### 会员过期与条件恢复
 
-后台任务以固定间隔对全部活跃账号主动触发一次 AT 刷新，从而让 labs.google 下发新 ST——即使账号长期空闲也不会过期。失败策略保守：瞬时网络错误不影响账号状态；只有收到 401 明确失效响应时才将账号标记 `ST_REVOKED`、关闭并发送告警。
+只有成功、身份一致的 credits 检查才计入会员观察：
 
-#### Discord 运维告警
+- `PAYGATE_TIER_ONE` / `PAYGATE_TIER_TWO` 精确值为 paid；
+- `PAYGATE_TIER_NOT_PAID` 精确值为 free；
+- 缺失、大小写不同、带额外空白或未知 tier 均为 unknown，不会被当作 free。
 
-发生需人工介入的问题时，主动把告警投递到 Discord webhook（富文本 embed），无需盯日志。三类事件均带去重、不刷屏：
+活跃账号连续两次观察为 free 后，生命周期进入 retired；仅当该账号当时没有其他禁用原因时，业务状态才改为 `is_active=0`、`ban_reason=membership_expired`。退休账号续费后，连续两次观察为 paid 才尝试恢复；恢复事务会重新读取账号，只在状态仍为 `is_active=0` 且 `ban_reason='membership_expired'` 时恢复。人工禁用、429 或连续错误封禁不会被会员恢复误清除。
 
-- **账号失效需重登**（🔴）— 某账号 ST 被 Google 撤销/失效，需重登并重新粘贴 cookies.txt
-- **账号池告急**（🔴）— 可用活跃账号数 ≤ `alert_pool_low_threshold`，提醒补号（含 ST 失效与 429 禁用导致的减少）
-- **单账号额度耗尽**（🟠）— 某账号 credits 跌破 `min_credits_to_select`，提醒充值或换号
+#### 服务器 XRDP 入库与重新登录
 
-webhook URL **优先从环境变量 `FLOW2API_ALERT_WEBHOOK_URL` 读取**（密钥不进 git，推荐），其次读 `config/setting.toml` 的 `[admin] alert_webhook_url`；两者皆空则仅记日志。
+管理后台的账号入库流程在服务器端创建持久化 `onboarding_jobs`：服务在配置好的 XRDP 显示器上启动受管 Chrome，操作员仅负责 Google 登录并确认 Flow 页面可用。Finalize 会关闭并核验受管进程、读取真实账号身份、匹配或创建 Token、补齐项目池、原子迁移 profile，再次验证目标 profile，最后分别应用“加入业务池”和“启用保活”的选择。
 
-相关配置项（`config/setting.toml`）：
+重新登录已有账号时指定目标 Token；服务会拒绝邮箱不匹配。目标 profile 已存在时默认拒绝覆盖，只有显式选择 `archive_and_replace` 才会把旧 profile 保留到归档目录后替换，便于回滚。Free 或 unknown 新账号不会因请求业务启用而自动进入业务池。
+
+完整的部署、XRDP 操作、API、命令、维护窗口、回滚和故障排查见 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)。
+
+#### captcha profile 与 keepalive profile 不是同一资源
+
+- **captcha profile**：`personal` 验证码模式使用的共享持久化登录态与常驻标签页，目标是提高 reCAPTCHA 通过率。
+- **keepalive profile**：`<browser_profile_base>/<token_id>` 下每账号独占的 Google/Flow 登录态，目标是刷新并严格验证该 Token 的 OAuth 凭据。
+
+不要让 captcha 服务、XRDP Chrome、setup helper 和 keepalive sidecar 同时占用同一个 keepalive profile。sidecar 通过跨进程 `flock`、Chrome `SingletonLock` 的 PID/cmdline 校验和精确 profile 所有权检查拒绝并发占用。
+
+#### 添加 Token、插件与 CORS
+
+管理后台仍支持从 cookies 文本、Cookie 请求头、DevTools JSON 或裸 ST 中提取 `__Secure-next-auth.session-token`。这些入口会验证真实账号身份，但只添加凭据并不等于已经完成独立 keepalive profile 的服务器入库。
+
+同源管理页面不需要 CORS。跨域 Web 控制台或 Chrome 插件必须在 `[server].cors_allowed_origins` 或环境变量 `FLOW2API_CORS_ALLOWED_ORIGINS` 中配置**精确 Origin**；不支持 `*`，也不能包含路径、查询参数或 fragment。允许的 scheme 为 `http`、`https` 和 `chrome-extension`。例如：
 
 ```toml
-[token]
-st_keepalive_enabled = true          # 开启每日保活巡检（默认 true）
-st_keepalive_interval_hours = 24     # 巡检间隔，单位小时（默认 24）
-st_browser_refresh_enabled = false   # 浏览器端 ST 刷新（默认关闭；共享浏览器只登录一个账号，开启会覆盖其他账号）
-
-[admin]
-alert_webhook_url = ""               # 告警 Discord webhook（优先读环境变量 FLOW2API_ALERT_WEBHOOK_URL）
-alert_pool_low_threshold = 2         # 可用账号数 ≤ 此值时触发「账号池告急」告警（默认 2）
-
-[call_logic]
-min_credits_to_select = 1            # 账号可被选中所需最低剩余额度（默认 1，≤ 此值时跳过）
+[server]
+cors_allowed_origins = [
+  "https://console.example.com",
+  "chrome-extension://abcdefghijklmnop",
+]
 ```
+
+环境变量会覆盖 TOML，多个 Origin 用逗号分隔。插件 `/api/plugin/update-token` 继续使用独立 connection token 的 `Authorization: Bearer <token>` 契约；CORS allowlist 只允许浏览器发送请求，不替代认证。普通 `GET /api/tokens` 不返回 ST/AT；敏感凭据只能通过需要管理员认证、带 `Cache-Control: no-store` 的显式导出端点获取。
+
+相关主机配置位于 `config/setting.toml`：
+
+```toml
+[keepalive]
+browser_enabled = true
+browser_interval_seconds = 1200
+browser_initial_delay_seconds = 120
+browser_retired_interval_seconds = 43200
+browser_reconcile_interval_seconds = 15
+browser_max_concurrent_refreshes = 1
+browser_max_concurrent_launches = 1
+browser_retry_base_seconds = 60
+browser_retry_max_seconds = 1800
+browser_human_retry_seconds = 21600
+browser_profile_base = "/opt/flow2api-profiles"
+browser_proxy = "http://127.0.0.1:7890"
+browser_display = ":10"
+browser_settle_seconds = 8.0
+onboarding_display = ":11"
+onboarding_session_ttl_seconds = 1800
+```
+
+`BROWSER_EXECUTABLE_PATH` 选择 Chrome 可执行文件；Discord webhook 仍优先读取 `FLOW2API_ALERT_WEBHOOK_URL`。systemd unit 可选读取 root-owned、权限 `0600` 的 `/etc/flow2api-keepalive.env`，该文件只在服务器本地保存 `FLOW2API_ALERT_WEBHOOK_URL`，不得把真实 webhook 写入仓库或文档。旧 `[token].st_keepalive_enabled` 只在浏览器 supervisor 关闭时运行，启用 browser keepalive 后 sidecar 与 `token_lifecycle` 是账号保活的权威来源。
+
+当 `browser_enabled=false` 时，`--preflight` 会输出 disabled 并以 0 退出，不检查浏览器、display、数据库或 profiles。保活与 setup 传给 Chrome 的代理 URL 禁止内嵌 `user:password@` userinfo，违规配置会在构造浏览器参数前被拒绝且不会回显凭据。preflight 与 setup 的运维输出不显示配置的 profile/browser 绝对路径，canonical path 校验失败也会转换为不含路径的通用错误。read-only patrol 不把历史成功永久视为健康：active 和 retired 分别使用配置的 `browser_interval_seconds` 与 `browser_retired_interval_seconds`；grace 为对应 interval 的一半，并限制在 300–3600 秒，同时检查 `last_keepalive_success_at` 与已逾期的 `next_due_at`。Legacy ID 23 首次迁移按 `--once --token-id 23` → `--preflight` → 启动 systemd sidecar 的顺序建立身份绑定并验收。
 
 ## 支持的模型
 
