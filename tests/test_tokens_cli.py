@@ -469,8 +469,16 @@ def test_onboard_error_codes_map_to_stable_exit_codes(tmp_path, capsys, monkeypa
     args = _ns(email="new@example.com", token_id=None, display=None, dry_run=False)
     rc = asyncio.run(_cmd_onboard(args, db=object(), flow_client=object(), runtime=_fake_runtime(tmp_path), display=":11"))
     assert rc == int(getattr(ExitCode, expected_exit))
-    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines()]
+    captured = capsys.readouterr()
+    lines = [json.loads(line) for line in captured.out.strip().splitlines()]
     assert lines[-1] == {"phase": "failed", "error": {"code": code, "message": f"boom {code}"}}
+    # A failure must ALSO surface on stderr (per emit_error's envelope) so an
+    # Agent that only reads stderr for errors doesn't miss it, even though the
+    # phase stream itself stays on stdout for ordering.
+    stderr_payload = json.loads(captured.err.strip())
+    assert stderr_payload == {
+        "error": {"code": code, "message": f"boom {code}", "detail": {}}
+    }
 
 
 # ---------------------------------------------------------------------------

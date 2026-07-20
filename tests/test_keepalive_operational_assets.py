@@ -517,7 +517,7 @@ def test_systemd_unit_has_safe_runtime_dependencies_and_shutdown():
     assert "Requires=xvfb@10.service flow2api.service" in source
     assert "ExecStartPre=" in source and "--preflight" in source
     assert "ExecStart=" in source and "--daemon" in source
-    assert "Restart=on-failure" in source
+    assert "Restart=always" in source
     assert "UMask=0077" in source
     assert "KillSignal=SIGTERM" in source
     assert "TimeoutStopSec=" in source

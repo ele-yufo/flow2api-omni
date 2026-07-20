@@ -224,6 +224,26 @@ def test_lifecycle_put_route_is_unaffected_by_onboarding_disable(admin_context):
     assert payload["runtime_mode"] == "persistent"
 
 
+def test_lifecycle_put_route_rejects_warm_runtime_mode(admin_context):
+    """``runtime_mode: warm`` is rejected at request validation (422), never reaches the DB.
+
+    A ``warm`` one-shot destroyed a valid Google session in a prior production
+    incident by tearing down the resident Chrome and re-navigating, rotating
+    the session cookie into an unauthorized state. The admin API must not
+    offer any path back to that mode.
+    """
+    client, _onboarding, database = admin_context
+
+    response = client.put(
+        "/api/tokens/23/lifecycle",
+        headers=AUTH_HEADERS,
+        json={"runtime_mode": "warm"},
+    )
+
+    assert response.status_code == 422
+    assert database.desired_updates == []
+
+
 def test_export_route_is_unaffected_by_onboarding_disable(admin_context):
     client, _onboarding, _database = admin_context
 

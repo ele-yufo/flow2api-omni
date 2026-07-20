@@ -105,8 +105,8 @@ created → browser_start → awaiting_login → validating_destination
 
 ### 4.1 运行模式
 
-- `persistent`：到期刷新后继续保留 Chrome 与跨进程 profile lease。适用于需要保持已验证 headed 行为的账号，例如部署兼容基线 ID 23。
-- `warm`：到期时启动 Chrome，完成一次成功或失败尝试后关闭并释放 lease。普通新账号建议使用该模式。
+- `persistent`：到期刷新后继续保留 Chrome 与跨进程 profile lease。`scripts/tokens.py onboard` 入库/重登录发布的账号永远是该模式——新账号与部署兼容基线 ID 23 均适用；管理 API（`PUT /api/tokens/{id}/lifecycle`）与 CLI 也只接受把账号设置为该模式。
+- `warm`：到期时启动 Chrome，完成一次成功或失败尝试后关闭并释放 lease。曾在生产事故中因一次性 one-shot 拆掉 resident Chrome 并重新导航，把一个有效会话的 session cookie 轮换进未授权状态（见文档顶部说明）；因此该值仅作为尚未入库（`profile_state='unprovisioned'`）账号的 DB 默认行存在，任何管理入口都不再允许把账号显式设置为该模式。
 
 两种模式使用同一验证链路和 due time，只改变刷新后的浏览器所有权。
 
@@ -270,23 +270,19 @@ validation 从 retained profile 读取真实 ST，调用账号检查，要求观
 
 ### 7.2 lifecycle desired state
 
-启用 warm keepalive：
+`runtime_mode` 只接受 `"persistent"`：传 `"warm"` 会在请求体校验阶段被拒绝，返回
+`422`。这是刻意的——一次 `warm` one-shot 曾在生产事故中拆掉 resident Chrome 并
+重新导航，把一个有效 Google 会话的 session cookie 轮换进未授权状态（见文档顶部
+说明）；该值不再有任何管理入口可以设置（`set_desired_state` 在 DB 写入层做了
+同样的拒绝）。
+
+开启保活（常驻 persistent）：
 
 ```bash
 curl --fail-with-body -sS -X PUT \
   -H "$AUTH_HEADER" \
   -H 'Content-Type: application/json' \
-  -d '{"keepalive_enabled":true,"runtime_mode":"warm"}' \
-  "$BASE_URL/api/tokens/$TOKEN_ID/lifecycle"
-```
-
-切换为 persistent：
-
-```bash
-curl --fail-with-body -sS -X PUT \
-  -H "$AUTH_HEADER" \
-  -H 'Content-Type: application/json' \
-  -d '{"runtime_mode":"persistent"}' \
+  -d '{"keepalive_enabled":true,"runtime_mode":"persistent"}' \
   "$BASE_URL/api/tokens/$TOKEN_ID/lifecycle"
 ```
 
@@ -779,14 +775,21 @@ sudo journalctl -u flow2api-keepalive.service -f
 ### 11.6 API 与非 ID 23 pilot
 
 1. 登录管理后台，检查 `/api/tokens` 不含 ST/AT。
-2. 调用 `/api/onboarding/config`，确认 UI 显示实际 XRDP display。
+2. XRDP display 不再通过 `/api/onboarding/config`（已 410）获取，直接用
+   `scripts/tokens.py onboard --display :N` 显式传入（见 §7.5）；未传时回退到
+   进程的 `$DISPLAY` 环境变量。
 3. 调用 ID 23 profile validation，确认只读结果正确。
-4. 对一个非 ID 23 账号完成 XRDP onboarding，默认使用 `warm`。
+4. 对一个非 ID 23 账号执行 `scripts/tokens.py onboard --email xxx@gmail.com --display :N`
+   完成 XRDP 入库（重登录已有账号用 `--token-id`），发布结果永远
+   `runtime_mode="persistent"`——CLI 没有 `--mode` 参数，管理 API 也拒绝把账号
+   设置为 `warm`。
 5. 新账号只有精确 paid 时才请求 business enable；free/unknown 保持业务禁用。
 6. 完成后确认无需重启 sidecar 即出现新 runner。
-7. 观察 warm Chrome 在刷新后退出；确认 ID 23 persistent browser 未被影响。
+7. 观察新入库账号的 persistent Chrome 与 ID 23 各自独立刷新、互不影响（新隧道
+   只发布 persistent，不会再出现"刷新后退出"的 warm Chrome）。
 8. 检查项目池已补齐且有效 current project 未被无条件旋转。
-9. 检查 onboarding response 和日志不含凭据、路径或 PID。
+9. 检查 onboard 输出（`scripts/tokens.py onboard` 的 JSON 与 systemd 日志）不含
+   凭据、路径或 PID。
 10. 再按账号逐个入库，避免并行 Google 登录触发风控。
 
 ## 12. ID 23 兼容基线

@@ -21,6 +21,7 @@ from ..services.concurrency_manager import ConcurrencyManager
 from ..services.onboarding import OnboardingService, OnboardingServiceError
 from ..core.cookie_extractor import extract_session_token
 from ..core.models import OnboardingJob
+from ..core.repositories.token_lifecycle_repository import PublishError
 from ..core.token_states import TOKEN_REASON_MANUAL_DISABLED
 
 try:
@@ -381,10 +382,18 @@ class CreateOnboardingJobRequest(BaseModel):
 
 
 class UpdateTokenLifecycleRequest(BaseModel):
-    """Update one or more keepalive fields without changing business ownership."""
+    """Update one or more keepalive fields without changing business ownership.
+
+    ``runtime_mode`` only accepts ``"persistent"``: a ``warm`` one-shot tore
+    down a resident Chrome and re-navigated in a prior production incident,
+    rotating a valid Google session into an unauthorized state. There is no
+    admin-API path back to ``warm`` (see also
+    ``TokenLifecycleRepository.set_desired_state``, which enforces the same
+    rule at the DB-write layer).
+    """
 
     keepalive_enabled: Optional[bool] = None
-    runtime_mode: Optional[Literal["persistent", "warm"]] = None
+    runtime_mode: Optional[Literal["persistent"]] = None
 
     @model_validator(mode="after")
     def require_change(self):
@@ -1075,7 +1084,7 @@ async def update_token_lifecycle(
         lifecycle = await db.get_token_lifecycle(token_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Token not found") from None
-    except ValueError as error:
+    except (ValueError, PublishError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from None
     except Exception:
         raise HTTPException(status_code=500, detail="Lifecycle update failed safely") from None

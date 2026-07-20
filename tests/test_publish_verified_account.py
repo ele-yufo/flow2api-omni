@@ -156,6 +156,38 @@ def test_publish_second_leg_failure_is_idempotent_on_retry(tmp_path):
     assert outcome2.ban_reason is None
 
 
+def test_set_desired_state_rejects_warm_runtime_mode(tmp_path):
+    """``set_desired_state`` is the low-level writer the lifecycle API calls;
+
+    it must reject ``runtime_mode="warm"`` the same way
+    ``publish_verified_account`` does (``PublishError("warm_rejected")``),
+    since a ``warm`` one-shot destroyed a valid Google session in a prior
+    production incident. ``create_for_token``'s ``runtime_mode='warm'`` DB
+    default for brand-new, not-yet-onboarded rows is untouched by this guard
+    -- only *setting* warm through this write path is rejected.
+    """
+    db, repo, token_id = make_database_with_token(tmp_path)
+
+    with pytest.raises(PublishError) as exc:
+        asyncio.run(repo.set_desired_state(token_id, runtime_mode="warm"))
+    assert exc.value.code == "warm_rejected"
+
+    # No write happened: the lifecycle row keeps create_for_token's
+    # unprovisioned-row default ('warm') rather than an explicitly-set one.
+    lifecycle = asyncio.run(db.get_token_lifecycle(token_id))
+    assert lifecycle.runtime_mode == "warm"
+
+
+def test_set_desired_state_accepts_persistent_runtime_mode(tmp_path):
+    """The only ``runtime_mode`` value ``set_desired_state`` still accepts."""
+    db, repo, token_id = make_database_with_token(tmp_path)
+
+    asyncio.run(repo.set_desired_state(token_id, runtime_mode="persistent"))
+
+    lifecycle = asyncio.run(db.get_token_lifecycle(token_id))
+    assert lifecycle.runtime_mode == "persistent"
+
+
 def test_publish_never_returns_credentials(tmp_path):
     db, repo, token_id = make_database_with_token(tmp_path)
     outcome = asyncio.run(

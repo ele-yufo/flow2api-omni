@@ -65,7 +65,15 @@ def test_global_onboard_lease_serializes(tmp_path):
 
 
 class _FakeProc:
-    """Minimal Popen-like stub exposing ``pid``/``wait``/``returncode``."""
+    """Minimal Popen-like stub exposing ``pid``/``wait``/``returncode``.
+
+    ``waited`` flips to ``True`` only once ``wait()`` actually returns a real
+    exit code (never on a ``TimeoutExpired`` -- the process is still alive
+    then). Tests use it to simulate the OS reaping/recycling a PID after a
+    real exit, so a fake ``os.getpgid`` can raise ``ProcessLookupError`` for
+    any call made *after* that point -- exactly what a real ``os.getpgid``
+    would do on an already-reaped PID.
+    """
 
     def __init__(self, *, pid: int = 12345, returncode: int | None = None,
                  wait_result: int | None = 0,
@@ -76,6 +84,7 @@ class _FakeProc:
         self._wait_raises = wait_raises
         self.terminated = False
         self.killed = False
+        self.waited = False
 
     def terminate(self) -> None:
         self.terminated = True
@@ -86,6 +95,7 @@ class _FakeProc:
     def wait(self, timeout: float | None = None) -> int:
         if self._wait_raises is not None:
             raise self._wait_raises
+        self.waited = True
         return self._wait_result or 0
 
 
@@ -170,15 +180,30 @@ def test_launch_chrome_crash_raises_browser_crashed(tmp_path, monkeypatch):
     Per spec §6.5, a crash also triggers process-group cleanup (the exited
     process may still have orphaned children), so ``os.killpg`` must be
     stubbed here too -- never let a unit test invoke the real syscall.
+
+    ``os.getpgid`` is stubbed to raise ``ProcessLookupError`` for any call
+    made *after* ``proc.wait()`` has already returned (``proc.waited`` is
+    ``True`` by then), simulating a real OS having reaped/recycled the PID.
+    This is the exact regression this test guards: the old code called
+    ``os.getpgid(proc.pid)`` *inside* the crash-cleanup helper, i.e. after
+    ``wait()`` already ran, which made cleanup a silent no-op (no ``killpg``
+    call at all, so the assertions below would fail). The fix captures the
+    pgid immediately after launch, while the process is still alive, so this
+    fake only ever sees a pre-wait call and succeeds.
     """
     killed: dict[str, Any] = {"pgid": None, "sig": None}
     proc = _FakeProc(returncode=13, wait_result=13)
+
+    def fake_getpgid(pid):
+        if proc.waited:
+            raise ProcessLookupError(f"no such process: {pid}")
+        return 1
 
     monkeypatch.setattr(
         "src.services.tokens.onboard.subprocess.Popen", lambda *a, **kw: proc
     )
     monkeypatch.setattr(
-        "src.services.tokens.onboard.os.getpgid", lambda pid: 1
+        "src.services.tokens.onboard.os.getpgid", fake_getpgid
     )
     monkeypatch.setattr(
         "src.services.tokens.onboard.os.killpg",
@@ -623,6 +648,55 @@ def test_old_token_readonly_validate_skips_login(tmp_path, monkeypatch):
     assert outcome.keepalive_enabled is True
     assert launched["n"] == 0  # 免登录
     assert profile_path.is_dir()  # 原 profile 未被 archive/替换
+
+
+def test_existing_account_project_pool_uses_verified_snapshot_st_not_stale_db_st(
+    tmp_path, monkeypatch
+):
+    """项目池 provisioning 必须用刚验证的 ``snapshot.st``,不能用尚未落库的旧 DB ST。
+
+    ``_publish_account``(把 ``snapshot.st`` 写回 ``tokens`` 表)在
+    ``_run_project_pool`` 之后才跑,所以 provisioning 阶段 ``db.get_token`` 读到
+    的仍是登录前的旧 ST。如果直接把那行转给 ``ensure_project_pool``/
+    ``FlowClient``,provisioning 就会用一个已经失效的会话 —— 这在今天是潜伏的
+    (现有账号都已有满池,创建循环从不触发),但会在第一个需要新建项目的账号上
+    暴露出来。
+    """
+    db = _make_db(tmp_path)
+    token_id = _make_old_token(db, tmp_path)
+    stale_db_st = asyncio.run(db.get_token(token_id)).st
+    fresh_st = "y" * 1100
+    assert fresh_st != stale_db_st  # sanity: the two STs must actually differ
+
+    async def fake_verify(profile_path_arg, flow_client, **kw):
+        return _make_snapshot(fresh_st, email=OLD_TOKEN_EMAIL)
+
+    monkeypatch.setattr("src.services.tokens.onboard.verify_profile", fake_verify)
+
+    captured = {}
+
+    async def capture_pool(_db, _flow_client, token, pool_size):
+        captured["st"] = token.st
+        captured["token_id"] = token.id
+        return []
+
+    monkeypatch.setattr("src.services.tokens.onboard.ensure_project_pool", capture_pool)
+
+    outcome = asyncio.run(
+        onboard_existing(
+            token_id=token_id,
+            runtime=_fake_runtime(tmp_path),
+            display=":11",
+            db=db,
+            flow_client=object(),
+            pool_size=4,
+            observed_at=datetime.now(timezone.utc),
+        )
+    )
+
+    assert captured["token_id"] == token_id
+    assert captured["st"] == fresh_st  # not stale_db_st
+    assert outcome.keepalive_enabled is True
 
 
 def test_old_token_relogin_when_readonly_fails(tmp_path, monkeypatch):

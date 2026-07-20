@@ -288,7 +288,11 @@ async def _cmd_onboard(args, db, flow_client, runtime, display) -> int:
             )
     except OnboardError as error:
         exit_code = _EXIT_BY_ONBOARD_CODE.get(error.code, ExitCode.VALIDATION_FAILED)
+        # Phase stream stays on stdout (ordering rationale unchanged for
+        # awaiting_login/published), but a failure must ALSO surface on
+        # stderr so an Agent that only reads stderr for errors doesn't miss it.
         emit_json({"phase": "failed", "error": {"code": error.code, "message": str(error)}})
+        emit_error(error.code, str(error), exit_code=exit_code)
         return int(exit_code)
 
     emit_json({
