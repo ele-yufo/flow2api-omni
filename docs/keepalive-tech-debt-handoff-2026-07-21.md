@@ -73,6 +73,20 @@
 
 **数据库：**`onboarding_jobs` 表当前有 1 行（上个 agent 遗留的 failed job）。建议保留建表语句但停止写入，或写一个明确的 migration 删表——**你来定，别默默 drop**。
 
+#### 用户已确认的产品边界（2026-07-21）
+
+> **入库走 CLI + Agent；但 Web 端保留基础管理与监控能力，不要做复杂。**
+
+界限正好落在两个前端文件之间，照此切即可：
+
+| 文件 | 行数 | 内容 | 处置 |
+|---|---:|---|---|
+| `static/manage-account-lifecycle.js` | 378 | 账号状态徽章、会员/profile 状态、启停保活、验证 profile、导出凭据 | ✅ **保留**（这就是用户要的管理监控面）|
+| `static/manage-account-onboarding.js` | 710 | 接入任务 modal、状态机进度条（"等待 XRDP 登录 → 迁移 Profile → 提交账号状态"）| ❌ **删除**（入库已改走 CLI）|
+| `static/manage.html` | 1284 | 账号列表与状态展示 | ⚠️ **保留主体**，仅摘掉 onboarding modal 的挂载点、`<script>` 引用，以及 lifecycle.js 里那个打开 modal 的「重登」按钮 |
+
+删完后 Web 端应仍能：看所有账号列表与健康状态、开关保活、验证 profile、导出凭据。**不能**再从 UI 发起入库/重登录——那是 `scripts/tokens.py onboard` 的职责，UI 上若需提示，给一行静态文案指向 CLI 即可，不要再建接入向导。
+
 **验证：**`pytest` 全绿；`systemctl restart flow2api` 后 `/api/tokens` 正常；保活不受影响。
 
 ### 第 2 步：消除 account_identity 重复
