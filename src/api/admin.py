@@ -10,6 +10,7 @@ import time
 import re
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from curl_cffi.requests import AsyncSession
 from ..core.auth import AuthManager
@@ -502,9 +503,37 @@ def _reject_onboarding_deprecated() -> None:
     )
 
 
+def to_iso(value):
+    """Serialize a DB timestamp to tz-aware ISO 8601 for JSON clients.
+
+    SQLite stores some timestamps via CURRENT_TIMESTAMP (naive UTC, no offset)
+    and others via Python datetime.isoformat() (UTC-aware). JS ``new Date()``
+    treats a naive date-time as LOCAL time, skewing CURRENT_TIMESTAMP fields by
+    the browser's UTC offset (8h on CST). Normalize every value to an explicit
+    UTC offset; naive values are treated as UTC, the on-disk convention already
+    used by ``at_refresh.should_refresh_at``. Non-timestamp inputs pass through.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            parsed = datetime.fromisoformat(stripped.replace("Z", "+00:00"))
+        except ValueError:
+            return value
+    else:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.isoformat()
+
+
 def _account_lifecycle_payload(account, lifecycle) -> Dict[str, Any]:
     """Build the credential-free account/lifecycle view used by management UI."""
-    to_iso = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
     return {
         "id": account.id,
         "email": account.email,
@@ -604,7 +633,6 @@ async def change_password(
 async def get_tokens(token: str = Depends(verify_admin_token)):
     """Get all tokens with statistics"""
     token_rows = await db.get_all_tokens_with_stats()
-    to_iso = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
 
     return [{
         "id": row.get("id"),
@@ -675,9 +703,7 @@ async def export_token_credentials(
             "email": account.email,
             "st": account.st,
             "at": account.at,
-            "at_expires": account.at_expires.isoformat()
-            if account.at_expires
-            else None,
+            "at_expires": to_iso(account.at_expires),
         },
     }
 
@@ -863,7 +889,7 @@ async def refresh_at(
                 "token": {
                     "id": updated_token.id,
                     "email": updated_token.email,
-                    "at_expires": updated_token.at_expires.isoformat() if updated_token.at_expires else None
+                    "at_expires": to_iso(updated_token.at_expires)
                 }
             }
         else:
@@ -1363,8 +1389,8 @@ async def get_logs(
             "duration": log.get("duration"),
             "status_text": log.get("status_text") or "",
             "progress": log.get("progress") or 0,
-            "created_at": log.get("created_at"),
-            "updated_at": log.get("updated_at"),
+            "created_at": to_iso(log.get("created_at")),
+            "updated_at": to_iso(log.get("updated_at")),
             "error_summary": _extract_error_summary(log.get("response_body_excerpt")) if status_code is not None and status_code >= 400 else "",
         })
     return result
@@ -1392,8 +1418,8 @@ async def get_log_detail(
         "duration": log.get("duration"),
         "status_text": log.get("status_text") or "",
         "progress": log.get("progress") or 0,
-        "created_at": log.get("created_at"),
-        "updated_at": log.get("updated_at"),
+        "created_at": to_iso(log.get("created_at")),
+        "updated_at": to_iso(log.get("updated_at")),
         "error_summary": error_summary,
         "request_body": log.get("request_body"),
         "response_body": log.get("response_body")
