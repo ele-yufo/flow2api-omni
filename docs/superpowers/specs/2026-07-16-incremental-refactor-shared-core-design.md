@@ -5,6 +5,8 @@
 - 作者：yufo + Claude Code
 - 关联二期：去水印 SaaS（Web + API，独立新服务）
 
+> **更新（2026-08-11）**：一期 shared-core 重构已完成并合并 main（`shared/` 可提取性由 `tests/characterization/test_shared_extractability.py` CI 锁定）。**二期"去水印 SaaS"已取消**——Google Flow 上游不再添加水印，去水印成负优化，相关代码（`shared/gpu`、`dewatermark/`、`dewatermark_saas/`）已于 2026-08-11 整体移除。本文档保留作为重构设计的历史记录；下方所有"二期 SaaS"叙述均为已废弃的历史背景。
+
 ## 1. 背景与动机
 
 flow2api 是一个把 Google Flow/Veo 视频生成逆向封装成 OpenAI/Gemini 兼容 API 的
