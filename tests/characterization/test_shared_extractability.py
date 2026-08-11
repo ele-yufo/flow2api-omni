@@ -1,6 +1,6 @@
 """Architectural fitness guard: src/shared/ MUST stay extractable.
 
-二期"去水印独立 SaaS"的地基前提:shared/ 是一套可整体搬走的通用核心,
+shared/ 是一套可整体搬走的通用核心,
 不得依赖任何 flow2api 业务模块(src.core / src.services / src.api)。
 
 本测试是可执行契约——任何后续重构若让 shared 反向依赖业务层,这里立刻红。
@@ -18,7 +18,7 @@ import pytest
 SHARED_ROOT = Path(__file__).resolve().parents[2] / "src" / "shared"
 BUSINESS_PREFIXES = ("src.core", "src.services", "src.api")
 # shared 内部允许的相对上跳目标(均为 shared 的直接子包)
-SHARED_INTERNAL_SIBLINGS = {"config", "telemetry", "auth", "storage", "gpu", "db", "shared"}
+SHARED_INTERNAL_SIBLINGS = {"config", "telemetry", "auth", "storage", "db", "shared"}
 
 # 覆盖 shared/ 下每个可导入模块(以点路径给出)
 SHARED_IMPORTABLE_MODULES = [
@@ -30,7 +30,6 @@ SHARED_IMPORTABLE_MODULES = [
     "src.shared.storage.cache_helpers",
     "src.shared.storage.media_types",
     "src.shared.storage.file_cache",
-    "src.shared.gpu.watermark_client",
     "src.shared.db",
 ]
 

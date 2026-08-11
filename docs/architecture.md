@@ -62,7 +62,6 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 | `shared/db/engine.py` | `SqliteEngine` 连接、busy timeout、外键与事务管理 |
 | `shared/storage/` | 文件缓存、媒体类型与缓存辅助逻辑 |
 | `shared/auth/` | HTTP 鉴权基础能力 |
-| `shared/gpu/watermark_client.py` | 去水印服务客户端 |
 
 ### 跨进程写事务
 
