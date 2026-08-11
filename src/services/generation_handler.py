@@ -13,14 +13,12 @@ from ..core.model_catalog import MODEL_CONFIG
 from ..core.models import Task, RequestLog
 from ..core.account_tiers import (
     PAYGATE_TIER_NOT_PAID,
-    PAYGATE_TIER_ONE,
     get_paygate_tier_label,
     get_required_paygate_tier_for_model,
     normalize_user_paygate_tier,
     supports_model_for_tier,
 )
 from .file_cache import FileCache
-from .watermark_client import dewatermark_video
 from .generation.responses import (
     create_completion_response,
     create_error_response,
@@ -1137,7 +1135,7 @@ class GenerationHandler:
         self, video_url, token, operation, stream, response_state,
         generation_result, request_log_state,
     ) -> AsyncGenerator:
-        """成功生成后的收尾:缓存 -> Pro 去水印 -> 落库 -> yield 最终响应。
+        """成功生成后的收尾:缓存 -> 落库 -> yield 最终响应。
 
         从 _poll_video_result 抽出,行为逐字不变;由 test_poll_video_result 安全网守护。
         """
@@ -1162,19 +1160,6 @@ class GenerationHandler:
         else:
             if stream:
                 yield self._create_stream_chunk("缓存已关闭,正在返回源链接...\n")
-
-        # Pro(TIER_ONE) 视频去水印: 调本机常驻 ProPainter 服务; 失败回退原 URL,
-        # 绝不让生成失败。Ultra(TIER_TWO)/Free 无水印, 直接透传。
-        if config.watermark_enabled and normalize_user_paygate_tier(token.user_paygate_tier) == PAYGATE_TIER_ONE:
-            if stream:
-                yield self._create_stream_chunk("正在去除 Pro 水印...\n")
-            dewm_url = await dewatermark_video(video_url, self.file_cache, self._get_base_url(response_state))
-            if dewm_url:
-                local_url = dewm_url
-                if stream:
-                    yield self._create_stream_chunk("✅ 水印已去除\n")
-            elif stream:
-                yield self._create_stream_chunk("⚠️ 去水印未成功, 返回原视频\n")
 
         # 更新数据库 + 写 response_state
         await self._persist_video_completion(operation, local_url, response_state)
@@ -1576,7 +1561,7 @@ class GenerationHandler:
                             yield _c
                         if _extend_outcome.get("completed"):
                             return
-                    # 成功收尾(缓存 -> 去水印 -> 落库 -> 最终响应)抽成独立生成器
+                    # 成功收尾(缓存 -> 落库 -> 最终响应)抽成独立生成器
                     async for _chunk in self._finalize_video_success(
                         video_url, token, operation, stream, response_state,
                         generation_result, request_log_state,

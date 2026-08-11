@@ -23,7 +23,7 @@ from src.services.generation_handler import GenerationHandler
 def _fake_config():
     return SimpleNamespace(
         max_poll_attempts=10, poll_interval=0,
-        cache_enabled=False, watermark_enabled=False,
+        cache_enabled=False,
         cache_base_url="", server_host="127.0.0.1", server_port=8000,
     )
 

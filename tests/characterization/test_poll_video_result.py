@@ -16,12 +16,11 @@ import pytest
 from src.services.generation_handler import GenerationHandler
 
 
-def _fake_config(max_poll_attempts=10, cache_enabled=False, watermark_enabled=False):
+def _fake_config(max_poll_attempts=10, cache_enabled=False):
     return SimpleNamespace(
         max_poll_attempts=max_poll_attempts,
         poll_interval=0,
         cache_enabled=cache_enabled,
-        watermark_enabled=watermark_enabled,
         cache_base_url="",
         server_host="127.0.0.1",
         server_port=8000,
@@ -106,20 +105,6 @@ def test_success_caches_video_when_cache_enabled():
     _, kwargs = gh.db.update_task.await_args
     # 缓存成功 -> result URL 指向本机 /tmp 缓存文件
     assert kwargs["result_urls"] == ["http://127.0.0.1:8000/tmp/cached.mp4"]
-
-
-def test_success_dewatermarks_for_pro_tier():
-    gh = _make_handler(check_result=_successful_result())
-    cfg = _fake_config(watermark_enabled=True)
-    with patch("src.services.generation_handler.dewatermark_video",
-               new=AsyncMock(return_value="http://h/tmp/dewm.mp4")) as dw:
-        chunks, gr = asyncio.run(_drive(
-            gh, [{"operation": {"name": "t"}}], tier="PAYGATE_TIER_ONE", cfg=cfg))
-
-    dw.assert_awaited_once()
-    assert gr["success"] is True
-    _, kwargs = gh.db.update_task.await_args
-    assert kwargs["result_urls"] == ["http://h/tmp/dewm.mp4"]
 
 
 def test_success_fetches_media_url_when_fife_missing():
