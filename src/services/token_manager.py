@@ -818,8 +818,10 @@ class TokenManager:
 
         This method resets error_count to 0, which is used for auto-disable threshold checking.
         Note: today_error_count and historical statistics are NOT reset.
+        成功生成同时清除配额耗尽标记——一次成功就是"配额已恢复"的最强信号。
         """
         await self.db.reset_error_count(token_id)
+        await self.db.clear_token_quota_mark(token_id)
 
     async def ban_token_for_429(self, token_id: int):
         """因429错误立即禁用token
@@ -927,3 +929,22 @@ class TokenManager:
         except Exception as e:
             debug_logger.log_error(f"Failed to refresh credits for token {token_id}: {str(e)}")
             return 0
+
+    async def mark_quota_exhausted(self, token_id: int) -> None:
+        """账号配额耗尽（USER_QUOTA_REACHED）时打摘除标记。
+
+        只写 quota_exhausted_at + 打标时的 credits 快照，不动 credits /
+        is_active / ban_reason —— 账号没失效，只是当下没额度，UI 数据保持
+        真实。负载均衡按"标记期内且 credits 未回涨"把它移出轮换：
+        - 月度充值后保活写回高 credits → 快照对比发现回涨 → 自动回池；
+        - credits 与配额脱节（数字居高但生成被拒）→ 标记按冷却窗口
+          （默认 12h）到期后放行一次探测，不会每 20 分钟翻覆；
+        - 期间任何一次成功生成 → record_success 清标，立即回池。
+        """
+        token = await self.db.get_token(token_id)
+        credits_snapshot = token.credits if (token and token.credits is not None) else 0
+        await self.db.update_token(
+            token_id,
+            quota_exhausted_at=datetime.now(timezone.utc),
+            quota_exhausted_credits=credits_snapshot,
+        )

@@ -1,6 +1,7 @@
 """Load balancing module for Flow2API"""
 import asyncio
 import random
+from datetime import datetime, timezone
 from typing import Optional, Dict
 from ..core.models import Token
 from ..core.config import config
@@ -26,6 +27,29 @@ class LoadBalancer:
         self._round_robin_state: Dict[str, Optional[int]] = {"image": None, "video": None, "default": None}
         self._rr_lock = asyncio.Lock()
         self.min_credits_to_select = config.min_credits_to_select
+        self.quota_exhausted_cooldown_seconds = config.quota_exhausted_cooldown_seconds
+
+    def _quota_mark_excludes(self, token: Token) -> bool:
+        """配额耗尽标记是否仍在摘除窗口内（纯函数，读行内状态，无需清标写入）。
+
+        - 标记已超过 quota_exhausted_cooldown_seconds → 过期，放行探测一次；
+        - credits 已回涨超过 max(打标快照, min_credits_to_select) → 判定已充值，放行；
+        - 其余 → 继续摘除。窗口内任何一次成功生成由 record_success 清标。
+        """
+        marked_at = getattr(token, "quota_exhausted_at", None)
+        if not marked_at:
+            return False
+        if marked_at.tzinfo is None:
+            marked_at = marked_at.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        if (now - marked_at).total_seconds() >= self.quota_exhausted_cooldown_seconds:
+            return False
+        snapshot = token.quota_exhausted_credits
+        if snapshot is None:
+            snapshot = 0
+        ceiling = max(snapshot, self.min_credits_to_select)
+        credits_now = token.credits if token.credits is not None else 0
+        return credits_now <= ceiling
 
     async def _get_pending_count(self, token_id: int, for_image_generation: bool, for_video_generation: bool) -> int:
         async with self._pending_lock:
@@ -169,6 +193,12 @@ class LoadBalancer:
                 continue
             if token.credits is not None and token.credits <= self.min_credits_to_select:
                 filtered_reasons[token.id] = f"额度不足 (credits={token.credits})"
+                continue
+            if self._quota_mark_excludes(token):
+                filtered_reasons[token.id] = (
+                    f"配额耗尽标记 (credits={token.credits}, "
+                    f"标记于 {token.quota_exhausted_at})"
+                )
                 continue
             if for_image_generation:
                 if not token.image_enabled:

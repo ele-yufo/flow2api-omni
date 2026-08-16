@@ -208,6 +208,12 @@ sudo systemctl start flow2api
 
 业务“禁用”不会自动关闭保活；保活成功也不会清除 `manual_disabled`、`429_rate_limit` 或 `consecutive_errors` 等由其他策略拥有的禁用原因。管理 API `PUT /api/tokens/{token_id}/lifecycle` 只修改保活 desired state，不等价于 `/enable` 或 `/disable`。
 
+#### 账号配额耗尽双信号摘除（2026-08-16）
+
+生成链路遇到 Google 账号级配额耗尽（`PUBLIC_ERROR_USER_QUOTA_REACHED` / `Resource has been exhausted (e.g. check quota).`）时，`generation_handler` 给该账号打**配额耗尽标记**（`quota_exhausted_at` 时间 + 打标时的 `credits` 快照），不改 `credits` / `is_active`（管理页数据保持真实），也不禁用账号。负载均衡对"标记在冷却窗口（`quota_exhausted_cooldown_seconds`，默认 12h）内 **且** credits 未回涨（≤ max(打标快照, `min_credits_to_select`)）"的账号不路由，同账号的秒级重试也被跳过。回池自愈有三条路：**月度充值**后保活写回高 credits，快照对比发现回涨立即回池（约 20 分钟内）；窗口内任何一次**成功生成**即清标回池；标记**到期**后放行一次探测，仍失败会再打标（credits 与配额脱节的最坏情况每 12h 仅一个失败请求，不会随保活周期 20 分钟翻覆）。
+
+背景：保活刷新 credits 有 ~20 分钟窗口，账号可能在批次中途耗尽配额而库里 credits 仍显示高于阈值（2026-08-16 00:19 事故根因，credits 为月度充值周期）；配额错误是"此账号当下无额度"的实时信号，标记补上这段盲区，长期仍由 credits 阈值接管。分钟级限流（普通 `429 Too Many Requests`、`Quota exceeded ... per minute`）不触发打标，仍走连续错误计数，避免误摘。注意上游曾用 `"429" in str(e)` 判断——Google 文案里没有字面 `429`，该匹配从未命中过，已移除。
+
 #### 会员过期与条件恢复
 
 只有成功、身份一致的 credits 检查才计入会员观察：

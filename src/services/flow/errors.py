@@ -50,9 +50,35 @@ def is_retryable_network_error(error_str: str) -> bool:
     ])
 
 
+def is_user_quota_exhausted_error(error_str: str) -> bool:
+    """判断是否为 Google 账号级配额耗尽（USER_QUOTA_REACHED）。
+
+    这是账号维度的长期配额（当日/当月额度用完），不是分钟级限流：
+    同一账号 1 秒后重试没有任何意义，正确处理是把该账号移出路由
+    （token_manager.mark_quota_exhausted 打时间标记 + credits 快照，
+    由负载均衡在冷却窗口内摘除，充值回涨/成功生成/到期后自愈回池）
+    并让下一次请求轮换到其它账号。
+    """
+    error_lower = (error_str or "").lower()
+    if "user_quota_reached" in error_lower:
+        return True
+    # Google 429 RESOURCE_EXHAUSTED 的标准完整措辞是
+    # "Resource has been exhausted (e.g. check quota)."；只认这个精确组合，
+    # 避免把分钟级限流（"Quota exceeded for quota metric ... per minute"）
+    # 误判成账号配额耗尽而错禁 12 小时。
+    return (
+        "resource has been exhausted" in error_lower
+        and "check quota" in error_lower
+    )
+
+
 def get_retry_reason(error_str: str) -> Optional[str]:
     """判断是否需要重试，返回日志提示内容（None 表示不重试）。"""
     error_lower = error_str.lower()
+    # 账号配额耗尽：快速失败（同账号重试无意义），交给上层摘除账号+换号。
+    # 必须放在 "public_error" 通配之前，否则会被归为 "5xx/上游瞬断" 而空转重试。
+    if is_user_quota_exhausted_error(error_str):
+        return None
     if "403" in error_lower:
         return "403错误"
     if "429" in error_lower or "too many requests" in error_lower:

@@ -53,6 +53,11 @@ class Token(BaseModel):
     ban_reason: Optional[str] = None  # 禁用原因: "429_rate_limit" 或 None
     banned_at: Optional[datetime] = None  # 禁用时间
 
+    # 配额耗尽标记（生成链路 USER_QUOTA_REACHED 时打标，不动 credits/is_active；
+    # 负载均衡按"标记期内且 credits 未回涨"摘除，成功生成或充值回涨后自愈）
+    quota_exhausted_at: Optional[datetime] = None  # 打标时间
+    quota_exhausted_credits: Optional[int] = None  # 打标时的 credits 快照
+
 
 class TokenLifecycle(BaseModel):
     """Lifecycle, keepalive configuration, and keepalive telemetry for one token."""
