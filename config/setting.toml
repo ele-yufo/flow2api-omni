@@ -49,6 +49,10 @@ call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
 # 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
 # 单次生成最多消耗 15 credits，低于 20 不足以安全跑完一次，提前退出候选池。
 min_credits_to_select = 20
+# 配额耗尽标记（USER_QUOTA_REACHED）的摘除窗口（秒）：期内且 credits 未回涨
+# （未超过打标快照与本阈值）则不路由；到期放行一次探测，成功即清标回池。
+# 默认 12 小时，账号 credits 为月度充值周期，窗口内整月空窗 0 次空转。
+quota_exhausted_cooldown_seconds = 43200
 
 [admin]
 error_ban_threshold = 3

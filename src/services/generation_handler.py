@@ -19,6 +19,7 @@ from ..core.account_tiers import (
     supports_model_for_tier,
 )
 from .file_cache import FileCache
+from .flow.errors import is_user_quota_exhausted_error
 from .generation.responses import (
     create_completion_response,
     create_error_response,
@@ -384,12 +385,9 @@ class GenerationHandler:
                 error_msg = generation_result.get("error_message") or "生成未成功完成"
                 debug_logger.log_warning(f"[GENERATION] 生成未成功，不扣次数: {error_msg}")
                 if token:
-                    if _is_content_policy_error(error_msg):
-                        debug_logger.log_info(
-                            f"[GENERATION] 内容策略/风控拒绝 — 不计入 token 错误计数 (token_id={token.id})"
-                        )
-                    else:
-                        await self.token_manager.record_error(token.id)
+                    # 统一走 _record_generation_error：配额耗尽 → 摘除轮换；
+                    # 内容策略拒绝 → 不计数；其余 → 连续错误计数。
+                    await self._record_generation_error(token, Exception(error_msg))
                 duration = time.time() - start_time
                 perf_trace["status"] = "failed"
                 perf_trace["total_ms"] = int(duration * 1000)
@@ -495,8 +493,7 @@ class GenerationHandler:
             error_msg = f"生成失败: {str(e)}"
             debug_logger.log_error(f"[GENERATION] ❌ {error_msg}")
             if token:
-                # 记录错误（所有错误统一处理，不再特殊处理429）
-                await self.token_manager.record_error(token.id)
+                await self._record_generation_error(token, e)
 
             # 先将最终失败状态落库，再返回错误响应，避免日志停在 102。
             duration = time.time() - start_time
@@ -535,6 +532,32 @@ class GenerationHandler:
     def _get_no_token_error_message(self, generation_type: str) -> str:
         """委托 generation.state。"""
         return get_no_token_error_message(generation_type)
+
+    async def _record_generation_error(self, token, error) -> None:
+        """失败后的 token 记账（异常路径与 generation_result 失败路径共用）。
+
+        - 账号级配额耗尽（USER_QUOTA_REACHED）：该账号当下不可能再生成，
+          立即打配额耗尽标记（时间 + credits 快照）—— 负载均衡在标记冷却
+          窗口内且 credits 未回涨时不路由它（"credit 不够就不路由"）；
+          不禁用账号、不改 credits，充值回涨或成功生成后自动回池。
+        - 内容策略/风控拒绝：不计入 token 错误计数（不是账号故障）。
+        - 其余错误：连续错误计数（达到阈值才禁用）。
+        注意不能用 "429" in str(e) 判断——Google 的错误文案里没有字面
+        "429"，历史上这个匹配从未命中过真实的配额错误。
+        """
+        error_str = str(error)
+        if is_user_quota_exhausted_error(error_str):
+            debug_logger.log_warning(
+                f"[QUOTA] Token {token.id} ({getattr(token, 'email', '?')}) "
+                f"账号配额耗尽，打摘除标记（充值回涨/成功生成/冷却到期自愈回池）"
+            )
+            await self.token_manager.mark_quota_exhausted(token.id)
+        elif _is_content_policy_error(error_str):
+            debug_logger.log_info(
+                f"[GENERATION] 内容策略/风控拒绝 — 不计入 token 错误计数 (token_id={token.id})"
+            )
+        else:
+            await self.token_manager.record_error(token.id)
 
     async def _handle_image_generation(
         self,

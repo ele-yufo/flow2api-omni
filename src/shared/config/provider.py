@@ -757,6 +757,14 @@ class Config(CorsConfigMixin):
             return 1
 
     @property
+    def quota_exhausted_cooldown_seconds(self) -> int:
+        """配额耗尽标记的摘除窗口：期内 credits 未回涨则不路由，到期放行一次探测。"""
+        try:
+            return max(0, int(self._config.get("call_logic", {}).get("quota_exhausted_cooldown_seconds", 43200)))
+        except (TypeError, ValueError):
+            return 43200
+
+    @property
     def alert_webhook_url(self) -> str:
         # 优先环境变量（密钥不进 git），回退 toml [admin] alert_webhook_url
         env = os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")

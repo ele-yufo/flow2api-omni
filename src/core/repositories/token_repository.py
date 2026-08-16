@@ -221,6 +221,16 @@ class TokenRepository:
                 )
                 await db.commit()
 
+    async def clear_token_quota_mark(self, token_id: int):
+            """显式把配额耗尽标记置 NULL（成功生成证明配额恢复，立即自愈回池）。"""
+            async with self._engine._connect(write=True) as db:
+                await db.execute(
+                    "UPDATE tokens SET quota_exhausted_at = NULL, quota_exhausted_credits = NULL "
+                    "WHERE id = ?",
+                    (token_id,),
+                )
+                await db.commit()
+
     async def delete_token(self, token_id: int):
             """Delete a token unless a resumable onboarding job still references it."""
             async with self._engine.transaction() as db:

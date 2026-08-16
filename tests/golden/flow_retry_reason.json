@@ -1,8 +1,10 @@
 {
   "200 OK": null,
   "429 Too Many Requests": "429限流",
+  "Flow API request failed: PUBLIC_ERROR_USER_QUOTA_REACHED: Resource has been exhausted (e.g. check quota).": null,
   "HTTP 403 Forbidden": "403错误",
   "HTTP Error 502 Bad Gateway": "5xx/上游瞬断",
+  "Resource has been exhausted (e.g. check quota).": null,
   "curl: (16) framing": "网络/TLS错误",
   "reCAPTCHA evaluation failed": "reCAPTCHA 验证失败",
   "reCAPTCHA token missing": "reCAPTCHA 错误",

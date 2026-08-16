@@ -386,6 +386,8 @@ class Database(SqliteEngine):
                     ("captcha_proxy_url", "TEXT"),  # token级打码代理
                     ("ban_reason", "TEXT"),  # 禁用原因
                     ("banned_at", "TIMESTAMP"),  # 禁用时间
+                    ("quota_exhausted_at", "TIMESTAMP"),  # 配额耗尽标记时间（生成链路打标）
+                    ("quota_exhausted_credits", "INTEGER"),  # 打标时的 credits 快照
                 ]
 
                 for col_name, col_type in columns_to_add:
@@ -533,7 +535,9 @@ class Database(SqliteEngine):
                     video_concurrency INTEGER DEFAULT -1,
                     captcha_proxy_url TEXT,
                     ban_reason TEXT,
-                    banned_at TIMESTAMP
+                    banned_at TIMESTAMP,
+                    quota_exhausted_at TIMESTAMP,
+                    quota_exhausted_credits INTEGER
                 )
             """)
 
@@ -848,6 +852,10 @@ class Database(SqliteEngine):
     async def clear_token_ban(self, token_id):
         """委托 TokenRepository。"""
         await self._tokens.clear_token_ban(token_id=token_id)
+
+    async def clear_token_quota_mark(self, token_id):
+        """委托 TokenRepository。"""
+        await self._tokens.clear_token_quota_mark(token_id=token_id)
 
     async def delete_token(self, token_id):
         """委托 TokenRepository。"""
