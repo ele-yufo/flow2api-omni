@@ -153,6 +153,7 @@ def make_runner(
     launch_semaphore=None,
     refresh_semaphore=None,
     shutdown_timeout_seconds=20.0,
+    attempt_timeout_seconds=300.0,
 ):
     profile_base = tmp_path / "profiles"
     profile_base.mkdir(exist_ok=True)
@@ -181,6 +182,7 @@ def make_runner(
         alert_sender=alert_sender,
         clock=current_clock,
         shutdown_timeout_seconds=shutdown_timeout_seconds,
+        attempt_timeout_seconds=attempt_timeout_seconds,
     )
     return runner, database, current_clock, browser_harness, leases
 
@@ -626,3 +628,160 @@ async def test_graceful_stop_drains_every_runner_and_is_idempotent():
 
     assert supervisor.runners == {}
     assert [runner.stop_count for runner in runners] == [1, 1]
+
+
+class HungRefresher:
+    """Refresher whose refresh never returns (2026-08-21 daemon freeze shape)."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def refresh(self, browser, target, profile, settle_seconds):
+        self.calls += 1
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+@pytest.mark.asyncio
+async def test_attempt_timeout_degrades_to_network_failure_and_restarts_browser(tmp_path):
+    refresher = HungRefresher()
+    runner, db, _, harness, leases = make_runner(
+        tmp_path,
+        make_target(runtime_mode="persistent"),
+        refresher,
+        attempt_timeout_seconds=0.1,
+    )
+
+    outcome = await asyncio.wait_for(runner.run_now(), timeout=5)
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.NETWORK
+    assert outcome.restart_browser is True
+    assert "exceeded" in outcome.detail
+    # 遥测照常落库：失败可见、按普通退避重试，而不是无声悬挂。
+    assert db.telemetry[0][1]["status"] == "failure"
+    assert db.telemetry[0][1]["error_code"] == "network"
+    # restart_browser 语义：悬挂浏览器被销毁、lease 释放，下一轮重建。
+    assert harness.stops == [harness.launches[0]["browser"]]
+    assert leases.leases[0].release_count == 1
+    assert runner.browser is None
+
+
+@pytest.mark.asyncio
+async def test_run_forever_watchdog_exits_on_wedged_reconcile():
+    class WedgedDatabase(FakeDatabase):
+        async def list_keepalive_enabled_tokens(self):
+            await asyncio.Event().wait()
+
+    supervisor = KeepaliveSupervisor(
+        WedgedDatabase(),
+        runner_factory=lambda target, **deps: FakeManagedRunner(target, [], **deps),
+        reconcile_timeout_seconds=0.05,
+        reconcile_interval_seconds=0.01,
+    )
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(supervisor.run_forever(), timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_run_forever_watchdog_exits_on_wedged_cycle():
+    class HungRunner(FakeManagedRunner):
+        async def run_if_due(self):
+            await asyncio.Event().wait()
+
+    db = FakeDatabase([make_target(5)])
+    supervisor = KeepaliveSupervisor(
+        db,
+        runner_factory=lambda target, **deps: HungRunner(target, [], **deps),
+        cycle_timeout_seconds=0.05,
+        reconcile_interval_seconds=0.01,
+    )
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(supervisor.run_forever(), timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_run_forever_keeps_cycling_within_watchdog_budget():
+    log = []
+    db = FakeDatabase([make_target(6, next_due_at=NOW + timedelta(days=1))])
+    supervisor = KeepaliveSupervisor(
+        db,
+        runner_factory=lambda target, **deps: FakeManagedRunner(target, log, **deps),
+        reconcile_interval_seconds=0.01,
+        cycle_timeout_seconds=5,
+        reconcile_timeout_seconds=5,
+    )
+
+    async def run_briefly():
+        task = asyncio.create_task(supervisor.run_forever())
+        await asyncio.sleep(0.1)
+        await supervisor.stop()
+        await task
+
+    await asyncio.wait_for(run_briefly(), timeout=5)
+    # 循环正常推进、重复执行，看门狗在宽裕预算下不误伤。
+    assert len(log) > 1
+
+
+@pytest.mark.asyncio
+async def test_queued_attempt_does_not_consume_attempt_budget(tmp_path):
+    """全池同时到期时，信号量排队等待不计入 attempt 预算（review MEDIUM 修复）。"""
+    refresh_semaphore = asyncio.Semaphore(1)
+
+    class SlowRefresher:
+        def __init__(self, delay):
+            self.delay = delay
+
+        async def refresh(self, browser, target, profile, settle_seconds):
+            await asyncio.sleep(self.delay)
+            return RefreshOutcome.success(credits=target.id)
+
+    # runner A 慢（0.3s），runner B 预算只有 0.15s 且排在后面：
+    # 旧实现 B 会在排队中被误判超时；预算从拿到信号量起算后两者都应成功。
+    runner_a, _, _, _, _ = make_runner(
+        tmp_path,
+        make_target(31),
+        SlowRefresher(0.3),
+        refresh_semaphore=refresh_semaphore,
+        attempt_timeout_seconds=5.0,
+    )
+    runner_b, _, _, _, _ = make_runner(
+        tmp_path,
+        make_target(32),
+        SlowRefresher(0.0),
+        refresh_semaphore=refresh_semaphore,
+        attempt_timeout_seconds=0.15,
+    )
+
+    outcome_a, outcome_b = await asyncio.gather(
+        runner_a.run_now(), runner_b.run_now()
+    )
+
+    assert outcome_a.ok is True
+    assert outcome_b.ok is True
+
+
+@pytest.mark.asyncio
+async def test_wedged_profile_lease_acquisition_degrades_to_profile_busy(tmp_path):
+    """同步 lease 获取 wedge 不再冻结事件循环，限时降级为 PROFILE_BUSY。"""
+
+    def hung_lease_acquirer(_base, _token_id):
+        import time
+
+        time.sleep(3)  # 超时后线程短暂残留，进程退出时由 executor join 收尾
+
+    runner, db, _, _, _ = make_runner(
+        tmp_path,
+        make_target(runtime_mode="warm"),
+        QueueRefresher(RefreshOutcome.success()),
+        lease_factory=hung_lease_acquirer,
+        attempt_timeout_seconds=0.1,
+    )
+
+    outcome = await asyncio.wait_for(runner.run_now(), timeout=5)
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.PROFILE_BUSY
+    assert "exceeded" in outcome.detail

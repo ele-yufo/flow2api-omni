@@ -121,3 +121,8 @@ browser_profile_base = "/opt/flow2api-profiles"  # 每号子目录 = {token_id}
 browser_proxy = "http://127.0.0.1:7890"          # mihomo 固定住宅 IP（必须和登录时一致）
 browser_display = ":10"           # 复用现有 Xvfb（systemd 已起，PID 2041）
 browser_settle_seconds = 8.0      # 导航后等 OAuth 静默续期的秒数
+# 三层超时兜底（2026-08-21 daemon 静默僵死 12h 后引入，缺省值即下列值，一般无需改）：
+# browser_call_timeout_seconds = 60       # 单次 CDP/HTTP/写库调用限时
+# browser_attempt_timeout_seconds = 300   # 单账号一次 attempt 整体限时，超时记 NETWORK 并重启浏览器
+# browser_cycle_timeout_seconds = 1800    # 一轮 run_due_once 限时，超时 daemon 退出由 systemd 重启
+# browser_reconcile_timeout_seconds = 120 # 一次 reconcile 限时，超时同上退出重启

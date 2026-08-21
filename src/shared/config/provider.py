@@ -695,6 +695,24 @@ class Config(CorsConfigMixin):
     def keepalive_browser_reconcile_interval_seconds(self) -> int:
         return self._keepalive_int("browser_reconcile_interval_seconds", 15, 5, 300)
 
+    # 保活链路三层超时兜底（2026-08-21 daemon 静默僵死 12h 后引入）：
+    # call < attempt < cycle，任何一层悬挂都在对应层级降级/重启，不再冻结调度循环。
+    @property
+    def keepalive_browser_call_timeout_seconds(self) -> int:
+        return self._keepalive_int("browser_call_timeout_seconds", 60, 10, 600)
+
+    @property
+    def keepalive_browser_attempt_timeout_seconds(self) -> int:
+        return self._keepalive_int("browser_attempt_timeout_seconds", 300, 60, 1800)
+
+    @property
+    def keepalive_browser_cycle_timeout_seconds(self) -> int:
+        return self._keepalive_int("browser_cycle_timeout_seconds", 1800, 300, 7200)
+
+    @property
+    def keepalive_browser_reconcile_timeout_seconds(self) -> int:
+        return self._keepalive_int("browser_reconcile_timeout_seconds", 120, 30, 600)
+
     @property
     def keepalive_browser_max_concurrent_refreshes(self) -> int:
         return self._keepalive_int("browser_max_concurrent_refreshes", 1, 1, 10)

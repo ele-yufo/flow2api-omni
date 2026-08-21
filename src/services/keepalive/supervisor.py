@@ -127,6 +127,7 @@ class ManagedAccountRunner:
         scheduler_policy: SchedulerPolicy = DEFAULT_POLICY,
         clock: Clock = _utc_now,
         shutdown_timeout_seconds: float = 20.0,
+        attempt_timeout_seconds: float = 300.0,
     ) -> None:
         self._token_id = _target_id(target)
         _runtime_mode(target)
@@ -169,6 +170,12 @@ class ManagedAccountRunner:
         )
         if self._shutdown_timeout_seconds == 0:
             raise ValueError("shutdown_timeout_seconds must be positive")
+        self._attempt_timeout_seconds = _nonnegative_float(
+            attempt_timeout_seconds,
+            "attempt_timeout_seconds",
+        )
+        if self._attempt_timeout_seconds == 0:
+            raise ValueError("attempt_timeout_seconds must be positive")
         self._scheduler = scheduler or KeepaliveScheduler(
             clock=clock,
             policy=scheduler_policy,
@@ -274,9 +281,26 @@ class ManagedAccountRunner:
         )
 
     async def _launch_browser(self) -> Optional[RefreshOutcome]:
+        # profile lease/prepare 是同步文件锁与文件 IO，卸载到线程并限时，
+        # 避免 wedge 直接冻结事件循环线程（asyncio 超时对同步阻塞无效）。
         try:
             lease = await _maybe_await(
-                self._profile_lease_acquirer(self._profile_base, self._token_id)
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._profile_lease_acquirer,
+                        self._profile_base,
+                        self._token_id,
+                    ),
+                    timeout=self._attempt_timeout_seconds,
+                )
+            )
+        except TimeoutError:
+            return RefreshOutcome.failure(
+                FailureCode.PROFILE_BUSY,
+                detail=(
+                    "profile lease acquisition exceeded "
+                    f"{self._attempt_timeout_seconds:.0f}s budget (TimeoutError)"
+                ),
             )
         except (ProfileLeaseBusyError, ProfileBusyError, ProfileLockUncertainError) as error:
             return self._profile_error(error)
@@ -303,7 +327,20 @@ class ManagedAccountRunner:
             )
 
         try:
-            await _maybe_await(self._profile_preparer(lease))
+            await _maybe_await(
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._profile_preparer, lease),
+                    timeout=self._attempt_timeout_seconds,
+                )
+            )
+        except TimeoutError:
+            return RefreshOutcome.failure(
+                FailureCode.PROFILE_BUSY,
+                detail=(
+                    "profile preparation exceeded "
+                    f"{self._attempt_timeout_seconds:.0f}s budget (TimeoutError)"
+                ),
+            )
         except FileNotFoundError:
             return RefreshOutcome.failure(
                 FailureCode.PROFILE_MISSING,
@@ -317,15 +354,27 @@ class ManagedAccountRunner:
 
         try:
             async with self._launch_semaphore:
-                browser = await _maybe_await(
-                    self._browser_launcher(
-                        profile_path,
-                        self._effective_proxy(),
-                        self._display,
-                        self._browser_executable,
-                        headless=False,
+                # attempt 预算从拿到信号量后才起算：全池同时到期时排队等待
+                # 不应消耗预算，否则慢 attempt 会误杀后面排队的账号。
+                async with asyncio.timeout(self._attempt_timeout_seconds):
+                    browser = await _maybe_await(
+                        self._browser_launcher(
+                            profile_path,
+                            self._effective_proxy(),
+                            self._display,
+                            self._browser_executable,
+                            headless=False,
+                        )
                     )
-                )
+        except TimeoutError:
+            return RefreshOutcome.failure(
+                FailureCode.NETWORK,
+                detail=(
+                    "browser launch exceeded "
+                    f"{self._attempt_timeout_seconds:.0f}s budget (TimeoutError)"
+                ),
+                restart_browser=True,
+            )
         except Exception as error:
             return classify_browser_launch_failure(error)
         if browser is None:
@@ -340,12 +389,26 @@ class ManagedAccountRunner:
     async def _refresh(self, profile_path: Path) -> RefreshOutcome:
         try:
             async with self._refresh_semaphore:
-                outcome = await self._refresher.refresh(
-                    self._browser,
-                    self._target,
-                    profile_path,
-                    settle_seconds=self._settle_seconds,
-                )
+                # 单次 attempt 整体限时（从拿到信号量起算）：浏览器/CDP 路径上
+                # 任何 await 悬挂都不能冻结调度循环（2026-08-21 全池 12h 未刷新
+                # 的直接原因）。超时降级为 NETWORK 失败并要求重启浏览器，走正常
+                # 遥测/退避/告警路径。
+                async with asyncio.timeout(self._attempt_timeout_seconds):
+                    outcome = await self._refresher.refresh(
+                        self._browser,
+                        self._target,
+                        profile_path,
+                        settle_seconds=self._settle_seconds,
+                    )
+        except TimeoutError:
+            return RefreshOutcome.failure(
+                FailureCode.NETWORK,
+                detail=(
+                    "keepalive refresh exceeded "
+                    f"{self._attempt_timeout_seconds:.0f}s budget (TimeoutError)"
+                ),
+                restart_browser=True,
+            )
         except Exception as error:
             return RefreshOutcome.failure(
                 FailureCode.INTERNAL,
@@ -412,6 +475,8 @@ class ManagedAccountRunner:
         attempted_at = _as_utc(self._clock())
         outcome: Optional[RefreshOutcome] = None
         try:
+            # launch/refresh 的限时在各自信号量之后（见 _launch_browser/_refresh）；
+            # 这里的遥测持久化不设时限，由 supervisor cycle 看门狗兜底。
             if self._browser is None:
                 outcome = await self._launch_browser()
             if outcome is None:
@@ -556,6 +621,9 @@ class KeepaliveSupervisor:
         max_concurrent_launches: int = 1,
         max_concurrent_refreshes: int = 1,
         reconcile_interval_seconds: float = 15.0,
+        attempt_timeout_seconds: float = 300.0,
+        cycle_timeout_seconds: float = 1800.0,
+        reconcile_timeout_seconds: float = 120.0,
         clock: Clock = _utc_now,
         sleep: Sleep = asyncio.sleep,
     ) -> None:
@@ -596,6 +664,27 @@ class KeepaliveSupervisor:
             reconcile_interval_seconds,
             "reconcile_interval_seconds",
         )
+        # 看门狗三层兜底的后两层：单 runner attempt 限时 + reconcile/cycle 限时。
+        # 前两层失效（如 DB worker 线程 wedge、遥测写库悬挂）时 run_forever 抛
+        # TimeoutError，daemon 退出非零，由 systemd Restart=always 拉起全新进程。
+        self._attempt_timeout_seconds = _nonnegative_float(
+            attempt_timeout_seconds,
+            "attempt_timeout_seconds",
+        )
+        if self._attempt_timeout_seconds == 0:
+            raise ValueError("attempt_timeout_seconds must be positive")
+        self._cycle_timeout_seconds = _nonnegative_float(
+            cycle_timeout_seconds,
+            "cycle_timeout_seconds",
+        )
+        if self._cycle_timeout_seconds == 0:
+            raise ValueError("cycle_timeout_seconds must be positive")
+        self._reconcile_timeout_seconds = _nonnegative_float(
+            reconcile_timeout_seconds,
+            "reconcile_timeout_seconds",
+        )
+        if self._reconcile_timeout_seconds == 0:
+            raise ValueError("reconcile_timeout_seconds must be positive")
         self._launch_semaphore = asyncio.Semaphore(
             _positive_integer(max_concurrent_launches, "max_concurrent_launches")
         )
@@ -678,6 +767,7 @@ class KeepaliveSupervisor:
             alert_sender=self._alert_sender,
             scheduler_policy=self._scheduler_policy,
             clock=self._clock,
+            attempt_timeout_seconds=self._attempt_timeout_seconds,
         )
 
     async def reconcile(self) -> bool:
@@ -767,12 +857,22 @@ class KeepaliveSupervisor:
             await task
 
     async def run_forever(self) -> None:
-        """Continuously reconcile and run due accounts until graceful shutdown."""
+        """Continuously reconcile and run due accounts until graceful shutdown.
+
+        看门狗：reconcile 与一轮 cycle 各自限时。超时说明出现了前两层兜底
+        （单次调用限时、单 attempt 限时）都接不住的 wedge（如 DB worker 线程
+        卡死），此处抛 TimeoutError 让 daemon 退出，由 systemd 重启新进程，
+        而不是无声地僵死。
+        """
 
         try:
             while not self._stop_event.is_set():
-                await self.reconcile()
-                await self.run_due_once()
+                await asyncio.wait_for(
+                    self.reconcile(), timeout=self._reconcile_timeout_seconds
+                )
+                await asyncio.wait_for(
+                    self.run_due_once(), timeout=self._cycle_timeout_seconds
+                )
                 await self._sleep_or_stop()
         finally:
             await self.stop()

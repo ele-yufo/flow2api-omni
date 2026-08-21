@@ -43,6 +43,10 @@ def test_example_config_documents_complete_keepalive_host_policy():
         "browser_proxy": "http://127.0.0.1:7890",
         "browser_display": ":10",
         "browser_settle_seconds": 8.0,
+        "browser_call_timeout_seconds": 60,
+        "browser_attempt_timeout_seconds": 300,
+        "browser_cycle_timeout_seconds": 1800,
+        "browser_reconcile_timeout_seconds": 120,
         "onboarding_display": ":11",
         "onboarding_session_ttl_seconds": 1800,
     }
