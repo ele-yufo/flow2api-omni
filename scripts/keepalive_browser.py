@@ -96,7 +96,11 @@ def _alert_sender(notifier: AlertNotifier):
 
 def _runtime(db: Database, *, config_object, flow_client_class):
     flow_client = flow_client_class(ProxyManager(db), db)
-    refresher = KeepaliveRefresher(db, flow_client)
+    refresher = KeepaliveRefresher(
+        db,
+        flow_client,
+        call_timeout_seconds=config_object.keepalive_browser_call_timeout_seconds,
+    )
     notifier = AlertNotifier(config_object.alert_webhook_url)
     return {
         "profile_base": config_object.keepalive_browser_profile_base,
@@ -107,6 +111,7 @@ def _runtime(db: Database, *, config_object, flow_client_class):
         "settle_seconds": config_object.keepalive_browser_settle_seconds,
         "alert_sender": _alert_sender(notifier),
         "scheduler_policy": _scheduler_policy(config_object),
+        "attempt_timeout_seconds": config_object.keepalive_browser_attempt_timeout_seconds,
     }
 
 
@@ -336,15 +341,29 @@ async def run_daemon(
         max_concurrent_launches=config_object.keepalive_browser_max_concurrent_launches,
         max_concurrent_refreshes=config_object.keepalive_browser_max_concurrent_refreshes,
         reconcile_interval_seconds=config_object.keepalive_browser_reconcile_interval_seconds,
+        cycle_timeout_seconds=config_object.keepalive_browser_cycle_timeout_seconds,
+        reconcile_timeout_seconds=config_object.keepalive_browser_reconcile_timeout_seconds,
     )
     uninstall_handlers = install_shutdown_handlers(supervisor)
     print(
         "[keepalive] database supervisor started "
         f"reconcile={config_object.keepalive_browser_reconcile_interval_seconds}s "
+        f"attempt_timeout={config_object.keepalive_browser_attempt_timeout_seconds}s "
+        f"cycle_timeout={config_object.keepalive_browser_cycle_timeout_seconds}s "
         f"headless=False"
     )
     try:
         await supervisor.run_forever()
+    except TimeoutError:
+        # 看门狗触发：reconcile/cycle 出现下层超时兜底都接不住的 wedge。
+        # 退出非零，由 systemd Restart=always 拉起全新进程（新 DB 连接、新浏览器）。
+        print(
+            "[keepalive] WATCHDOG iteration wedged beyond budget; "
+            "exiting for systemd restart",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 1
     finally:
         await supervisor.stop()
         uninstall_handlers()

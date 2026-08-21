@@ -118,6 +118,7 @@ def make_refresher(
     db_error=None,
     network_error_classifier=None,
     browser_error_classifier=None,
+    call_timeout_seconds=None,
 ):
     db = SimpleNamespace(apply_verified_account_snapshot=AsyncMock())
     if db_error is not None:
@@ -146,6 +147,8 @@ def make_refresher(
         kwargs["network_error_classifier"] = network_error_classifier
     if browser_error_classifier is not None:
         kwargs["browser_error_classifier"] = browser_error_classifier
+    if call_timeout_seconds is not None:
+        kwargs["call_timeout_seconds"] = call_timeout_seconds
     refresher = KeepaliveRefresher(**kwargs)
     browser = FakeBrowser(session_tab=FakeTab(body=body or session_body()))
     return refresher, browser, db, flow_client, cookie, sleep
@@ -603,3 +606,104 @@ def test_browser_launch_failure_mapping_is_typed_and_injectable():
     assert outcome.restart_browser is True
     assert network.code is FailureCode.NETWORK
     assert network.restart_browser is False
+
+
+class HungBrowser:
+    """Browser whose every CDP call never returns (2026-08-21 daemon freeze)."""
+
+    def __init__(self):
+        self.urls = []
+
+    async def get(self, url):
+        self.urls.append(url)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+@pytest.mark.asyncio
+async def test_hung_flow_navigation_degrades_to_network_failure(profile):
+    refresher, _, _, _, _, _ = make_refresher(call_timeout_seconds=0.05)
+    browser = HungBrowser()
+
+    outcome = await asyncio.wait_for(
+        refresher.refresh(browser, make_target(), profile, settle_seconds=0),
+        timeout=5,
+    )
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.NETWORK
+    assert outcome.restart_browser is True
+    assert "timed out" in outcome.detail
+
+
+@pytest.mark.asyncio
+async def test_hung_session_body_evaluation_degrades_to_network_failure(profile):
+    class HungTab(FakeTab):
+        async def evaluate(self, expression, *, return_by_value):
+            if expression == "document.body.innerText":
+                await asyncio.Event().wait()
+            return await super().evaluate(expression, return_by_value=return_by_value)
+
+    refresher, _, _, _, _, _ = make_refresher(call_timeout_seconds=0.05)
+    browser = FakeBrowser(session_tab=HungTab(body=session_body()))
+
+    outcome = await asyncio.wait_for(
+        refresher.refresh(browser, make_target(), profile, settle_seconds=0),
+        timeout=5,
+    )
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.NETWORK
+    assert outcome.restart_browser is True
+
+
+@pytest.mark.asyncio
+async def test_hung_credits_call_degrades_to_network_failure(profile):
+    refresher, browser, _, flow_client, _, _ = make_refresher(
+        call_timeout_seconds=0.05
+    )
+
+    async def hung_credits(_access_token):
+        await asyncio.Event().wait()
+
+    flow_client.get_credits = hung_credits
+
+    outcome = await asyncio.wait_for(
+        refresher.refresh(browser, make_target(), profile, settle_seconds=0),
+        timeout=5,
+    )
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.NETWORK
+    assert outcome.restart_browser is False
+    assert "credits" in outcome.detail
+
+
+@pytest.mark.asyncio
+async def test_hung_snapshot_persistence_degrades_to_network_failure(profile):
+    refresher, browser, db, _, _, _ = make_refresher(call_timeout_seconds=0.05)
+
+    async def hung_persist(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    db.apply_verified_account_snapshot = hung_persist
+
+    outcome = await asyncio.wait_for(
+        refresher.refresh(browser, make_target(), profile, settle_seconds=0),
+        timeout=5,
+    )
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.NETWORK
+    assert "snapshot" in outcome.detail
+
+
+@pytest.mark.asyncio
+async def test_invalid_call_timeout_is_rejected():
+    db = SimpleNamespace(apply_verified_account_snapshot=AsyncMock())
+    flow_client = SimpleNamespace(get_credits=AsyncMock())
+
+    with pytest.raises(ValueError):
+        KeepaliveRefresher(db, flow_client, call_timeout_seconds=0)
+    with pytest.raises(ValueError):
+        KeepaliveRefresher(db, flow_client, call_timeout_seconds=float("inf"))

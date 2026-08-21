@@ -42,6 +42,10 @@ def test_keepalive_runtime_config_defaults_and_clamps():
     assert defaults.keepalive_browser_retry_base_seconds == 60
     assert defaults.keepalive_browser_retry_max_seconds == 1800
     assert defaults.keepalive_browser_human_retry_seconds == 21600
+    assert defaults.keepalive_browser_call_timeout_seconds == 60
+    assert defaults.keepalive_browser_attempt_timeout_seconds == 300
+    assert defaults.keepalive_browser_cycle_timeout_seconds == 1800
+    assert defaults.keepalive_browser_reconcile_timeout_seconds == 120
     assert defaults.keepalive_onboarding_display == ":11"
     assert defaults.keepalive_onboarding_session_ttl_seconds == 1800
 
@@ -55,6 +59,10 @@ def test_keepalive_runtime_config_defaults_and_clamps():
             "browser_retry_base_seconds": 0,
             "browser_retry_max_seconds": 1,
             "browser_human_retry_seconds": 20,
+            "browser_call_timeout_seconds": 1,
+            "browser_attempt_timeout_seconds": 9999,
+            "browser_cycle_timeout_seconds": 1,
+            "browser_reconcile_timeout_seconds": 99999,
             "onboarding_display": "  ",
             "onboarding_session_ttl_seconds": 20,
         }
@@ -67,6 +75,10 @@ def test_keepalive_runtime_config_defaults_and_clamps():
     assert clamped.keepalive_browser_retry_base_seconds == 10
     assert clamped.keepalive_browser_retry_max_seconds == 30
     assert clamped.keepalive_browser_human_retry_seconds == 300
+    assert clamped.keepalive_browser_call_timeout_seconds == 10
+    assert clamped.keepalive_browser_attempt_timeout_seconds == 1800
+    assert clamped.keepalive_browser_cycle_timeout_seconds == 300
+    assert clamped.keepalive_browser_reconcile_timeout_seconds == 600
     assert clamped.keepalive_onboarding_display == ":11"
     assert clamped.keepalive_onboarding_session_ttl_seconds == 300
 

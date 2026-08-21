@@ -108,6 +108,13 @@ browser_profile_base = "/opt/flow2api-profiles"
 browser_proxy = "http://127.0.0.1:7890"
 browser_display = ":10"
 browser_settle_seconds = 8.0
+# 三层超时兜底：单次外部调用 / 单账号 attempt / 单轮调度循环。
+# 必须保持 call < attempt < cycle，倒置会让下层超时先触发、错误升级成 daemon 重启。
+# cycle 或 reconcile 超时说明下层兜底接不住（如 DB wedge），daemon 退出非零由 systemd 重启。
+browser_call_timeout_seconds = 60
+browser_attempt_timeout_seconds = 300
+browser_cycle_timeout_seconds = 1800
+browser_reconcile_timeout_seconds = 120
 onboarding_display = ":11"
 onboarding_session_ttl_seconds = 1800
 # Chrome 可执行文件由宿主环境变量 BROWSER_EXECUTABLE_PATH 配置，默认 /usr/bin/google-chrome-stable。

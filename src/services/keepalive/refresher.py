@@ -40,6 +40,10 @@ DEFAULT_READY_POLL_SECONDS = 1.0
 DEFAULT_SESSION_SETTLE_SECONDS = 3.0
 DEFAULT_LAUNCH_TIMEOUT_SECONDS = 30.0
 DEFAULT_STOP_TIMEOUT_SECONDS = 10.0
+# 单次外部调用（CDP get/evaluate、credits HTTP、快照写库）的超时兜底：
+# 2026-08-21 _daemon 被一次永不返回的 await 冻结 12h（事件循环活着但调度不再触发），
+# 全池 AT 过期。每一跳都必须有时限，让悬挂降级为可重试的 NETWORK 失败。
+DEFAULT_CALL_TIMEOUT_SECONDS = 60.0
 
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], datetime]
@@ -299,6 +303,7 @@ class KeepaliveRefresher:
         ready_timeout_seconds: float = DEFAULT_READY_TIMEOUT_SECONDS,
         ready_poll_seconds: float = DEFAULT_READY_POLL_SECONDS,
         session_settle_seconds: float = DEFAULT_SESSION_SETTLE_SECONDS,
+        call_timeout_seconds: float = DEFAULT_CALL_TIMEOUT_SECONDS,
     ) -> None:
         dependencies = (
             cookie_reader,
@@ -327,6 +332,9 @@ class KeepaliveRefresher:
         self._session_settle_seconds = _nonnegative_delay(
             session_settle_seconds, "session settle delay"
         )
+        self._call_timeout_seconds = _positive_timeout(
+            call_timeout_seconds, "call timeout"
+        )
 
     def _browser_failure(
         self,
@@ -343,6 +351,20 @@ class KeepaliveRefresher:
             code,
             detail=_failure_detail(operation, error),
             restart_browser=self._browser_error_classifier(error),
+        )
+
+    def _timeout_failure(
+        self, operation: str, *, restart_browser: bool = False
+    ) -> RefreshOutcome:
+        """Typed NETWORK outcome for an awaited call that exceeded its budget."""
+
+        return RefreshOutcome.failure(
+            FailureCode.NETWORK,
+            detail=(
+                f"{operation} timed out after "
+                f"{self._call_timeout_seconds:.0f}s (TimeoutError)"
+            ),
+            restart_browser=restart_browser,
         )
 
     async def _wait_until_ready(self, tab: object) -> Optional[BaseException]:
@@ -386,7 +408,11 @@ class KeepaliveRefresher:
         if project_id:
             flow_url = f"{FLOW_TOOL_BASE}/project/{quote(project_id, safe='')}"
         try:
-            tab = await browser.get(flow_url)
+            tab = await asyncio.wait_for(
+                browser.get(flow_url), timeout=self._call_timeout_seconds
+            )
+        except TimeoutError:
+            return self._timeout_failure("Flow navigation", restart_browser=True)
         except Exception as error:
             return self._browser_failure(
                 FailureCode.NAVIGATION, "Flow navigation", error
@@ -404,15 +430,26 @@ class KeepaliveRefresher:
         browser: object,
     ) -> tuple[Optional[Mapping[str, Any]], Optional[RefreshOutcome]]:
         try:
-            tab = await browser.get(SESSION_URL)
+            tab = await asyncio.wait_for(
+                browser.get(SESSION_URL), timeout=self._call_timeout_seconds
+            )
+        except TimeoutError:
+            return None, self._timeout_failure(
+                "session navigation", restart_browser=True
+            )
         except Exception as error:
             return None, self._browser_failure(
                 FailureCode.NAVIGATION, "session navigation", error
             )
         await self._sleep(self._session_settle_seconds)
         try:
-            raw_body = await tab.evaluate(
-                "document.body.innerText", return_by_value=True
+            raw_body = await asyncio.wait_for(
+                tab.evaluate("document.body.innerText", return_by_value=True),
+                timeout=self._call_timeout_seconds,
+            )
+        except TimeoutError:
+            return None, self._timeout_failure(
+                "session body evaluation", restart_browser=True
             )
         except Exception as error:
             return None, self._browser_failure(
@@ -465,12 +502,26 @@ class KeepaliveRefresher:
             )
         return access_token.strip(), email, None
 
-    def _read_profile_session_token(
+    async def _read_profile_session_token(
         self,
         profile_path: Path,
     ) -> tuple[Optional[str], Optional[RefreshOutcome]]:
+        # browser_cookie3 同步打开并解密 Chrome Cookies 库，任何 wedge（锁、IO）
+        # 都会阻塞事件循环线程本身，asyncio 超时全部失效（2026-08-21 事故的同类
+        # 形态）。必须卸载到线程并限时——悬挂的 worker 线程泄漏，但循环存活。
         try:
-            session_token = self._cookie_reader(profile_path)
+            session_token = await asyncio.wait_for(
+                asyncio.to_thread(self._cookie_reader, profile_path),
+                timeout=self._call_timeout_seconds,
+            )
+        except TimeoutError:
+            return None, RefreshOutcome.failure(
+                FailureCode.PROFILE_BUSY,
+                detail=(
+                    "profile cookie store access timed out after "
+                    f"{self._call_timeout_seconds:.0f}s (TimeoutError)"
+                ),
+            )
         except (SessionTokenNotFoundError, SessionTokenTooShortError) as error:
             return None, RefreshOutcome.failure(
                 FailureCode.COOKIE_MISSING,
@@ -504,7 +555,12 @@ class KeepaliveRefresher:
         access_token: str,
     ) -> tuple[Optional[Mapping[str, Any]], Optional[RefreshOutcome]]:
         try:
-            credits_result = await self._flow_client.get_credits(access_token)
+            credits_result = await asyncio.wait_for(
+                self._flow_client.get_credits(access_token),
+                timeout=self._call_timeout_seconds,
+            )
+        except TimeoutError:
+            return None, self._timeout_failure("credits validation")
         except Exception as error:
             if self._unauthenticated_error_classifier(error):
                 return None, RefreshOutcome.failure(
@@ -573,7 +629,9 @@ class KeepaliveRefresher:
         if identity_failure is not None or access_token is None or session_email is None:
             return identity_failure or RefreshOutcome.failure(FailureCode.INTERNAL)
 
-        session_token, cookie_failure = self._read_profile_session_token(profile_path)
+        session_token, cookie_failure = await self._read_profile_session_token(
+            profile_path
+        )
         if cookie_failure is not None or session_token is None:
             return cookie_failure or RefreshOutcome.failure(FailureCode.INTERNAL)
         credits_result, credits_failure = await self._read_credits(access_token)
@@ -609,11 +667,16 @@ class KeepaliveRefresher:
             )
         try:
             observed_at = _as_utc(self._clock())
-            await self._db.apply_verified_account_snapshot(
-                token_id,
-                snapshot,
-                observed_at=observed_at,
+            await asyncio.wait_for(
+                self._db.apply_verified_account_snapshot(
+                    token_id,
+                    snapshot,
+                    observed_at=observed_at,
+                ),
+                timeout=self._call_timeout_seconds,
             )
+        except TimeoutError:
+            return self._timeout_failure("verified snapshot persistence")
         except Exception as error:
             return RefreshOutcome.failure(
                 FailureCode.INTERNAL,
