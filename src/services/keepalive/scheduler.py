@@ -15,6 +15,10 @@ INITIAL_DELAY_SECONDS = 120
 RETRY_BASE_SECONDS = 60
 RETRY_MAX_SECONDS = 1800
 HUMAN_RETRY_SECONDS = 21600
+# human_action 失败先给 2 次普通退避重试（60s/120s），第 3 次连续失败才进
+# 6h 人工退避——2026-08-22 账号 21 被 Google 瞬时会话拒绝一次就直接挂 6h，
+# 实际登录态活着，1 分钟后重试即恢复。
+HUMAN_RETRY_MIN_FAILURES = 3
 
 Clock = Callable[[], datetime]
 
@@ -29,6 +33,7 @@ class SchedulerPolicy:
     retry_base_seconds: int = RETRY_BASE_SECONDS
     retry_max_seconds: int = RETRY_MAX_SECONDS
     human_retry_seconds: int = HUMAN_RETRY_SECONDS
+    human_retry_min_failures: int = HUMAN_RETRY_MIN_FAILURES
 
     def __post_init__(self) -> None:
         values = (
@@ -37,6 +42,7 @@ class SchedulerPolicy:
             self.retry_base_seconds,
             self.retry_max_seconds,
             self.human_retry_seconds,
+            self.human_retry_min_failures,
         )
         if any(isinstance(value, bool) or value <= 0 for value in values):
             raise ValueError("positive scheduler durations must be positive integers")
@@ -169,7 +175,7 @@ def next_due_at(
             else policy.active_interval_seconds
         )
         return _periodic_due_at(token_id, current, interval)
-    if outcome.human_action:
+    if outcome.human_action and failure_count >= policy.human_retry_min_failures:
         return current + timedelta(seconds=policy.human_retry_seconds)
     delay = retry_delay_seconds(failure_count, policy=policy)
     return current + timedelta(seconds=delay)

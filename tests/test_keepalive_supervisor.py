@@ -13,7 +13,7 @@ from src.core.models import KeepaliveToken
 from src.core.token_states import AccountLifecycleStatus, TierClassification
 from src.services.keepalive.alerts import AlertKind
 from src.services.keepalive.models import FailureCode, RefreshOutcome
-from src.services.keepalive.scheduler import HUMAN_RETRY_SECONDS
+from src.services.keepalive.scheduler import HUMAN_RETRY_SECONDS, RETRY_BASE_SECONDS
 from src.services.keepalive.supervisor import (
     KeepaliveSupervisor,
     ManagedAccountRunner,
@@ -347,8 +347,9 @@ async def test_missing_profile_is_typed_human_outcome_without_creating_or_launch
     assert harness.launches == []
     assert refresher.calls == []
     assert leases.leases[0].release_count == 1
+    # 首次 human_action 失败按普通退避重试（60s），连续失败达阈值才进 6h 人工退避
     assert db.telemetry[0][1]["next_due_at"] == NOW + timedelta(
-        seconds=HUMAN_RETRY_SECONDS
+        seconds=RETRY_BASE_SECONDS
     )
 
 

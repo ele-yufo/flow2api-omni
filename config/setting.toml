@@ -126,3 +126,6 @@ browser_settle_seconds = 8.0      # 导航后等 OAuth 静默续期的秒数
 # browser_attempt_timeout_seconds = 300   # 单账号一次 attempt 整体限时，超时记 NETWORK 并重启浏览器
 # browser_cycle_timeout_seconds = 1800    # 一轮 run_due_once 限时，超时 daemon 退出由 systemd 重启
 # browser_reconcile_timeout_seconds = 120 # 一次 reconcile 限时，超时同上退出重启
+# human_action 类失败（登录被拒/cookie 丢失等）先按普通退避重试，连续失败达此次数才进
+# 6h 人工退避（2026-08-22 瞬时 session_rejected 一次直接挂 6h 后引入）：
+# browser_human_retry_min_failures = 3

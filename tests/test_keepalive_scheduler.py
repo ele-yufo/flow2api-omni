@@ -15,6 +15,7 @@ from src.services.keepalive.scheduler import (
     RETRY_MAX_SECONDS,
     KeepaliveScheduler,
     ScheduleState,
+    SchedulerPolicy,
     evaluate_due,
     next_due_at,
     retry_delay_seconds,
@@ -157,6 +158,47 @@ def test_failure_uses_backoff_while_human_action_uses_slower_retry():
     assert retry_due == NOW + timedelta(seconds=RETRY_BASE_SECONDS * 4)
     assert human_due == NOW + timedelta(seconds=HUMAN_RETRY_SECONDS)
     assert human_due > retry_due
+
+
+@pytest.mark.parametrize(
+    ("failure_count", "expected_seconds"),
+    (
+        (1, RETRY_BASE_SECONDS),       # 首次 human_action 失败按普通退避重试
+        (2, RETRY_BASE_SECONDS * 2),   # 第二次同样
+        (3, HUMAN_RETRY_SECONDS),      # 连续失败达阈值才进人工退避
+        (4, HUMAN_RETRY_SECONDS),
+    ),
+)
+def test_human_action_escalates_only_after_min_failures(failure_count, expected_seconds):
+    human = RefreshOutcome.failure(
+        FailureCode.SESSION_REJECTED,
+        human_action=True,
+    )
+    due = next_due_at(
+        token_id=23,
+        retired=False,
+        outcome=human,
+        failure_count=failure_count,
+        now=NOW,
+    )
+    assert due == NOW + timedelta(seconds=expected_seconds)
+
+
+def test_human_action_escalation_threshold_is_configurable():
+    human = RefreshOutcome.failure(
+        FailureCode.SESSION_REJECTED,
+        human_action=True,
+    )
+    policy = SchedulerPolicy(human_retry_min_failures=1)
+    due = next_due_at(
+        token_id=23,
+        retired=False,
+        outcome=human,
+        failure_count=1,
+        now=NOW,
+        policy=policy,
+    )
+    assert due == NOW + timedelta(seconds=HUMAN_RETRY_SECONDS)
 
 
 def test_success_uses_active_or_retired_phase_without_lengthening_interval():

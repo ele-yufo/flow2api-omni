@@ -734,6 +734,10 @@ class Config(CorsConfigMixin):
         return self._keepalive_int("browser_human_retry_seconds", 21600, 300, 86400)
 
     @property
+    def keepalive_browser_human_retry_min_failures(self) -> int:
+        return self._keepalive_int("browser_human_retry_min_failures", 3, 1, 10)
+
+    @property
     def keepalive_onboarding_display(self) -> str:
         value = str(self._config.get("keepalive", {}).get("onboarding_display", ":11")).strip()
         return value or ":11"

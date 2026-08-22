@@ -59,6 +59,7 @@ def _scheduler_policy(config_object) -> SchedulerPolicy:
         retry_base_seconds=config_object.keepalive_browser_retry_base_seconds,
         retry_max_seconds=config_object.keepalive_browser_retry_max_seconds,
         human_retry_seconds=config_object.keepalive_browser_human_retry_seconds,
+        human_retry_min_failures=config_object.keepalive_browser_human_retry_min_failures,
     )
 
 

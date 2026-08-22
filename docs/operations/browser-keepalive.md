@@ -121,6 +121,7 @@ created → browser_start → awaiting_login → validating_destination
 | `browser_retry_base_seconds` | 60 | 普通失败指数退避起点 |
 | `browser_retry_max_seconds` | 1800 | 普通失败退避上限 |
 | `browser_human_retry_seconds` | 21600 | 需要人工处理时的重试间隔 |
+| `browser_human_retry_min_failures` | 3 | human_action 失败先按普通退避重试，连续失败达此次数才进人工退避 |
 | `browser_max_concurrent_launches` | 1 | 全局 Chrome launch 并发 |
 | `browser_max_concurrent_refreshes` | 1 | 全局刷新并发 |
 | `browser_call_timeout_seconds` | 60 | 单次外部调用（CDP get/evaluate、credits、写库）限时，超时记 NETWORK |
@@ -135,6 +136,8 @@ Token ID 会产生稳定 stagger，避免所有账号在同一秒启动。成功
 两个关键语义：**attempt 预算从拿到全局信号量之后才起算**，全池同时到期时排队等待不消耗预算，慢 attempt 不会误杀后排账号；**同步阻塞调用（cookie 解密读取、profile lease/prepare 的文件锁与文件 IO）一律 `asyncio.to_thread` 卸载并限时**——asyncio 超时管不住事件循环线程上的同步阻塞，卸载后 wedge 只泄漏一个 worker 线程，调度循环存活。四层预算需保持 `call < attempt < cycle`，配置时不要倒置。
 
 巡检告警闭环（2026-08-21 事故后修复）：`flow2api-healthcheck.timer` 每小时触发 `scripts/keepalive_healthcheck.py`，双层判定——业务层（`is_active`/ban）+ 保活层（复用 `keepalive_patrol.py` 的 cadence 新鲜度分类）。只在出问题时投递 Discord（死号或 UNHEALTHY → critical；PROBE_ERROR 退避中 → warning），00:07/12:07 UTC 各发一次全绿心跳证明巡检自身活着，其余时段全绿则静默。保活 daemon 静默僵死（is_active 不变但刷新停止）从此 1 小时内可见；事故前该巡检 12h 一次且只看 `is_active`，曾在 2 个账号 AT 过期时误报 `active=7 dead=0`。运维验收可用 `--force-report` 强制立即投递当前状态。
+
+**human_action 失败宽限（2026-08-22 引入）**：human_action 类失败（`session_rejected`/`cookie_missing`/`identity_mismatch`/`profile_missing`/`grant_expired`）不再是"一次即 6h"。当日账号 21 被 Google 瞬时会话拒绝一次就直接挂进 6h 人工退避，期间 AT 过期——实际登录态活着，手动重试一次即恢复。自此 human_action 失败前 `browser_human_retry_min_failures - 1` 次（默认 2 次：60s/120s）按普通指数退避重试，连续失败达阈值（默认第 3 次）才进 `browser_human_retry_seconds` 的人工退避。瞬时拒绝通常在 1-2 次内自愈，真正需要人工的连续失败升级行为不变；首次失败照样立即产生告警事件，可见性不受影响。
 
 ### 4.3 动态变更
 
@@ -182,6 +185,7 @@ browser_max_concurrent_launches = 1
 browser_retry_base_seconds = 60
 browser_retry_max_seconds = 1800
 browser_human_retry_seconds = 21600
+browser_human_retry_min_failures = 3
 browser_profile_base = "/opt/flow2api-profiles"
 browser_proxy = "http://127.0.0.1:7890"
 browser_display = ":10"

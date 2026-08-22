@@ -104,6 +104,9 @@ browser_max_concurrent_launches = 1
 browser_retry_base_seconds = 60
 browser_retry_max_seconds = 1800
 browser_human_retry_seconds = 21600
+# human_action 类失败（登录被拒/cookie 丢失等）先按普通指数退避重试，连续失败达此次数
+# 才进 browser_human_retry_seconds 的人工退避。瞬时拒绝通常 1-2 次内自愈。
+browser_human_retry_min_failures = 3
 browser_profile_base = "/opt/flow2api-profiles"
 browser_proxy = "http://127.0.0.1:7890"
 browser_display = ":10"
