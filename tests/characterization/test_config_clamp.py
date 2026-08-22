@@ -42,6 +42,7 @@ def test_keepalive_runtime_config_defaults_and_clamps():
     assert defaults.keepalive_browser_retry_base_seconds == 60
     assert defaults.keepalive_browser_retry_max_seconds == 1800
     assert defaults.keepalive_browser_human_retry_seconds == 21600
+    assert defaults.keepalive_browser_human_retry_min_failures == 3
     assert defaults.keepalive_browser_call_timeout_seconds == 60
     assert defaults.keepalive_browser_attempt_timeout_seconds == 300
     assert defaults.keepalive_browser_cycle_timeout_seconds == 1800
@@ -59,6 +60,7 @@ def test_keepalive_runtime_config_defaults_and_clamps():
             "browser_retry_base_seconds": 0,
             "browser_retry_max_seconds": 1,
             "browser_human_retry_seconds": 20,
+            "browser_human_retry_min_failures": 0,
             "browser_call_timeout_seconds": 1,
             "browser_attempt_timeout_seconds": 9999,
             "browser_cycle_timeout_seconds": 1,
@@ -75,6 +77,7 @@ def test_keepalive_runtime_config_defaults_and_clamps():
     assert clamped.keepalive_browser_retry_base_seconds == 10
     assert clamped.keepalive_browser_retry_max_seconds == 30
     assert clamped.keepalive_browser_human_retry_seconds == 300
+    assert clamped.keepalive_browser_human_retry_min_failures == 1
     assert clamped.keepalive_browser_call_timeout_seconds == 10
     assert clamped.keepalive_browser_attempt_timeout_seconds == 1800
     assert clamped.keepalive_browser_cycle_timeout_seconds == 300
