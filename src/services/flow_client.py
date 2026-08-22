@@ -1911,6 +1911,54 @@ class FlowClient:
             raise last_error
         raise RuntimeError("视频状态查询失败")
 
+    async def check_video_status_by_media(
+        self,
+        at: str,
+        media_names: List[str],
+        project_id: str,
+    ) -> dict:
+        """用 media 模式查询视频生成状态。
+
+        batchCheckAsyncVideoGenerationStatus 支持两种查询:
+        - operations 模式 {"operations": [...]}: 普通生成任务
+        - media 模式 {"media": [{"name", "projectId"}]}: 通用
+
+        2026-08 实测: 上游对 "<原mediaId>_upsampled" 任务不接受 operations 查询
+        (400 INVALID_ARGUMENT), 必须走 media 模式。upsample 任务轮询用本函数。
+        """
+        url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"
+        json_data = {
+            "media": [
+                {"name": name, "projectId": project_id} for name in media_names
+            ]
+        }
+        max_retries = max(1, getattr(config, "flow_max_retries", 3))
+        last_error: Optional[Exception] = None
+
+        for retry_attempt in range(max_retries):
+            try:
+                return await self._make_request(
+                    method="POST",
+                    url=url,
+                    json_data=json_data,
+                    use_at=True,
+                    at_token=at
+                )
+            except Exception as e:
+                last_error = e
+                retry_reason = "网络超时" if self._is_timeout_error(e) else self._get_retry_reason(str(e))
+                if retry_reason and retry_attempt < max_retries - 1:
+                    debug_logger.log_warning(
+                        f"[VIDEO POLL] 状态查询遇到{retry_reason}，准备重试 ({retry_attempt + 2}/{max_retries})..."
+                    )
+                    await asyncio.sleep(1)
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频状态查询失败")
+
     async def get_media_workflow_id(self, at: str, media_name: str, project_id: str) -> Optional[str]:
         """通过 media 格式轮询获取 workflowId"""
         url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"

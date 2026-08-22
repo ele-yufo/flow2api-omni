@@ -1506,6 +1506,13 @@ class GenerationHandler:
                                 upsample_result,
                                 project_id,
                             )
+                            # 上游对 "<原mediaId>_upsampled" 任务不接受 operations 查询(400)，
+                            # upsample 任务轮询必须走 media 模式(2026-08-23 实测)。
+                            upsample_media_names = [
+                                op["operation"]["name"]
+                                for op in (upsample_operations.get("operations") or [])
+                                if op.get("operation", {}).get("name")
+                            ]
                             if upsample_operations.get("operations") or upsample_operations.get("media"):
                                 if stream:
                                     yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")
@@ -1518,7 +1525,9 @@ class GenerationHandler:
                                     for ups_attempt in range(ups_max):
                                         await asyncio.sleep(poll_interval)
                                         try:
-                                            ups_result = await self.flow_client.check_video_status(token.at, upsample_operations)
+                                            ups_result = await self.flow_client.check_video_status_by_media(
+                                                token.at, upsample_media_names, project_id
+                                            )
                                             ups_ops = ups_result.get("operations", [])
                                             if not ups_ops:
                                                 ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
@@ -1558,11 +1567,59 @@ class GenerationHandler:
                                         source_media_id = upsampled_media_id
                                         video_url = upsampled_video_url
                                 else:
-                                    # 仅 Upsample 模式: 递归轮询并返回
-                                    async for chunk in self._poll_video_result(
-                                        token, project_id, upsample_operations, stream, None, None, generation_result, response_state, request_log_state
+                                    # 仅 Upsample 模式: media 模式内联轮询并收尾
+                                    # (不能复用 _poll_video_result 递归: 其 operations 查询
+                                    # 对 "_upsampled" 任务 400, 2026-08-23 实测)
+                                    up_ok = False
+                                    ups_max = 200
+                                    ups_consecutive_errors = 0
+                                    for ups_attempt in range(ups_max):
+                                        await asyncio.sleep(poll_interval)
+                                        try:
+                                            ups_result = await self.flow_client.check_video_status_by_media(
+                                                token.at, upsample_media_names, project_id
+                                            )
+                                            ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
+                                            ups_consecutive_errors = 0
+                                            if ups_ops:
+                                                ups_op = ups_ops[0]
+                                                ups_status = ups_op.get("status")
+                                                if stream and ups_attempt % 7 == 0:
+                                                    yield self._create_stream_chunk(f"放大进度: {poll_progress_percent(ups_attempt, ups_max)}%\n")
+                                                if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                                                    ups_video_info = extract_video_info(ups_op)
+                                                    upsampled_video_url = ups_video_info.get("fifeUrl")
+                                                    ups_raw_media_id = ups_op["operation"]["name"]
+                                                    upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
+                                                    if not upsampled_video_url and upsampled_media_id:
+                                                        upsampled_video_url = await self.flow_client.get_media_url(
+                                                            st=token.st,
+                                                            media_name=upsampled_media_id,
+                                                        )
+                                                    up_ok = True
+                                                    break
+                                                elif is_media_generation_failed(ups_status):
+                                                    if stream:
+                                                        yield self._create_stream_chunk("⚠️ 视频放大失败，返回原始视频\n")
+                                                    break
+                                        except Exception as e:
+                                            ups_consecutive_errors += 1
+                                            if ups_consecutive_errors >= 5:
+                                                if stream:
+                                                    yield self._create_stream_chunk("⚠️ 放大状态查询持续失败，返回原始视频\n")
+                                                break
+
+                                    if up_ok and upsampled_media_id:
+                                        if stream:
+                                            yield self._create_stream_chunk(f"✅ {resolution_name} 放大完成\n")
+                                        video_url = upsampled_video_url
+                                    elif stream:
+                                        yield self._create_stream_chunk(f"⚠️ 放大未完成，使用原始视频\n")
+                                    async for _chunk in self._finalize_video_success(
+                                        video_url, token, operation, stream, response_state,
+                                        generation_result, request_log_state,
                                     ):
-                                        yield chunk
+                                        yield _chunk
                                     return
                             else:
                                 if stream:
