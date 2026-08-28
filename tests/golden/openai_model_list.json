@@ -520,12 +520,28 @@
     "id": "gemini_omni_t2v_4s_1080p"
   },
   {
+    "description": "Video generation - abra_t2v_4s",
+    "id": "gemini_omni_t2v_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_4s_360p",
+    "id": "gemini_omni_t2v_4s_360p"
+  },
+  {
     "description": "Video generation - abra_t2v_6s",
     "id": "gemini_omni_t2v_6s"
   },
   {
     "description": "Video generation - abra_t2v_6s",
     "id": "gemini_omni_t2v_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_t2v_6s",
+    "id": "gemini_omni_t2v_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_6s_360p",
+    "id": "gemini_omni_t2v_6s_360p"
   },
   {
     "description": "Video generation - abra_t2v_8s",
@@ -536,12 +552,28 @@
     "id": "gemini_omni_t2v_8s_1080p"
   },
   {
+    "description": "Video generation - abra_t2v_8s",
+    "id": "gemini_omni_t2v_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_8s_360p",
+    "id": "gemini_omni_t2v_8s_360p"
+  },
+  {
     "description": "Video generation - abra_t2v_10s",
     "id": "gemini_omni_t2v_10s"
   },
   {
     "description": "Video generation - abra_t2v_10s",
     "id": "gemini_omni_t2v_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_t2v_10s",
+    "id": "gemini_omni_t2v_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_10s_360p",
+    "id": "gemini_omni_t2v_10s_360p"
   },
   {
     "description": "Video generation - abra_t2v_4s",
@@ -552,12 +584,28 @@
     "id": "gemini_omni_t2v_portrait_4s_1080p"
   },
   {
+    "description": "Video generation - abra_t2v_4s",
+    "id": "gemini_omni_t2v_portrait_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_4s_360p",
+    "id": "gemini_omni_t2v_portrait_4s_360p"
+  },
+  {
     "description": "Video generation - abra_t2v_6s",
     "id": "gemini_omni_t2v_portrait_6s"
   },
   {
     "description": "Video generation - abra_t2v_6s",
     "id": "gemini_omni_t2v_portrait_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_t2v_6s",
+    "id": "gemini_omni_t2v_portrait_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_6s_360p",
+    "id": "gemini_omni_t2v_portrait_6s_360p"
   },
   {
     "description": "Video generation - abra_t2v_8s",
@@ -568,12 +616,28 @@
     "id": "gemini_omni_t2v_portrait_8s_1080p"
   },
   {
+    "description": "Video generation - abra_t2v_8s",
+    "id": "gemini_omni_t2v_portrait_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_8s_360p",
+    "id": "gemini_omni_t2v_portrait_8s_360p"
+  },
+  {
     "description": "Video generation - abra_t2v_10s",
     "id": "gemini_omni_t2v_portrait_10s"
   },
   {
     "description": "Video generation - abra_t2v_10s",
     "id": "gemini_omni_t2v_portrait_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_t2v_10s",
+    "id": "gemini_omni_t2v_portrait_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_t2v_10s_360p",
+    "id": "gemini_omni_t2v_portrait_10s_360p"
   },
   {
     "description": "Video generation - abra_r2v_4s",
@@ -584,12 +648,28 @@
     "id": "gemini_omni_r2v_4s_1080p"
   },
   {
+    "description": "Video generation - abra_r2v_4s",
+    "id": "gemini_omni_r2v_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_4s_360p",
+    "id": "gemini_omni_r2v_4s_360p"
+  },
+  {
     "description": "Video generation - abra_r2v_6s",
     "id": "gemini_omni_r2v_6s"
   },
   {
     "description": "Video generation - abra_r2v_6s",
     "id": "gemini_omni_r2v_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_r2v_6s",
+    "id": "gemini_omni_r2v_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_6s_360p",
+    "id": "gemini_omni_r2v_6s_360p"
   },
   {
     "description": "Video generation - abra_r2v_8s",
@@ -600,12 +680,28 @@
     "id": "gemini_omni_r2v_8s_1080p"
   },
   {
+    "description": "Video generation - abra_r2v_8s",
+    "id": "gemini_omni_r2v_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_8s_360p",
+    "id": "gemini_omni_r2v_8s_360p"
+  },
+  {
     "description": "Video generation - abra_r2v_10s",
     "id": "gemini_omni_r2v_10s"
   },
   {
     "description": "Video generation - abra_r2v_10s",
     "id": "gemini_omni_r2v_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_r2v_10s",
+    "id": "gemini_omni_r2v_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_10s_360p",
+    "id": "gemini_omni_r2v_10s_360p"
   },
   {
     "description": "Video generation - abra_r2v_4s",
@@ -616,12 +712,28 @@
     "id": "gemini_omni_r2v_portrait_4s_1080p"
   },
   {
+    "description": "Video generation - abra_r2v_4s",
+    "id": "gemini_omni_r2v_portrait_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_4s_360p",
+    "id": "gemini_omni_r2v_portrait_4s_360p"
+  },
+  {
     "description": "Video generation - abra_r2v_6s",
     "id": "gemini_omni_r2v_portrait_6s"
   },
   {
     "description": "Video generation - abra_r2v_6s",
     "id": "gemini_omni_r2v_portrait_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_r2v_6s",
+    "id": "gemini_omni_r2v_portrait_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_6s_360p",
+    "id": "gemini_omni_r2v_portrait_6s_360p"
   },
   {
     "description": "Video generation - abra_r2v_8s",
@@ -632,11 +744,283 @@
     "id": "gemini_omni_r2v_portrait_8s_1080p"
   },
   {
+    "description": "Video generation - abra_r2v_8s",
+    "id": "gemini_omni_r2v_portrait_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_8s_360p",
+    "id": "gemini_omni_r2v_portrait_8s_360p"
+  },
+  {
     "description": "Video generation - abra_r2v_10s",
     "id": "gemini_omni_r2v_portrait_10s"
   },
   {
     "description": "Video generation - abra_r2v_10s",
     "id": "gemini_omni_r2v_portrait_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_r2v_10s",
+    "id": "gemini_omni_r2v_portrait_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_r2v_10s_360p",
+    "id": "gemini_omni_r2v_portrait_10s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_4s"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_4s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s_360p",
+    "id": "gemini_omni_i2v_4s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_6s"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s_360p",
+    "id": "gemini_omni_i2v_6s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_8s"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_8s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s_360p",
+    "id": "gemini_omni_i2v_8s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_10s"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s_360p",
+    "id": "gemini_omni_i2v_10s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_portrait_4s"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_portrait_4s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s",
+    "id": "gemini_omni_i2v_portrait_4s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_4s_360p",
+    "id": "gemini_omni_i2v_portrait_4s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_portrait_6s"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_portrait_6s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s",
+    "id": "gemini_omni_i2v_portrait_6s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_6s_360p",
+    "id": "gemini_omni_i2v_portrait_6s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_portrait_8s"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_portrait_8s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s",
+    "id": "gemini_omni_i2v_portrait_8s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_8s_360p",
+    "id": "gemini_omni_i2v_portrait_8s_360p"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_portrait_10s"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_portrait_10s_1080p"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s",
+    "id": "gemini_omni_i2v_portrait_10s_4k"
+  },
+  {
+    "description": "Video generation - abra_i2v_10s_360p",
+    "id": "gemini_omni_i2v_portrait_10s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_4s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_4s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_4s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last_360p",
+    "id": "gemini_omni_fl_4s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_6s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_6s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_6s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last_360p",
+    "id": "gemini_omni_fl_6s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_8s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_8s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_8s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last_360p",
+    "id": "gemini_omni_fl_8s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_10s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_10s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_10s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last_360p",
+    "id": "gemini_omni_fl_10s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_portrait_4s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_portrait_4s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last",
+    "id": "gemini_omni_fl_portrait_4s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_4s_first_last_360p",
+    "id": "gemini_omni_fl_portrait_4s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_portrait_6s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_portrait_6s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last",
+    "id": "gemini_omni_fl_portrait_6s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_6s_first_last_360p",
+    "id": "gemini_omni_fl_portrait_6s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_portrait_8s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_portrait_8s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last",
+    "id": "gemini_omni_fl_portrait_8s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_8s_first_last_360p",
+    "id": "gemini_omni_fl_portrait_8s_360p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_portrait_10s"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_portrait_10s_1080p"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last",
+    "id": "gemini_omni_fl_portrait_10s_4k"
+  },
+  {
+    "description": "Video generation - omni_flash_i2v_10s_first_last_360p",
+    "id": "gemini_omni_fl_portrait_10s_360p"
   }
 ]
