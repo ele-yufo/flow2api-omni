@@ -18,7 +18,7 @@
 - **首尾帧视频**
 - **视频放大** (1080P / 4K)
 - **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
-- **Gemini Omni Flash (abra)** — 新一代视频模型，T2V/R2V × 4 个时长档位（4/6/8/10s）× 横竖屏 × 原版/1080P 上采样，共 32 个变体
+- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 720P原版/1080P上采样/4K上采样/360P原生，共 128 个变体
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
 - **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
 - **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
@@ -492,11 +492,17 @@ onboarding_session_ttl_seconds = 1800
 | `veo_3_1_r2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
 | `veo_3_1_r2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
 
-### Gemini Omni Flash (T2V / R2V)
+### Gemini Omni 1.1 Flash (T2V / R2V / I2V / 首尾帧)
 
-Google Flow 的新一代视频模型，上游代号 `abra`。每个时长档位是独立模型（4/6/8/10s 各一），与 Veo 系列固定时长不同。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。1080P 上采样链路复用 Veo 3.1 的 upsampler。4K 上采样暂未集成。
+Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 family id 为 `abra`。每个时长档位是独立模型（4/6/8/10s 各一），与 Veo 系列固定时长不同。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。
 
-调用方式与现有模型完全一致 —— OpenAI `chat.completions` 输入或 Gemini 官方格式。
+能力矩阵（2026-08-28 上游 projectInitialData 抓包实证）：
+
+- **T2V** 文生视频 / **R2V** 多图参考（最多 7 张）/ **I2V** 首帧图生视频（恰好 1 张）/ **首尾帧**（恰好 2 张，首帧+尾帧，上游 key 为 `omni_flash_i2v_{d}s_first_last`）
+- 分辨率变体后缀：无后缀 = 720P 原版；`_1080p` = 720P→1080P 上采样（`veo_3_1_upsampler_1080p`，0 额度）；`_4k` = 720P→4K 上采样（`veo_3_1_upsampler_4k`，**仅 Ultra 账号可用，50 额度**，Pro/Free 提交会被上游拒绝）；`_360p` = 原生 360P 生成（额度约为 720P 的一半，适合低成本迭代）
+- 费用（Pro/Ultra 同价，720P）：4s=7 / 6s=10 / 8s=12 / 10s=15 额度；360P：4/5/6/7 额度
+
+调用方式与现有模型完全一致 —— OpenAI `chat.completions` 输入或 Gemini 官方格式。首尾帧模型按顺序上传 2 张图片（第 1 张 = 首帧，第 2 张 = 尾帧）。
 
 #### 文生视频 (T2V)
 
@@ -507,7 +513,7 @@ Google Flow 的新一代视频模型，上游代号 `abra`。每个时长档位�
 | `gemini_omni_t2v_8s` / `gemini_omni_t2v_portrait_8s` | 8s | 横/竖屏 |
 | `gemini_omni_t2v_10s` / `gemini_omni_t2v_portrait_10s` | 10s | 横/竖屏 |
 
-#### 多图视频 (R2V，最多 3 张参考图)
+#### 多图视频 (R2V，最多 7 张参考图)
 
 | 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
@@ -516,14 +522,25 @@ Google Flow 的新一代视频模型，上游代号 `abra`。每个时长档位�
 | `gemini_omni_r2v_8s` / `gemini_omni_r2v_portrait_8s` | 8s | 横/竖屏 |
 | `gemini_omni_r2v_10s` / `gemini_omni_r2v_portrait_10s` | 10s | 横/竖屏 |
 
-#### 1080P 上采样版（在上面任一基础名后加 `_1080p`）
+#### 首帧图生视频 (I2V，恰好 1 张首帧图)
 
-| 模型名称 | 输出 | 尺寸 |
+| 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
-| `gemini_omni_t2v_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 横屏 |
-| `gemini_omni_t2v_portrait_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 竖屏 |
-| `gemini_omni_r2v_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 横屏 |
-| `gemini_omni_r2v_portrait_{4,6,8,10}s_1080p` | 原版时长 + 1080P | 竖屏 |
+| `gemini_omni_i2v_{4,6,8,10}s` / `gemini_omni_i2v_portrait_{4,6,8,10}s` | 4-10s | 横/竖屏 |
+
+#### 首尾帧视频 (恰好 2 张图：首帧 + 尾帧)
+
+| 模型名称 | 时长 | 尺寸 |
+|---------|------|------|
+| `gemini_omni_fl_{4,6,8,10}s` / `gemini_omni_fl_portrait_{4,6,8,10}s` | 4-10s | 横/竖屏 |
+
+#### 分辨率变体（在上面任一基础名后加后缀）
+
+| 后缀 | 输出 | 说明 |
+|------|------|------|
+| `_1080p` | 原版时长 + 1080P | 复用 Veo 3.1 upsampler，0 额度，Pro+ |
+| `_4k` | 原版时长 + 4K | `veo_3_1_upsampler_4k`，50 额度，**仅 Ultra** |
+| `_360p` | 原生 360P | 低价迭代，不上采样 |
 
 > 实测耗时（持久化登录态 + 住宅 IP 代理）：T2V 4s ≈ 45s、T2V 10s ≈ 50s、R2V 4s ≈ 60s、T2V 4s + 1080P 上采样 ≈ 80s。
 
@@ -704,9 +721,9 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   }'
 ```
 
-### Gemini Omni Flash
+### Gemini Omni 1.1 Flash
 
-模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V 与 1080P 上采样同步支持。
+模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 上采样（`_1080p`/`_4k` 后缀）、360P 低价版（`_360p` 后缀）同步支持。
 
 ```bash
 # T2V 10 秒，横屏
@@ -719,6 +736,25 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
       {
         "role": "user",
         "content": "一只小猫在草地上追逐蝴蝶，柔和阳光"
+      }
+    ],
+    "stream": true
+  }'
+
+# 首尾帧 8 秒（content 数组按顺序放首帧图、尾帧图）
+curl -X POST "http://localhost:8000/v1/chat/completions" \
+  -H "Authorization: Bearer han1234" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_fl_8s",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "image_url", "image_url": {"url": "data:image/png;base64,<首帧>"}},
+          {"type": "image_url", "image_url": {"url": "data:image/png;base64,<尾帧>"}},
+          {"type": "text", "text": "镜头从首帧平滑推进到尾帧，海浪持续拍打沙滩"}
+        ]
       }
     ],
     "stream": true
