@@ -48,9 +48,14 @@ class TaskRepository:
         task_id 即上游 media id（视频任务 task_id = operation/media name）。
         """
         async with self._engine._connect() as db:
+            # 转义 LIKE 通配符，防止用户输入的 %/_ 把反查变成全表模糊匹配
+            escaped = (
+                url_fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
             cursor = await db.execute(
-                "SELECT task_id FROM tasks WHERE result_urls LIKE ? ORDER BY created_at DESC LIMIT 1",
-                (f"%{url_fragment}%",),
+                "SELECT task_id FROM tasks WHERE result_urls LIKE ? ESCAPE '\\' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (f"%{escaped}%",),
             )
             row = await cursor.fetchone()
             return row[0] if row else None

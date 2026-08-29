@@ -246,16 +246,43 @@ class GenerationHandler:
         debug_logger.log_info(f"[GENERATION] 正在选择可用Token...")
         token_select_started_at = time.time()
 
-        if model_config.get("video_type") == "edit" and video_refs:
-            # 源视频按账号隔离（2026-08-29 实测：跨账号 media 查询上游一律返回 FAILED），
-            # 必须路由到源媒体归属的账号，而非负载均衡任选。
-            token, edit_sel_err = await self._select_edit_source_token(model, video_refs[0])
+        if model_config.get("video_type") == "edit":
+            # 先校验引用数量，避免带着注定失败的请求去探测全池账号
+            edit_sel_err = None
+            if not video_refs or len(video_refs) != 1:
+                edit_sel_err = (
+                    f"❌ 视频延长/编辑模型需要恰好 1 个源视频引用 (video_url part)，"
+                    f"当前收到 {len(video_refs) if video_refs else 0} 个"
+                )
+                token = None
+            else:
+                # 源视频按账号隔离（2026-08-29 实测：跨账号 media 查询上游一律返回 FAILED），
+                # 必须路由到源媒体归属的账号，而非负载均衡任选。
+                try:
+                    token, edit_sel_err = await self._select_edit_source_token(model, video_refs[0])
+                except Exception as e:
+                    token = None
+                    edit_sel_err = f"❌ 源视频归属探测失败: {self._normalize_error_message(e, max_length=120)}"
             if not token:
                 debug_logger.log_error(f"[GENERATION] {edit_sel_err}")
+                await self._log_request(
+                    token_id=None,
+                    operation=request_operation,
+                    request_data=request_payload,
+                    response_data={"error": edit_sel_err, "performance": perf_trace},
+                    status_code=400,
+                    duration=time.time() - start_time,
+                    log_id=request_log_state.get("id"),
+                    status_text="failed",
+                    progress=request_log_state.get("progress", 0),
+                )
                 if stream:
                     yield self._create_stream_chunk(f"❌ {edit_sel_err}\n")
                 yield self._create_error_response(edit_sel_err, status_code=400)
                 return
+            # 与 select_token(track_pending=True) 对称：edit 虽按源账号钉选，
+            # 也必须占 pending 槽，否则 finally 的 release 会误吞别人在飞的计数
+            await self.load_balancer._add_pending(token.id, False, True)
         elif generation_type == "image":
             token = await self.load_balancer.select_token(
                 for_image_generation=True,
@@ -1190,10 +1217,12 @@ class GenerationHandler:
         )
         if embedded:
             return embedded.group(0)
-        # /tmp/ URL 或裸文件名 → tasks 表反查（task_id = 上游 media id）
-        filename = ref.split("/tmp/")[-1].split("?")[0].strip("/") if ref else ""
-        if filename:
-            return await self.db.find_task_id_by_result_url(filename)
+        # /tmp/ 缓存 URL → tasks 表反查（task_id = 上游 media id）。
+        # 只对明确的 /tmp/ 引用走反查：任意垃圾字符串进 LIKE 会把别人的任务匹配出来
+        if "/tmp/" in ref:
+            filename = ref.split("/tmp/")[-1].split("?")[0].strip("/")
+            if filename:
+                return await self.db.find_task_id_by_result_url(filename)
         return None
 
     async def _select_edit_source_token(
@@ -1215,6 +1244,9 @@ class GenerationHandler:
                 continue
             if cand.credits is not None and cand.credits <= self.load_balancer.min_credits_to_select:
                 continue
+            # 与 select_token 一致：配额耗尽冷却期内的账号不选
+            if self.load_balancer._quota_mark_excludes(cand):
+                continue
             project_id = cand.current_project_id
             if not project_id:
                 continue
@@ -1234,7 +1266,8 @@ class GenerationHandler:
                     token.at, [media_id], project_id
                 )
             except Exception as e:
-                if attempt == 0:
+                # 只在鉴权类错误时刷新 AT 重试；其他错误（400/网络）不浪费刷新额度
+                if attempt == 0 and "401" in str(e):
                     refreshed = await self.token_manager.ensure_valid_token(token)
                     if refreshed:
                         token = refreshed
@@ -1281,7 +1314,10 @@ class GenerationHandler:
             return {"error": f"❌ 源视频尚未生成完成或已失败（状态: {src_status_name or '未知'}），无法延长"}
 
         gen_video = ((src.get("video") or {}).get("generatedVideo")) or {}
-        aspect_ratio = gen_video.get("aspectRatio") or "VIDEO_ASPECT_RATIO_LANDSCAPE"
+        aspect_ratio = gen_video.get("aspectRatio")
+        if not aspect_ratio:
+            # 拿不到就拒绝而不是猜 LANDSCAPE：竖屏源按横屏提交会出拉伸成片
+            return {"error": "❌ 源视频元数据缺少宽高比 (aspectRatio)，无法安全延长"}
         length_str = ((src.get("video") or {}).get("dimensions") or {}).get("length", "")
         seconds_match = re.match(r"^(\d+(?:\.\d+)?)s$", length_str)
         if not seconds_match:
