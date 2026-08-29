@@ -93,6 +93,20 @@ def _build_gemini_omni_entries() -> Dict[str, Dict[str, Any]]:
                     elif variant == "_4k":
                         entry["upsample"] = _OMNI_UPSAMPLE_4K
                     entries[key] = entry
+
+    # 视频延长/编辑（abra_edit，2026-08-29 抓包验证）。独立条目，不进上面的
+    # 时长×变体乘积：输出固定 10s 720P，宽高比与帧数继承源视频（handler 轮询
+    # 源媒体后覆盖 aspect_ratio）。调用契约见 generation_handler 的 edit 分支。
+    entries["gemini_omni_edit"] = {
+        "type": "video",
+        "video_type": "edit",
+        "model_key": "abra_edit",
+        "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",  # 占位，提交前被源视频覆盖
+        "supports_images": False,
+        "use_v2_model_config": True,
+        "allow_tier_upgrade": False,
+        "edit": {"resolution": "VIDEO_RESOLUTION_720P"},
+    }
     return entries
 
 

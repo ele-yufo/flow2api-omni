@@ -1022,5 +1022,9 @@
   {
     "description": "Video generation - omni_flash_i2v_10s_first_last_360p",
     "id": "gemini_omni_fl_portrait_10s_360p"
+  },
+  {
+    "description": "Video generation - abra_edit",
+    "id": "gemini_omni_edit"
   }
 ]

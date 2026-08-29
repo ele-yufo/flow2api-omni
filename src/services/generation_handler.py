@@ -1,6 +1,7 @@
 """Generation handler for Flow2API"""
 import asyncio
 import base64
+import re
 
 import json
 import time
@@ -175,7 +176,8 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]] = None,
         stream: bool = False,
-        base_url_override: Optional[str] = None
+        base_url_override: Optional[str] = None,
+        video_refs: Optional[List[str]] = None
     ) -> AsyncGenerator:
         """统一生成入口
 
@@ -184,6 +186,7 @@ class GenerationHandler:
             prompt: 提示词
             images: 图片列表 (bytes格式)
             stream: 是否流式输出
+            video_refs: 视频引用列表（gemini_omni_edit 的源视频：上游 media id 或 /tmp/ 缓存URL）
         """
         start_time = time.time()
         token = None
@@ -243,7 +246,17 @@ class GenerationHandler:
         debug_logger.log_info(f"[GENERATION] 正在选择可用Token...")
         token_select_started_at = time.time()
 
-        if generation_type == "image":
+        if model_config.get("video_type") == "edit" and video_refs:
+            # 源视频按账号隔离（2026-08-29 实测：跨账号 media 查询上游一律返回 FAILED），
+            # 必须路由到源媒体归属的账号，而非负载均衡任选。
+            token, edit_sel_err = await self._select_edit_source_token(model, video_refs[0])
+            if not token:
+                debug_logger.log_error(f"[GENERATION] {edit_sel_err}")
+                if stream:
+                    yield self._create_stream_chunk(f"❌ {edit_sel_err}\n")
+                yield self._create_error_response(edit_sel_err, status_code=400)
+                return
+        elif generation_type == "image":
             token = await self.load_balancer.select_token(
                 for_image_generation=True,
                 model=model,
@@ -371,6 +384,7 @@ class GenerationHandler:
                 debug_logger.log_info(f"[GENERATION] 开始视频生成流程...")
                 async for chunk in self._handle_video_generation(
                     token, project_id, model_config, prompt, images, stream,
+                    video_refs=video_refs,
                     perf_trace=perf_trace,
                     generation_result=generation_result,
                     response_state=response_state,
@@ -858,6 +872,7 @@ class GenerationHandler:
         prompt: str,
         images: Optional[List[bytes]],
         stream: bool,
+        video_refs: Optional[List[str]] = None,
         perf_trace: Optional[Dict[str, Any]] = None,
         generation_result: Optional[Dict[str, Any]] = None,
         response_state: Optional[Dict[str, Any]] = None,
@@ -936,6 +951,26 @@ class GenerationHandler:
                     yield self._create_error_response(error_msg, status_code=400)
                     return
 
+            # EDIT: 视频延长/编辑 (abra_edit) - 需要恰好 1 个视频引用，不收图片
+            elif video_type == "edit":
+                ref_count = len(video_refs) if video_refs else 0
+                if ref_count != 1:
+                    error_msg = (
+                        "❌ 视频延长/编辑模型需要恰好 1 个源视频引用 (video_url part)，"
+                        f"当前提供了 {ref_count} 个。"
+                        "引用可以是上游 media id 或本服务上次生成返回的 /tmp/ 视频 URL"
+                    )
+                    if stream:
+                        yield self._create_stream_chunk(f"{error_msg}\n")
+                    self._mark_generation_failed(generation_result, error_msg)
+                    yield self._create_error_response(error_msg, status_code=400)
+                    return
+                if image_count > 0:
+                    if stream:
+                        yield self._create_stream_chunk("⚠️ 视频编辑模型不支持图片输入,已忽略图片\n")
+                    images = None
+                    image_count = 0
+
             # ========== 上传图片 ==========
             start_media_id = None
             end_media_id = None
@@ -971,13 +1006,48 @@ class GenerationHandler:
                     })
                 debug_logger.log_info(f"[R2V] 上传了 {len(reference_images)} 张参考图片")
 
+            # ========== EDIT 预处理: 解析源视频 + 轮询源媒体元数据 ==========
+            edit_source: Optional[Dict[str, Any]] = None
+            if video_type == "edit":
+                if stream:
+                    yield self._create_stream_chunk("解析源视频引用...\n")
+                edit_source = await self._resolve_edit_source_video(
+                    token, project_id, video_refs[0]
+                )
+                if edit_source.get("error"):
+                    error_msg = edit_source["error"]
+                    if stream:
+                        yield self._create_stream_chunk(f"{error_msg}\n")
+                    self._mark_generation_failed(generation_result, error_msg)
+                    yield self._create_error_response(error_msg, status_code=400)
+                    return
+                # 宽高比跟随源视频（上游抓包实测 aspectRatio 与源一致）
+                model_config["aspect_ratio"] = edit_source["aspect_ratio"]
+
             # ========== 调用生成API ==========
             if stream:
                 yield self._create_stream_chunk("提交视频生成任务...\n")
             submit_started_at = time.time()
 
+            # EDIT: 视频延长/编辑
+            if video_type == "edit":
+                result = await self.flow_client.generate_video_edit(
+                    at=token.at,
+                    project_id=project_id,
+                    video_media_id=edit_source["media_id"],
+                    aspect_ratio=model_config["aspect_ratio"],
+                    workflow_id=edit_source["workflow_id"],
+                    model_key=model_config["model_key"],
+                    prompt=prompt,
+                    end_frame_index=edit_source["end_frame_index"],
+                    resolution=(model_config.get("edit") or {}).get("resolution", "VIDEO_RESOLUTION_720P"),
+                    user_paygate_tier=normalized_tier,
+                    token_id=token.id,
+                    token_video_concurrency=token.video_concurrency,
+                )
+
             # I2V: 首尾帧生成
-            if video_type == "i2v" and start_media_id:
+            elif video_type == "i2v" and start_media_id:
                 if end_media_id:
                     # 有首尾帧
                     result = await self.flow_client.generate_video_start_end(
@@ -1103,6 +1173,133 @@ class GenerationHandler:
 
         finally:
             pass
+
+    async def _parse_edit_video_ref(self, video_ref: str) -> Optional[str]:
+        """把源视频引用解析为上游 media id。
+
+        接受两种引用：
+        1. 上游 media id 直传（uuid 或 uuid_upsampled）
+        2. 本服务历史生成响应里的 /tmp/ 缓存 URL（经 tasks 表反查，task_id 即 media id）
+        """
+        ref = (video_ref or "").strip()
+        if re.fullmatch(r"[0-9a-fA-F-]{36}(_upsampled)?", ref):
+            return ref
+        # URL 内嵌 media id（CDN 签名链接、/tmp/<uuid>.mp4 等）→ 直接取内嵌 uuid
+        embedded = re.search(
+            r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}(_upsampled)?", ref
+        )
+        if embedded:
+            return embedded.group(0)
+        # /tmp/ URL 或裸文件名 → tasks 表反查（task_id = 上游 media id）
+        filename = ref.split("/tmp/")[-1].split("?")[0].strip("/") if ref else ""
+        if filename:
+            return await self.db.find_task_id_by_result_url(filename)
+        return None
+
+    async def _select_edit_source_token(
+        self, model: str, video_ref: str
+    ) -> tuple[Optional[Any], Optional[str]]:
+        """edit 模型源视频按账号隔离：探测每个可用账号，返回源媒体归属的 Token。
+
+        返回 (token, None) 或 (None, 中文错误文案)。
+        """
+        media_id = await self._parse_edit_video_ref(video_ref)
+        if not media_id:
+            return None, f"❌ 无法解析源视频引用: {(video_ref or '')[:120]}。请传上游 media id 或本服务返回的 /tmp/ 视频 URL"
+
+        candidates = await self.token_manager.get_active_tokens()
+        for cand in candidates:
+            if not cand.video_enabled:
+                continue
+            if not supports_model_for_tier(model, cand.user_paygate_tier):
+                continue
+            if cand.credits is not None and cand.credits <= self.load_balancer.min_credits_to_select:
+                continue
+            project_id = cand.current_project_id
+            if not project_id:
+                continue
+            status = await self._probe_edit_media_status(cand, media_id, project_id)
+            if status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                debug_logger.log_info(
+                    f"[VIDEO EDIT] 源视频 {media_id} 归属 Token {cand.id} ({cand.email})，路由至该账号"
+                )
+                return cand, None
+        return None, "❌ 源视频不在任何可用账号中（media id 与生成它的账号/project 必须同源，跨账号引用上游一律返回失败）"
+
+    async def _probe_edit_media_status(self, token, media_id: str, project_id: str) -> Optional[str]:
+        """查询指定账号下源媒体状态；AT 过期时刷新后重试一次。"""
+        for attempt in range(2):
+            try:
+                result = await self.flow_client.check_video_status_by_media(
+                    token.at, [media_id], project_id
+                )
+            except Exception as e:
+                if attempt == 0:
+                    refreshed = await self.token_manager.ensure_valid_token(token)
+                    if refreshed:
+                        token = refreshed
+                        continue
+                debug_logger.log_warning(
+                    f"[VIDEO EDIT] Token {token.id} 源媒体探测失败: {str(e)[:100]}"
+                )
+                return None
+            media = result.get("media") or []
+            if not media:
+                return None
+            return ((media[0].get("mediaMetadata") or {}).get("mediaStatus") or {}).get(
+                "mediaGenerationStatus"
+            )
+        return None
+
+    async def _resolve_edit_source_video(
+        self, token, project_id: str, video_ref: str
+    ) -> Dict[str, Any]:
+        """解析视频编辑的源视频引用并拉取上游元数据。
+
+        返回 {"media_id", "aspect_ratio", "end_frame_index", "workflow_id"}
+        或 {"error": 中文错误文案}。
+        """
+        media_id = await self._parse_edit_video_ref(video_ref)
+        if not media_id:
+            return {"error": f"❌ 无法解析源视频引用: {(video_ref or '')[:120]}。请传上游 media id 或本服务返回的 /tmp/ 视频 URL"}
+
+        # 轮询源媒体拿宽高比/时长/workflow（media 模式对任意媒体都可用）
+        try:
+            src_status = await self.flow_client.check_video_status_by_media(
+                token.at, [media_id], project_id
+            )
+        except Exception as e:
+            return {"error": f"❌ 源视频状态查询失败: {self._normalize_error_message(e, max_length=120)}"}
+
+        src_media = (src_status.get("media") or [])
+        if not src_media:
+            return {"error": "❌ 源视频在当前账号项目中不存在（media id 与账号/project 必须同源）"}
+        src = src_media[0]
+        src_meta = src.get("mediaMetadata") or {}
+        src_status_name = (src_meta.get("mediaStatus") or {}).get("mediaGenerationStatus")
+        if src_status_name != "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+            return {"error": f"❌ 源视频尚未生成完成或已失败（状态: {src_status_name or '未知'}），无法延长"}
+
+        gen_video = ((src.get("video") or {}).get("generatedVideo")) or {}
+        aspect_ratio = gen_video.get("aspectRatio") or "VIDEO_ASPECT_RATIO_LANDSCAPE"
+        length_str = ((src.get("video") or {}).get("dimensions") or {}).get("length", "")
+        seconds_match = re.match(r"^(\d+(?:\.\d+)?)s$", length_str)
+        if not seconds_match:
+            return {"error": f"❌ 无法从源视频元数据解析时长（length={length_str or '缺失'}）"}
+        # 上游契约（2026-08-29 抓包）: endFrameIndex = 源时长秒 × 24fps
+        end_frame_index = round(float(seconds_match.group(1)) * 24)
+        workflow_id = src.get("workflowId") or str(uuid.uuid4())
+
+        debug_logger.log_info(
+            f"[VIDEO EDIT] 源视频 {media_id}: aspect={aspect_ratio}, "
+            f"length={length_str}, endFrameIndex={end_frame_index}, workflow={workflow_id}"
+        )
+        return {
+            "media_id": media_id,
+            "aspect_ratio": aspect_ratio,
+            "end_frame_index": end_frame_index,
+            "workflow_id": workflow_id,
+        }
 
     async def _upload_reference_image(self, token, project_id, model_config, image_bytes):
         """上传输入/参考图片,返回 media_id。收口 5 处相同形状的 upload_image 调用。"""

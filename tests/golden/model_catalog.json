@@ -169,6 +169,18 @@
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
+  "gemini_omni_edit": {
+    "allow_tier_upgrade": false,
+    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
+    "edit": {
+      "resolution": "VIDEO_RESOLUTION_720P"
+    },
+    "model_key": "abra_edit",
+    "supports_images": false,
+    "type": "video",
+    "use_v2_model_config": true,
+    "video_type": "edit"
+  },
   "gemini_omni_fl_10s": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
