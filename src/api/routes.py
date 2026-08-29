@@ -49,6 +49,7 @@ class NormalizedGenerationRequest:
     prompt: str
     images: List[bytes]
     messages: Optional[List[ChatMessage]] = None
+    video_refs: Optional[List[str]] = None
 
 
 def set_generation_handler(handler: GenerationHandler):
@@ -194,11 +195,12 @@ async def _load_image_bytes_from_uri(uri: str) -> bytes:
 
 async def _extract_prompt_and_images_from_openai_messages(
     messages: List[ChatMessage],
-) -> tuple[str, List[bytes]]:
+) -> tuple[str, List[bytes], List[str]]:
     last_message = messages[-1]
     content = last_message.content
     prompt_parts: List[str] = []
     images: List[bytes] = []
+    video_refs: List[str] = []
 
     if isinstance(content, str):
         prompt_parts.append(content)
@@ -212,9 +214,15 @@ async def _extract_prompt_and_images_from_openai_messages(
             elif item_type == "image_url":
                 image_url = item.get("image_url", {}).get("url", "")
                 images.append(await _load_image_bytes_from_uri(image_url))
+            elif item_type == "video_url":
+                # 视频延长/编辑（gemini_omni_edit）的源视频引用：
+                # 上游 media id（uuid 或 uuid_upsampled）或本服务 /tmp/ 缓存 URL
+                video_url = item.get("video_url", {}).get("url", "")
+                if video_url:
+                    video_refs.append(video_url)
 
     prompt = "\n".join(part for part in prompt_parts if part).strip()
-    return prompt, images
+    return prompt, images, video_refs
 
 
 async def _append_openai_reference_images(
@@ -257,7 +265,7 @@ async def _append_openai_reference_images(
 
 async def _extract_prompt_and_images_from_gemini_contents(
     contents: List[GeminiContent],
-) -> tuple[str, List[bytes]]:
+) -> tuple[str, List[bytes], List[str]]:
     if not contents:
         raise HTTPException(status_code=400, detail="contents cannot be empty")
 
@@ -268,6 +276,7 @@ async def _extract_prompt_and_images_from_gemini_contents(
 
     prompt_parts: List[str] = []
     images: List[bytes] = []
+    video_refs: List[str] = []
 
     for part in target_content.parts:
         if part.text:
@@ -284,6 +293,10 @@ async def _extract_prompt_and_images_from_gemini_contents(
             images.append(base64.b64decode(part.inlineData.data))
         elif part.fileData is not None:
             mime_type = (part.fileData.mimeType or "").lower()
+            if mime_type.startswith("video/"):
+                # 视频延长/编辑的源视频引用（media id 或本服务 /tmp/ URL）
+                video_refs.append(part.fileData.fileUri)
+                continue
             if mime_type and not mime_type.startswith("image/"):
                 raise HTTPException(
                     status_code=400,
@@ -292,7 +305,7 @@ async def _extract_prompt_and_images_from_gemini_contents(
             images.append(await _load_image_bytes_from_uri(part.fileData.fileUri))
 
     prompt = "\n".join(part for part in prompt_parts if part).strip()
-    return prompt, images
+    return prompt, images, video_refs
 
 
 def _resolve_request_model(model: str, request: Any) -> str:
@@ -319,7 +332,7 @@ async def _normalize_openai_request(
     request: ChatCompletionRequest,
 ) -> NormalizedGenerationRequest:
     if request.messages:
-        prompt, images = await _extract_prompt_and_images_from_openai_messages(
+        prompt, images, video_refs = await _extract_prompt_and_images_from_openai_messages(
             request.messages
         )
         if request.image and not images:
@@ -331,6 +344,7 @@ async def _normalize_openai_request(
             prompt=prompt,
             images=images,
             messages=request.messages,
+            video_refs=video_refs,
         )
 
     if request.contents:
@@ -349,7 +363,7 @@ async def _normalize_gemini_request(
     model: str,
     request: GeminiGenerateContentRequest,
 ) -> NormalizedGenerationRequest:
-    prompt, images = await _extract_prompt_and_images_from_gemini_contents(request.contents)
+    prompt, images, video_refs = await _extract_prompt_and_images_from_gemini_contents(request.contents)
     system_instruction = _extract_text_from_gemini_content(request.systemInstruction)
     if system_instruction:
         prompt = f"{system_instruction}\n\n{prompt}".strip()
@@ -358,6 +372,7 @@ async def _normalize_gemini_request(
         model=_resolve_request_model(model, request),
         prompt=prompt,
         images=images,
+        video_refs=video_refs,
     )
 
 
@@ -365,6 +380,7 @@ async def _collect_non_stream_result(
     model: str,
     prompt: str,
     images: List[bytes],
+    video_refs: Optional[List[str]] = None,
     base_url_override: Optional[str] = None,
 ) -> str:
     handler = _ensure_generation_handler()
@@ -373,6 +389,7 @@ async def _collect_non_stream_result(
         model=model,
         prompt=prompt,
         images=images if images else None,
+        video_refs=video_refs if video_refs else None,
         stream=False,
         base_url_override=base_url_override,
     ):
@@ -529,6 +546,7 @@ async def _iterate_openai_stream(
         model=normalized.model,
         prompt=normalized.prompt,
         images=normalized.images if normalized.images else None,
+        video_refs=normalized.video_refs if normalized.video_refs else None,
         stream=True,
         base_url_override=base_url_override,
     ):
@@ -552,6 +570,7 @@ async def _iterate_gemini_stream(
         model=normalized.model,
         prompt=normalized.prompt,
         images=normalized.images if normalized.images else None,
+        video_refs=normalized.video_refs if normalized.video_refs else None,
         stream=True,
         base_url_override=base_url_override,
     ):
@@ -682,6 +701,7 @@ async def create_chat_completion(
                     normalized.model,
                     normalized.prompt,
                     normalized.images,
+                    normalized.video_refs,
                     request_base_url,
                 )
             )
@@ -716,6 +736,7 @@ async def generate_content(
                     normalized.model,
                     normalized.prompt,
                     normalized.images,
+                    normalized.video_refs,
                     request_base_url,
                 )
             )

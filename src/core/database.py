@@ -1160,6 +1160,10 @@ class Database(SqliteEngine):
         """委托 TaskRepository。"""
         return await self._tasks.get_task(task_id)
 
+    async def find_task_id_by_result_url(self, url_fragment: str) -> Optional[str]:
+        """委托 TaskRepository。按结果 URL 片段反查 task_id（= 上游 media id）。"""
+        return await self._tasks.find_task_id_by_result_url(url_fragment)
+
     async def update_task(self, task_id: str, **kwargs):
         """委托 TaskRepository。"""
         await self._tasks.update_task(task_id, **kwargs)

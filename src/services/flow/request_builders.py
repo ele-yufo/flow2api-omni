@@ -265,6 +265,61 @@ def build_video_upsample_request(
     }
 
 
+def build_video_edit_request(
+    *,
+    recaptcha_token: str,
+    session_id: str,
+    project_id: str,
+    user_paygate_tier: str,
+    aspect_ratio: str,
+    seed: int,
+    text_input: Dict[str, Any],
+    model_key: str,
+    workflow_id: str,
+    video_media_id: str,
+    end_frame_index: int,
+    resolution: str = "VIDEO_RESOLUTION_720P",
+    batch_id: str,
+) -> Dict[str, Any]:
+    """Assemble the batchAsyncGenerateVideoEditVideo request body (Omni abra_edit).
+
+    与 veo extend 的差别（2026-08-29 抓包自 Flow Omni 查看器"延长"操作）：
+    outputSpec.resolution 显式给出，videoInput 带 startFrameIndex/endFrameIndex
+    （endFrameIndex = 源视频时长秒数 × 24fps），且带 audioFailurePreference。
+    """
+    return {
+        "mediaGenerationContext": {
+            "batchId": batch_id,
+            "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
+        },
+        "clientContext": {
+            "projectId": project_id,
+            "tool": "PINHOLE",
+            "userPaygateTier": user_paygate_tier,
+            "sessionId": session_id,
+            "recaptchaContext": {
+                "token": recaptcha_token,
+                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
+            }
+        },
+        "requests": [{
+            "outputSpec": {"resolution": resolution},
+            "aspectRatio": aspect_ratio,
+            "textInput": text_input,
+            "videoModelKey": model_key,
+            "seed": seed,
+            "metadata": {
+                "workflowId": workflow_id
+            },
+            "videoInput": {
+                "mediaId": video_media_id,
+                "startFrameIndex": 0,
+                "endFrameIndex": end_frame_index
+            }
+        }]
+    }
+
+
 def build_video_extend_request(
     *,
     recaptcha_token: str,

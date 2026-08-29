@@ -18,7 +18,7 @@
 - **首尾帧视频**
 - **视频放大** (1080P / 4K)
 - **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
-- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 720P原版/1080P上采样/4K上采样/360P原生，共 128 个变体
+- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 720P原版/1080P上采样/4K上采样/360P原生，共 128 个变体，另加 `gemini_omni_edit` 视频延长/编辑（原生，可链式）
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
 - **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
 - **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
@@ -542,6 +542,31 @@ Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 fa
 | `_4k` | 原版时长 + 4K | `veo_3_1_upsampler_4k`，50 额度，**仅 Ultra** |
 | `_360p` | 原生 360P | 低价迭代，不上采样 |
 
+#### 视频延长 / 编辑 (`gemini_omni_edit`，上游 `abra_edit`)
+
+Omni 1.1 原生视频延长：把一条已生成的视频作为输入，附延长/编辑指令，输出固定 10s 720P 新视频（Pro 账号 20 额度/次，2026-08-29 抓包 + 两次实提交验证）。可链式延长（拿延长产物继续延）。
+
+- 模型名固定 `gemini_omni_edit`，无时长/方向变体（宽高比、帧数自动继承源视频）
+- 源视频引用放在消息里：`{"type": "video_url", "video_url": {"url": "<引用>"}}`，引用支持：
+  1. 上游 media id（如 `ec8e0ee8-03f4-4e75-8c8d-1f3393a7243b`，含 `_upsampled` 后缀的放大媒体也可以）
+  2. 本服务上次生成响应里的视频链接（`/tmp/` 缓存 URL 或 flow-content CDN 签名 URL，自动提取内嵌 media id 反查，可直接链式延长）
+- 宽高比/时长无需指定：服务端自动按源媒体归属路由到对应账号（媒体按账号隔离，跨账号引用上游一律报失败），并轮询源元数据（要求源视频已生成完成）
+- Gemini 格式用 `{"fileData": {"mimeType": "video/mp4", "fileUri": "<引用>"}}`
+
+```bash
+curl -X POST http://localhost:18282/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_edit",
+    "messages": [{"role": "user", "content": [
+      {"type": "text", "text": "Extend this video seamlessly: the wave keeps rolling slowly"},
+      {"type": "video_url", "video_url": {"url": "http://localhost:18282/tmp/<上次生成的视频文件>"}}
+    ]}],
+    "stream": true
+  }'
+```
+
 > 实测耗时（持久化登录态 + 住宅 IP 代理）：T2V 4s ≈ 45s、T2V 10s ≈ 50s、R2V 4s ≈ 60s、T2V 4s + 1080P 上采样 ≈ 80s。
 
 ## API 使用示例（需要使用流式）
@@ -723,7 +748,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ### Gemini Omni 1.1 Flash
 
-模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 上采样（`_1080p`/`_4k` 后缀）、360P 低价版（`_360p` 后缀）同步支持。
+模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 上采样（`_1080p`/`_4k` 后缀）、360P 低价版（`_360p` 后缀）同步支持。视频延长/编辑用 `gemini_omni_edit`，content 里加 `{"type": "video_url", "video_url": {"url": "<上游 media id 或上次返回的 /tmp/ 视频 URL>"}}`。
 
 ```bash
 # T2V 10 秒，横屏

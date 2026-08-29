@@ -41,6 +41,20 @@ class TaskRepository:
                 return Task(**task_dict)
             return None
 
+    async def find_task_id_by_result_url(self, url_fragment: str) -> Optional[str]:
+        """按结果 URL 片段（如 /tmp/ 文件名）反查 task_id。
+
+        用于视频延长/编辑：调用方回传上次生成响应里的本地缓存 URL，
+        task_id 即上游 media id（视频任务 task_id = operation/media name）。
+        """
+        async with self._engine._connect() as db:
+            cursor = await db.execute(
+                "SELECT task_id FROM tasks WHERE result_urls LIKE ? ORDER BY created_at DESC LIMIT 1",
+                (f"%{url_fragment}%",),
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
     async def update_task(self, task_id: str, **kwargs):
         """Update task"""
         async with self._engine._connect(write=True) as db:

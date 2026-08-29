@@ -31,6 +31,7 @@
   "gemini-3.1-flash-image-three-four": "Image generation - NARWHAL",
   "gemini-3.1-flash-image-three-four-2k": "Image generation - NARWHAL",
   "gemini-3.1-flash-image-three-four-4k": "Image generation - NARWHAL",
+  "gemini_omni_edit": "Video generation - abra_edit",
   "gemini_omni_fl_10s": "Video generation - omni_flash_i2v_10s_first_last",
   "gemini_omni_fl_10s_1080p": "Video generation - omni_flash_i2v_10s_first_last",
   "gemini_omni_fl_10s_360p": "Video generation - omni_flash_i2v_10s_first_last_360p",

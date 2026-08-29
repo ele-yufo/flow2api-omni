@@ -301,6 +301,8 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
     - 上采样：720p→1080P 用 veo_3_1_upsampler_1080p；720p→4K 用 veo_3_1_upsampler_4k
       （上游 creditMapping 显示 4K 仅 SERVICE_TIER_ADVANCED 可用，Pro 提交会 403）
     128 个 OpenAI 命名变体 = 4 video_type × 横竖屏 × 4 时长 × {原版, 1080p, 4K, 360p}。
+    另加 gemini_omni_edit（abra_edit 视频延长/编辑，2026-08-29 抓包验证
+    batchAsyncGenerateVideoEditVideo，输出固定 10s 720P，宽高比/帧数继承源视频）。
     """
 
     def setUp(self):
@@ -309,7 +311,17 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
 
     def test_omni_entries_registered(self):
         omni = [k for k in self.cfg if k.startswith("gemini_omni_")]
-        self.assertEqual(len(omni), 128, f"expected 128 entries, found {len(omni)}: {omni}")
+        self.assertEqual(len(omni), 129, f"expected 129 entries, found {len(omni)}: {omni}")
+
+    def test_edit_entry_registered(self):
+        """gemini_omni_edit: abra_edit，edit 分支，禁 ultra 升级，输出 720P。"""
+        cfg = self.cfg.get("gemini_omni_edit")
+        self.assertIsNotNone(cfg)
+        self.assertEqual(cfg["video_type"], "edit")
+        self.assertEqual(cfg["model_key"], "abra_edit")
+        self.assertFalse(cfg["supports_images"])
+        self.assertFalse(cfg.get("allow_tier_upgrade", True))
+        self.assertEqual(cfg["edit"]["resolution"], "VIDEO_RESOLUTION_720P")
 
     def test_t2v_entries_have_no_image_support(self):
         for name, cfg in self.cfg.items():
@@ -407,6 +419,54 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
             self.assertEqual(cfg["min_images"], 2, name)
             self.assertEqual(cfg["max_images"], 2, name)
             self.assertTrue(cfg.get("use_v2_model_config"), name)
+
+
+class VideoEditRequestBuilderTests(unittest.TestCase):
+    """build_video_edit_request 必须匹配 2026-08-29 Flow Omni 查看器"延长"操作
+    抓包到的 batchAsyncGenerateVideoEditVideo 线上格式。"""
+
+    def test_edit_request_matches_captured_wire_format(self):
+        from src.services.flow.request_builders import build_video_edit_request
+
+        body = build_video_edit_request(
+            recaptcha_token="rt",
+            session_id=";123",
+            project_id="pid",
+            user_paygate_tier="PAYGATE_TIER_ONE",
+            aspect_ratio="VIDEO_ASPECT_RATIO_LANDSCAPE",
+            seed=26235,
+            text_input={"structuredPrompt": {"parts": [{"text": "extend"}]}},
+            model_key="abra_edit",
+            workflow_id="wf-1",
+            video_media_id="ec8e0ee8-03f4-4e75-8c8d-1f3393a7243b",
+            end_frame_index=240,
+            batch_id="batch-1",
+        )
+
+        # clientContext 与生成请求一致；无 useV2ModelConfig（抓包无此字段）
+        self.assertNotIn("useV2ModelConfig", body)
+        self.assertEqual(body["mediaGenerationContext"]["batchId"], "batch-1")
+        self.assertEqual(
+            body["mediaGenerationContext"]["audioFailurePreference"],
+            "BLOCK_SILENCED_VIDEOS",
+        )
+        ctx = body["clientContext"]
+        self.assertEqual(ctx["tool"], "PINHOLE")
+        self.assertEqual(ctx["userPaygateTier"], "PAYGATE_TIER_ONE")
+        self.assertEqual(ctx["recaptchaContext"]["token"], "rt")
+
+        req = body["requests"][0]
+        self.assertEqual(req["outputSpec"], {"resolution": "VIDEO_RESOLUTION_720P"})
+        self.assertEqual(req["videoModelKey"], "abra_edit")
+        self.assertEqual(req["metadata"], {"workflowId": "wf-1"})
+        self.assertEqual(
+            req["videoInput"],
+            {
+                "mediaId": "ec8e0ee8-03f4-4e75-8c8d-1f3393a7243b",
+                "startFrameIndex": 0,
+                "endFrameIndex": 240,
+            },
+        )
 
 
 class DebugLoggerSanitizationTests(unittest.TestCase):

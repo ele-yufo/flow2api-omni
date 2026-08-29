@@ -33,6 +33,7 @@ from .flow.request_builders import (
     build_video_concatenation_request,
     build_video_status_request,
     build_video_extend_request,
+    build_video_edit_request,
     build_video_upsample_request,
     build_video_image_request,
     build_video_reference_images_request,
@@ -1795,6 +1796,127 @@ class FlowClient:
         if last_error is not None:
             raise last_error
         raise RuntimeError("视频延长请求失败")
+
+    async def generate_video_edit(
+        self,
+        at: str,
+        project_id: str,
+        video_media_id: str,
+        aspect_ratio: str,
+        workflow_id: str,
+        model_key: str,
+        prompt: str,
+        end_frame_index: int,
+        resolution: str = "VIDEO_RESOLUTION_720P",
+        user_paygate_tier: str = "PAYGATE_TIER_ONE",
+        token_id: Optional[int] = None,
+        token_video_concurrency: Optional[int] = None,
+    ) -> dict:
+        """Omni 视频编辑/延长 (abra_edit, batchAsyncGenerateVideoEditVideo)
+
+        2026-08-29 抓包验证：Flow Omni 查看器的"延长"操作走 EditVideo 端点，
+        源视频作为 videoInput 传入，输出固定 10s。与 veo extend 不同，
+        videoInput 需要 startFrameIndex/endFrameIndex（源时长×24fps）。
+
+        Args:
+            at: Access Token
+            project_id: 项目ID
+            video_media_id: 源视频的 mediaId（可为历史 omni 生成或 _upsampled 媒体）
+            aspect_ratio: 与源视频一致的宽高比
+            workflow_id: 工作流ID（可复用源生成的 workflow）
+            model_key: abra_edit
+            prompt: 延长/编辑指令
+            end_frame_index: 源视频总帧数（时长秒×24）
+            resolution: 输出分辨率（默认 720P）
+            user_paygate_tier: 用户等级
+
+        Returns:
+            同 generate_video_text（media[] 形态，轮询须用 media 模式）
+        """
+        url = f"{self.api_base_url}/video:batchAsyncGenerateVideoEditVideo"
+
+        # 403/reCAPTCHA 重试逻辑 - 与 extend_video 相同
+        max_retries = config.flow_max_retries
+        last_error = None
+
+        for retry_attempt in range(max_retries):
+            launch_gate_acquired = False
+            launch_ok, _, _ = await self._acquire_video_launch_gate(
+                token_id=token_id,
+                token_video_concurrency=token_video_concurrency,
+            )
+            if not launch_ok:
+                last_error = Exception("Video launch queue wait timeout")
+                raise last_error
+
+            launch_gate_acquired = True
+            try:
+                recaptcha_token, browser_id = await self._get_recaptcha_token(
+                    project_id,
+                    action="VIDEO_GENERATION",
+                    token_id=token_id
+                )
+            finally:
+                if launch_gate_acquired:
+                    await self._release_video_launch_gate(token_id)
+            if not recaptcha_token:
+                last_error = Exception("Failed to obtain reCAPTCHA token")
+                should_retry = await self._handle_missing_recaptcha_token(
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO EDIT] 编辑",
+                )
+                if should_retry:
+                    continue
+                raise last_error
+            json_data = build_video_edit_request(
+                recaptcha_token=recaptcha_token,
+                session_id=self._generate_session_id(),
+                project_id=project_id,
+                user_paygate_tier=user_paygate_tier,
+                aspect_ratio=aspect_ratio,
+                seed=random.randint(1, 99999),
+                text_input=self._build_video_text_input(prompt, use_v2_model_config=True),
+                model_key=model_key,
+                workflow_id=workflow_id,
+                video_media_id=video_media_id,
+                end_frame_index=end_frame_index,
+                resolution=resolution,
+                batch_id=str(uuid.uuid4()),
+            )
+
+            try:
+                result = await self._make_request(
+                    method="POST",
+                    url=url,
+                    json_data=json_data,
+                    use_at=True,
+                    at_token=at
+                )
+                self._clear_captcha_rejection(project_id)
+                return result
+            except Exception as e:
+                last_error = e
+                should_retry = await self._handle_retryable_generation_error(
+                    error=e,
+                    retry_attempt=retry_attempt,
+                    max_retries=max_retries,
+                    browser_id=browser_id,
+                    project_id=project_id,
+                    log_prefix="[VIDEO EDIT] 编辑",
+                )
+                if should_retry:
+                    continue
+                raise
+            finally:
+                await self._notify_browser_captcha_request_finished(browser_id)
+
+        # 所有重试都失败
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("视频编辑请求失败")
 
     async def concatenate_videos(
         self,
