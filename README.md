@@ -22,7 +22,8 @@
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
 - **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
 - **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
-- **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 1）的账号，多账号池耗尽账号自动退出轮询
+- **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 20）的账号，多账号池耗尽账号自动退出轮询
+- **高层级账号优先路由** — `call_mode = "default"` 时优先把请求分给高层级账号（Ult > Pro > Free），高层级并发打满后自动溢出到低层级；`_4k` / `_ultra` 模型始终只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭恢复纯负载均衡
 - **Discord 运维告警** — 账号失效需重登 / 账号池告急 / 单账号额度耗尽时主动推送到 Discord webhook（带去重），无需盯日志
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制

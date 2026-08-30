@@ -7,6 +7,7 @@ from ..core.models import Token
 from ..core.config import config
 from ..core.account_tiers import (
     get_paygate_tier_label,
+    get_paygate_tier_rank,
     get_required_paygate_tier_for_model,
     normalize_user_paygate_tier,
     supports_model_for_tier,
@@ -248,7 +249,7 @@ class LoadBalancer:
             debug_logger.log_info(f"[LOAD_BALANCER] ❌ 没有可用的Token (图片生成={for_image_generation}, 视频生成={for_video_generation})")
             return None
 
-        # 最低 in-flight 优先；有并发上限时，剩余槽位更多的 token 优先；最后随机打散
+        # 排序优先级：免刷新 > 高层级账号（可关） > 最低 in-flight > 剩余槽位更多 > 随机打散
         call_mode = config.call_logic_mode
         if call_mode == "polling":
             scenario = "default"
@@ -267,9 +268,17 @@ class LoadBalancer:
                 )
             available_tokens = ordered_candidates
         else:
+            # 高层级账号优先（Ult > Pro > Free）：tier 是第一排序键，高层级账号
+            # 并发打满（被并发过滤/预占跳过）后请求自然溢出到低层级账号。
+            tier_key = (
+                (lambda item: -get_paygate_tier_rank(item["token"].user_paygate_tier))
+                if config.prefer_higher_tier_accounts
+                else (lambda item: 0)
+            )
             available_tokens.sort(
                 key=lambda item: (
                     1 if item["needs_refresh"] else 0,
+                    tier_key(item),
                     item["inflight"],
                     0 if item["remaining"] is None else 1,
                     -(item["remaining"] or 0),
