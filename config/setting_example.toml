@@ -55,6 +55,9 @@ video_timeout = 1500
 
 [call_logic]
 call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
+# default 模式下优先把请求路由到高层级账号（Ult > Pro > Free），高层级并发打满后
+# 自动溢出到低层级账号；polling 顺序轮询模式不适用。false 恢复纯负载均衡。
+prefer_higher_tier = true
 # 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
 min_credits_to_select = 20
 

@@ -787,6 +787,14 @@ class Config(CorsConfigMixin):
             return 43200
 
     @property
+    def prefer_higher_tier_accounts(self) -> bool:
+        """default 模式下优先路由高层级账号（Ult > Pro > Free），满载后溢出到低层级。"""
+        value = self._config.get("call_logic", {}).get("prefer_higher_tier", True)
+        if isinstance(value, str):
+            return value.strip().lower() not in ("false", "0", "no", "off")
+        return bool(value)
+
+    @property
     def alert_webhook_url(self) -> str:
         # 优先环境变量（密钥不进 git），回退 toml [admin] alert_webhook_url
         env = os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")
