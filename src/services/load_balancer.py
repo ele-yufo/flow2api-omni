@@ -6,6 +6,7 @@ from typing import Optional, Dict
 from ..core.models import Token
 from ..core.config import config
 from ..core.account_tiers import (
+    PAYGATE_TIER_ONE,
     get_paygate_tier_label,
     get_paygate_tier_rank,
     get_required_paygate_tier_for_model,
@@ -164,6 +165,8 @@ class LoadBalancer:
                 Whether to pre-filter tokens by current inflight/remaining capacity.
                 For reserve=False generation paths, this should usually be False so
                 requests can enter the downstream wait queue instead of failing fast.
+                Saturated tokens are still ranked last either way, so tier preference
+                never pins a burst onto one already-full high-tier account.
             track_pending:
                 Whether to count the selected token as a queued request immediately.
                 This smooths burst distribution before the hard concurrency slot is acquired.
@@ -232,10 +235,16 @@ class LoadBalancer:
                 for_image_generation=for_image_generation,
                 for_video_generation=for_video_generation
             )
+            # 打满判定只能用 remaining:它 = 限额 - inflight - pending。生成主路径
+            # 不走 reserve,concurrency_manager 的 inflight 恒为 0,can_use_*() 永远
+            # 返回 True——拿它判断打满等于没判断(2026-09-07 首次修复踩过这个坑)。
+            # remaining is None 表示该账号没设并发上限,不存在"打满"。
+            saturated = 1 if (remaining is not None and remaining <= 0) else 0
             available_tokens.append({
                 "token": token,
                 "inflight": inflight,
                 "remaining": remaining,
+                "saturated": saturated,
                 "needs_refresh": self.token_manager.needs_at_refresh(token),
                 "random": random.random()
             })
@@ -249,7 +258,8 @@ class LoadBalancer:
             debug_logger.log_info(f"[LOAD_BALANCER] ❌ 没有可用的Token (图片生成={for_image_generation}, 视频生成={for_video_generation})")
             return None
 
-        # 排序优先级：免刷新 > 高层级账号（可关） > 最低 in-flight > 剩余槽位更多 > 随机打散
+        # 排序优先级：免刷新 > 未打满并发 > 高层级账号（可关） > 最低 in-flight
+        #             > 剩余槽位更多 > 随机打散
         call_mode = config.call_logic_mode
         if call_mode == "polling":
             scenario = "default"
@@ -268,16 +278,23 @@ class LoadBalancer:
                 )
             available_tokens = ordered_candidates
         else:
-            # 高层级账号优先（Ult > Pro > Free）：tier 是第一排序键，高层级账号
-            # 并发打满（被并发过滤/预占跳过）后请求自然溢出到低层级账号。
-            tier_key = (
-                (lambda item: -get_paygate_tier_rank(item["token"].user_paygate_tier))
-                if config.prefer_higher_tier_accounts
-                else (lambda item: 0)
-            )
+            # 高层级账号优先（Ult > Pro > Free），但"是否打满"排在 tier 之前：
+            # Ult 还有并发余量时照常优先 Ult；Ult 打满后请求溢出到 Pro/Free，
+            # 而不是继续堆在同一个 Ult 上排队（2026-09-07 修：此前 tier 是第一
+            # 排序键，主生成路径又关掉了并发过滤，溢出从未真正发生）。
+            # 画质档位不受影响：只有 Ult 能跑的模型在上面按 tier 需求过滤掉了低层级账号。
+            # 2K 图片在 Pro 上也能生成：优先使用足够的 Pro，避免无并发上限的
+            # Ult 吞下全部请求并触发其单模型每日限额。4K 仍只允许 Ult。
+            if not config.prefer_higher_tier_accounts:
+                tier_key = lambda item: 0
+            elif for_image_generation and required_tier == PAYGATE_TIER_ONE:
+                tier_key = lambda item: get_paygate_tier_rank(item["token"].user_paygate_tier)
+            else:
+                tier_key = lambda item: -get_paygate_tier_rank(item["token"].user_paygate_tier)
             available_tokens.sort(
                 key=lambda item: (
                     1 if item["needs_refresh"] else 0,
+                    item["saturated"],
                     tier_key(item),
                     item["inflight"],
                     0 if item["remaining"] is None else 1,
