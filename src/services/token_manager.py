@@ -1,6 +1,7 @@
 """Token manager for Flow2API with AT auto-refresh"""
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional, List
 from ..core.database import Database
 from ..core.config import config
@@ -24,6 +25,7 @@ from .tokens.at_refresh import should_refresh_at
 from .tokens.locks import get_keyed_lock
 from .tokens.project_naming import build_project_name, normalize_project_name_base
 from .tokens.project_pool import ensure_project_pool as provision_project_pool
+from .tokens.silent_reauth import silent_reauthorize
 from .flow_client import FlowClient
 from .proxy_manager import ProxyManager
 
@@ -581,6 +583,34 @@ class TokenManager:
         except Exception as alert_err:
             debug_logger.log_warning(f"[ALERT] 额度耗尽告警异常被忽略: {alert_err}")
 
+    async def _reauthorize_from_profile(self, token_id: int) -> Optional[str]:
+        """Mint a new ST from the account's own Chrome profile cookies (no browser).
+
+        labs.google stopped refreshing access tokens on its own (它只回
+        ``ACCESS_TOKEN_REFRESH_NEEDED`` 并继续返回过期 AT)，所以 ST 本身没死、却再也
+        换不出可用 AT。profile 里的 Google 账号 cookie 仍然有效，足以静默重放一次
+        next-auth 登录换回新会话；只有常驻 profile 的号有这条路可走。
+        """
+        try:
+            lifecycle = await self.db.get_token_lifecycle(token_id)
+            if (
+                lifecycle is None
+                or getattr(lifecycle, "runtime_mode", "") != "persistent"
+            ):
+                return None
+            profile_path = Path(config.keepalive_browser_profile_base) / str(token_id)
+            try:
+                proxy_url = await self.flow_client.proxy_manager.get_request_proxy_url()
+            except Exception:  # noqa: BLE001 - proxy is optional for the sign-in replay
+                proxy_url = None
+            return await silent_reauthorize(profile_path, proxy_url=proxy_url)
+        except Exception as exc:  # noqa: BLE001 - caller falls back to banning the token
+            debug_logger.log_warning(
+                f"[AT_REFRESH] Token {token_id}: 静默重授权失败 - "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
     async def _do_refresh_at(self, token_id: int, st: str) -> bool:
         """Refresh and persist ST/AT only after identity and credits verification."""
         before = await self.db.get_token(token_id)
@@ -590,7 +620,18 @@ class TokenManager:
         account_email = before.email
         try:
             debug_logger.log_info(f"[AT_REFRESH] Token {token_id}: 开始严格账号验证...")
-            snapshot = await self.inspect_account(st)
+            try:
+                snapshot = await self.inspect_account(st)
+            except AccountIdentityError as exc:
+                if exc.code not in ("grant_expired", "session_rejected"):
+                    raise
+                reauthorized_st = await self._reauthorize_from_profile(token_id)
+                if reauthorized_st is None:
+                    raise
+                debug_logger.log_info(
+                    f"[AT_REFRESH] Token {token_id}: {exc.code} 后静默重授权成功，重新验证"
+                )
+                snapshot = await self.inspect_account(reauthorized_st)
             await self.db.apply_verified_account_snapshot(token_id, snapshot)
         except AccountIdentityError as exc:
             if exc.code == "session_rejected":

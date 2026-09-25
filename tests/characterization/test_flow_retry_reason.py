@@ -46,6 +46,20 @@ def test_is_user_quota_exhausted_error():
         assert is_user_quota_exhausted_error(s) is False, s
 
 
+def test_per_model_daily_quota_does_not_retry_or_exhaust_entire_account():
+    from src.services.flow.errors import get_retry_reason, is_user_quota_exhausted_error
+    from src.services.captcha.errors import is_server_side_flow_error
+
+    error = (
+        "Flow API request failed: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED: "
+        "Quota exceeded: PUBLIC_ERROR_PER_MODEL_DAILY_QUOTA_REACHED"
+    )
+    assert get_retry_reason(error) is None
+    assert is_user_quota_exhausted_error(error) is False
+    assert is_server_side_flow_error(error) is False
+    assert get_retry_reason("Flow API request failed: PUBLIC_ERROR_INTERNAL") == "5xx/上游瞬断"
+
+
 def test_is_captcha_rejection_reason_golden():
     from src.services.flow.errors import is_captcha_rejection_reason
 

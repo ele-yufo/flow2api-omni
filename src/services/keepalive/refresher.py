@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Optional
 from urllib.parse import quote
 
 from ..flow.errors import is_retryable_network_error, is_timeout_error
-from ..tokens.account_identity import VerifiedAccountSnapshot, normalize_account_email
+from ..tokens.account_identity import (
+    VerifiedAccountSnapshot,
+    inspect_account_identity,
+    normalize_account_email,
+)
+from ..tokens.silent_reauth import silent_reauthorize
 from .models import FailureCode, RefreshOutcome
 from .profile import (
     MIN_SESSION_TOKEN_LENGTH,
@@ -49,6 +54,13 @@ Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], datetime]
 ErrorClassifier = Callable[[BaseException], bool]
 CookieReader = Callable[[Path], str]
+Reauthorizer = Callable[..., Awaitable[str]]
+
+# 只有这两种失败是"授权链断了但 profile 还活着"，才值得走静默重授权；网络、浏览器、
+# cookie 缺失等失败重放一次登录也救不回来。
+_REAUTH_FAILURE_CODES = frozenset(
+    {FailureCode.SESSION_REJECTED, FailureCode.GRANT_EXPIRED}
+)
 
 
 def _load_nodriver():
@@ -295,6 +307,7 @@ class KeepaliveRefresher:
         flow_client: "FlowClient",
         *,
         cookie_reader: CookieReader = read_session_token,
+        reauthorizer: Reauthorizer = silent_reauthorize,
         sleep: Sleep = asyncio.sleep,
         clock: Clock = lambda: datetime.now(timezone.utc),
         network_error_classifier: ErrorClassifier = _default_network_error_classifier,
@@ -307,6 +320,7 @@ class KeepaliveRefresher:
     ) -> None:
         dependencies = (
             cookie_reader,
+            reauthorizer,
             sleep,
             clock,
             network_error_classifier,
@@ -318,6 +332,7 @@ class KeepaliveRefresher:
         self._db = db
         self._flow_client = flow_client
         self._cookie_reader = cookie_reader
+        self._reauthorizer = reauthorizer
         self._sleep = sleep
         self._clock = clock
         self._network_error_classifier = network_error_classifier
@@ -590,6 +605,114 @@ class KeepaliveRefresher:
             )
         return credits_result, None
 
+    @staticmethod
+    def _token_id(target: "KeepaliveToken") -> Optional[int]:
+        token_id = getattr(target, "id", None)
+        if isinstance(token_id, bool) or not isinstance(token_id, int) or token_id <= 0:
+            return None
+        return token_id
+
+    async def _persist_snapshot(
+        self,
+        token_id: int,
+        snapshot: VerifiedAccountSnapshot,
+    ) -> RefreshOutcome:
+        """Apply one verified snapshot atomically and report it as a refresh result."""
+
+        try:
+            observed_at = _as_utc(self._clock())
+            await asyncio.wait_for(
+                self._db.apply_verified_account_snapshot(
+                    token_id,
+                    snapshot,
+                    observed_at=observed_at,
+                ),
+                timeout=self._call_timeout_seconds,
+            )
+        except TimeoutError:
+            return self._timeout_failure("verified snapshot persistence")
+        except Exception as error:
+            return RefreshOutcome.failure(
+                FailureCode.INTERNAL,
+                detail=_failure_detail("verified snapshot persistence", error),
+            )
+        return RefreshOutcome.success(
+            expiry=snapshot.at_expires, credits=snapshot.credits
+        )
+
+    async def _resolve_proxy_url(self) -> Optional[str]:
+        proxy_manager = getattr(self._flow_client, "proxy_manager", None)
+        getter = getattr(proxy_manager, "get_request_proxy_url", None)
+        if getter is None:
+            return None
+        try:
+            return await asyncio.wait_for(
+                getter(), timeout=self._call_timeout_seconds
+            )
+        except Exception:  # noqa: BLE001 - a direct sign-in replay is still worth trying
+            return None
+
+    async def _reauthorize(
+        self,
+        failure: RefreshOutcome,
+        target: "KeepaliveToken",
+        profile_path: Path,
+    ) -> RefreshOutcome:
+        """Heal a next-auth grant that can no longer refresh itself.
+
+        labs.google answers ``ACCESS_TOKEN_REFRESH_NEEDED`` and keeps returning the
+        already-expired access token, so a perfectly live ST still fails credits
+        validation — and the browser cannot fix it either, because the Flow tool page it
+        refreshes now redirects to the first-party flow.google.com app that never touches
+        next-auth. The profile's Google account cookies can still mint a brand new session
+        over plain HTTP, which is what turns this dead end back into a success.
+        """
+
+        if failure.code not in _REAUTH_FAILURE_CODES:
+            return failure
+        token_id = self._token_id(target)
+        if token_id is None:
+            return RefreshOutcome.failure(
+                FailureCode.INTERNAL,
+                detail="keepalive target has no valid token ID",
+            )
+        try:
+            proxy_url = await self._resolve_proxy_url()
+            session_token = await asyncio.wait_for(
+                self._reauthorizer(profile_path, proxy_url=proxy_url),
+                timeout=self._call_timeout_seconds,
+            )
+            snapshot = await asyncio.wait_for(
+                inspect_account_identity(self._flow_client, session_token),
+                timeout=self._call_timeout_seconds,
+            )
+        except TimeoutError:
+            return RefreshOutcome.failure(
+                failure.code,
+                detail=(
+                    f"{failure.detail}; silent reauth timed out after "
+                    f"{self._call_timeout_seconds:.0f}s (TimeoutError)"
+                ),
+                human_action=failure.human_action,
+            )
+        except Exception as error:
+            return RefreshOutcome.failure(
+                failure.code,
+                detail=f"{failure.detail}; {_failure_detail('silent reauth', error)}",
+                human_action=failure.human_action,
+            )
+        expected_email = normalize_account_email(target.email)
+        lifecycle_email = normalize_account_email(target.verified_email or "")
+        if snapshot.normalized_email != expected_email or (
+            lifecycle_email and snapshot.normalized_email != lifecycle_email
+        ):
+            return RefreshOutcome.failure(
+                FailureCode.IDENTITY_MISMATCH,
+                detail="reauthorized account identity does not match the assigned account",
+                human_action=True,
+            )
+        return await self._persist_snapshot(token_id, snapshot)
+
     async def refresh(
         self,
         browser: object,
@@ -621,7 +744,11 @@ class KeepaliveRefresher:
             return navigation_failure
         payload, session_failure = await self._read_browser_session(browser)
         if session_failure is not None or payload is None:
-            return session_failure or RefreshOutcome.failure(FailureCode.INTERNAL)
+            return await self._reauthorize(
+                session_failure or RefreshOutcome.failure(FailureCode.INTERNAL),
+                target,
+                profile_path,
+            )
 
         access_token, session_email, identity_failure = self._verified_session_identity(
             payload, target
@@ -636,7 +763,11 @@ class KeepaliveRefresher:
             return cookie_failure or RefreshOutcome.failure(FailureCode.INTERNAL)
         credits_result, credits_failure = await self._read_credits(access_token)
         if credits_failure is not None or credits_result is None:
-            return credits_failure or RefreshOutcome.failure(FailureCode.INTERNAL)
+            return await self._reauthorize(
+                credits_failure or RefreshOutcome.failure(FailureCode.INTERNAL),
+                target,
+                profile_path,
+            )
 
         user = payload.get("user")
         user = user if isinstance(user, dict) else {}
@@ -659,27 +790,10 @@ class KeepaliveRefresher:
             credits=credits,
             user_paygate_tier=user_paygate_tier,
         )
-        token_id = getattr(target, "id", None)
-        if isinstance(token_id, bool) or not isinstance(token_id, int) or token_id <= 0:
+        token_id = self._token_id(target)
+        if token_id is None:
             return RefreshOutcome.failure(
                 FailureCode.INTERNAL,
                 detail="keepalive target has no valid token ID",
             )
-        try:
-            observed_at = _as_utc(self._clock())
-            await asyncio.wait_for(
-                self._db.apply_verified_account_snapshot(
-                    token_id,
-                    snapshot,
-                    observed_at=observed_at,
-                ),
-                timeout=self._call_timeout_seconds,
-            )
-        except TimeoutError:
-            return self._timeout_failure("verified snapshot persistence")
-        except Exception as error:
-            return RefreshOutcome.failure(
-                FailureCode.INTERNAL,
-                detail=_failure_detail("verified snapshot persistence", error),
-            )
-        return RefreshOutcome.success(expiry=expiry, credits=credits)
+        return await self._persist_snapshot(token_id, snapshot)

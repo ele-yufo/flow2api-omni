@@ -110,6 +110,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_disable.add_argument("--token-id", type=int, required=True)
     p_disable.add_argument("--dry-run", action="store_true", help="preview only, no writes")
 
+    p_reauth = sub.add_parser(
+        "reauth",
+        help="silently re-authorize an account from its own profile cookies (JSON)",
+        description=(
+            "Replay the next-auth Google sign-in over HTTP using the account's Chrome "
+            "profile cookies, then persist the verified snapshot. No browser, no human. "
+            "Use it when labs.google answers ACCESS_TOKEN_REFRESH_NEEDED and the pool "
+            "bans itself with GRANT_EXPIRED."
+        ),
+    )
+    p_reauth.add_argument("--token-id", type=int, required=True)
+    p_reauth.add_argument(
+        "--dry-run", action="store_true", help="verify only, no credential writes"
+    )
+
     p_keep = sub.add_parser(
         "keepalive", help="turn keepalive on/off; always runtime_mode=persistent (JSON)"
     )
@@ -370,6 +385,54 @@ async def _cmd_keepalive(args, db) -> int:
     return int(ExitCode.OK)
 
 
+async def _cmd_reauth(args, db, flow_client) -> int:
+    """Mint a fresh session for one token from its profile's Google cookies."""
+    from src.core.config import config
+    from src.services.tokens.account_identity import inspect_account_identity
+    from src.services.tokens.silent_reauth import SilentReauthError, silent_reauthorize
+
+    token = await db.get_token(args.token_id)
+    if token is None:
+        return emit_error(
+            "not_found", f"token {args.token_id} not found", exit_code=ExitCode.NOT_FOUND
+        )
+    profile_path = Path(config.keepalive_browser_profile_base) / str(args.token_id)
+    try:
+        proxy_url = await flow_client.proxy_manager.get_request_proxy_url()
+    except Exception:
+        proxy_url = None
+    try:
+        session_token = await silent_reauthorize(profile_path, proxy_url=proxy_url)
+        snapshot = await inspect_account_identity(flow_client, session_token)
+    except SilentReauthError as error:
+        return emit_error(error.code, str(error), exit_code=ExitCode.INTERNAL)
+    except Exception as error:
+        return emit_error(
+            "reauth_failed",
+            f"{type(error).__name__}: {error}",
+            exit_code=ExitCode.INTERNAL,
+        )
+
+    payload = {
+        "token_id": args.token_id,
+        "email": snapshot.email,
+        "credits": snapshot.credits,
+        "user_paygate_tier": snapshot.user_paygate_tier,
+        "at_expires": snapshot.at_expires.isoformat() if snapshot.at_expires else None,
+    }
+    if args.dry_run:
+        emit_json({"dry_run": True, **payload})
+        return int(ExitCode.OK)
+    await db.apply_verified_account_snapshot(args.token_id, snapshot)
+    refreshed = await db.get_token(args.token_id)
+    emit_json({
+        **payload,
+        "business_active": bool(getattr(refreshed, "is_active", False)),
+        "ban_reason": getattr(refreshed, "ban_reason", None),
+    })
+    return int(ExitCode.OK)
+
+
 async def _dispatch(args) -> int:
     """Route one parsed subcommand to its handler, constructing shared deps.
 
@@ -393,9 +456,12 @@ async def _dispatch(args) -> int:
     from src.services.flow_client import FlowClient
     from src.services.proxy_manager import ProxyManager
 
+    flow_client = FlowClient(ProxyManager(db), db)
+    if args.command == "reauth":
+        return await _cmd_reauth(args, db, flow_client)
+
     runtime = resolve_runtime(config, os.environ)
     display = resolve_display(args.display, os.environ)
-    flow_client = FlowClient(ProxyManager(db), db)
     return await _cmd_onboard(args, db, flow_client, runtime, display)
 
 

@@ -36,13 +36,14 @@ def sync_json_request_via_urllib(
         data = json.dumps(json_data, ensure_ascii=False).encode("utf-8")
         request_headers["Content-Type"] = "application/json"
 
-    handlers = [urllib.request.HTTPSHandler(context=ssl.create_default_context())]
-    if proxy_url:
-        handlers.append(
-            urllib.request.ProxyHandler(
-                {"http": proxy_url, "https": proxy_url}
-            )
-        )
+    # Always install an explicit proxy handler. Otherwise build_opener silently
+    # inherits HTTP_PROXY/HTTPS_PROXY when proxy_url is None, so a requested
+    # direct upload still traverses the machine's proxy.
+    proxy_map = {"http": proxy_url, "https": proxy_url} if proxy_url else {}
+    handlers = [
+        urllib.request.ProxyHandler(proxy_map),
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+    ]
 
     opener = urllib.request.build_opener(*handlers)
     request = urllib.request.Request(

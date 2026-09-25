@@ -97,6 +97,8 @@ def _is_runtime_normal_close_error(error: Any) -> bool:
 def is_server_side_flow_error(error_text: str) -> bool:
     """识别上游 Flow 服务端错误(5xx/internal),区别于打码/浏览器本地故障。"""
     error_lower = (error_text or "").lower()
+    if "public_error_per_model_daily_quota_reached" in error_lower:
+        return False
     return any(keyword in error_lower for keyword in [
         "http error 500",
         "public_error",

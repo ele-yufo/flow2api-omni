@@ -7,5 +7,5 @@
     "Authorization": "Bearer x",
     "Content-Type": "application/json"
   },
-  "url": "https://labs.google/fx/api/auth/providers"
+  "url": "https://flow.google.com/about"
 }

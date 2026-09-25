@@ -44,6 +44,25 @@ def test_urllib_transport_success(monkeypatch):
     assert json.loads(captured["req"]["data"]) == {"a": 1}
     assert captured["req"]["headers"]["Content-Type"] == "application/json"
     assert captured["req"]["headers"]["Accept"] == "application/json"
+    assert isinstance(captured["handlers"][0], T.urllib.request.ProxyHandler)
+    assert captured["handlers"][0].proxies == {}
+
+
+def test_urllib_transport_explicit_proxy_does_not_inherit_environment(monkeypatch):
+    from src.services.flow import transport as T
+
+    captured = {}
+    def fake_build_opener(*handlers):
+        captured["handlers"] = handlers
+        return _fake_opener(b'{}', 200)
+    monkeypatch.setattr(T.urllib.request, "build_opener", fake_build_opener)
+    T.sync_json_request_via_urllib(
+        "POST", "https://x/api", None, {}, "http://127.0.0.1:7890", 30
+    )
+    assert captured["handlers"][0].proxies == {
+        "http": "http://127.0.0.1:7890",
+        "https": "http://127.0.0.1:7890",
+    }
 
 
 def test_urllib_transport_get_no_body(monkeypatch):
