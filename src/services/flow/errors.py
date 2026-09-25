@@ -75,6 +75,10 @@ def is_user_quota_exhausted_error(error_str: str) -> bool:
 def get_retry_reason(error_str: str) -> Optional[str]:
     """判断是否需要重试，返回日志提示内容（None 表示不重试）。"""
     error_lower = error_str.lower()
+    # 单模型每日配额耗尽时，重新打码或重试同一请求都无法恢复。
+    # 不把它当作账号全局配额耗尽：其他模型仍可能可用。
+    if "public_error_per_model_daily_quota_reached" in error_lower:
+        return None
     # 账号配额耗尽：快速失败（同账号重试无意义），交给上层摘除账号+换号。
     # 必须放在 "public_error" 通配之前，否则会被归为 "5xx/上游瞬断" 而空转重试。
     if is_user_quota_exhausted_error(error_str):

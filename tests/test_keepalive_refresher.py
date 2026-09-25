@@ -115,6 +115,7 @@ def make_refresher(
     credits_result=None,
     credits_error=None,
     cookie_reader=None,
+    reauthorizer=None,
     db_error=None,
     network_error_classifier=None,
     browser_error_classifier=None,
@@ -149,6 +150,8 @@ def make_refresher(
         kwargs["browser_error_classifier"] = browser_error_classifier
     if call_timeout_seconds is not None:
         kwargs["call_timeout_seconds"] = call_timeout_seconds
+    if reauthorizer is not None:
+        kwargs["reauthorizer"] = reauthorizer
     refresher = KeepaliveRefresher(**kwargs)
     browser = FakeBrowser(session_tab=FakeTab(body=body or session_body()))
     return refresher, browser, db, flow_client, cookie, sleep
@@ -707,3 +710,120 @@ async def test_invalid_call_timeout_is_rejected():
         KeepaliveRefresher(db, flow_client, call_timeout_seconds=0)
     with pytest.raises(ValueError):
         KeepaliveRefresher(db, flow_client, call_timeout_seconds=float("inf"))
+
+
+REAUTH_ST = "eyJ" + "r" * 1200
+REAUTH_AT = "reauthorized-access-token"
+REAUTH_EXPIRY = datetime(2026, 7, 20, 14, 0, tzinfo=timezone.utc)
+
+
+def reauthorized_session(email: str = "ruby@example.com") -> dict:
+    return {
+        "access_token": REAUTH_AT,
+        "expires": REAUTH_EXPIRY.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "user": {"email": email, "name": "Ruby"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_rejected_browser_session_is_healed_by_silent_reauthorization(profile):
+    reauthorizer = AsyncMock(return_value=REAUTH_ST)
+    refresher, browser, db, flow_client, *_ = make_refresher(
+        body=json.dumps(
+            {
+                "user": {"email": "ruby@example.com"},
+                "expires": "2026-07-20T10:11:12Z",
+                "access_token": ACCESS_TOKEN,
+                "error": "ACCESS_TOKEN_REFRESH_NEEDED",
+            }
+        ),
+        reauthorizer=reauthorizer,
+    )
+    flow_client.st_to_at = AsyncMock(return_value=reauthorized_session())
+    target = make_target()
+
+    outcome = await refresher.refresh(browser, target, profile, settle_seconds=0)
+
+    assert outcome.ok is True
+    assert outcome.credits == 960
+    assert outcome.expiry == REAUTH_EXPIRY
+    reauthorizer.assert_awaited_once_with(profile, proxy_url=None)
+    _, snapshot = db.apply_verified_account_snapshot.await_args.args
+    assert snapshot.st == REAUTH_ST
+    assert snapshot.at == REAUTH_AT
+
+
+@pytest.mark.asyncio
+async def test_credits_401_is_healed_by_silent_reauthorization(profile):
+    reauthorizer = AsyncMock(return_value=REAUTH_ST)
+    refresher, browser, db, flow_client, *_ = make_refresher(
+        credits_error=Exception("HTTP Error 401: invalid authentication credentials"),
+        reauthorizer=reauthorizer,
+    )
+    flow_client.st_to_at = AsyncMock(return_value=reauthorized_session())
+    flow_client.get_credits.side_effect = [
+        Exception("HTTP Error 401: invalid authentication credentials"),
+        {"credits": 1050, "userPaygateTier": "PAYGATE_TIER_ONE"},
+    ]
+    target = make_target()
+
+    outcome = await refresher.refresh(browser, target, profile, settle_seconds=0)
+
+    assert outcome.ok is True
+    assert outcome.credits == 1050
+    reauthorizer.assert_awaited_once()
+    _, snapshot = db.apply_verified_account_snapshot.await_args.args
+    assert snapshot.st == REAUTH_ST
+
+
+@pytest.mark.asyncio
+async def test_failed_reauthorization_keeps_the_original_failure_and_leaks_nothing(profile):
+    reauthorizer = AsyncMock(side_effect=RuntimeError(f"boom {REAUTH_ST}"))
+    refresher, browser, db, *_ = make_refresher(
+        body=json.dumps({"error": "ACCESS_TOKEN_REFRESH_NEEDED"}),
+        reauthorizer=reauthorizer,
+    )
+
+    outcome = await refresher.refresh(browser, make_target(), profile, settle_seconds=0)
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.SESSION_REJECTED
+    assert outcome.human_action is True
+    assert "silent reauth" in outcome.detail
+    assert REAUTH_ST not in outcome.detail
+    db.apply_verified_account_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reauthorized_wrong_account_is_an_identity_mismatch(profile):
+    reauthorizer = AsyncMock(return_value=REAUTH_ST)
+    refresher, browser, db, flow_client, *_ = make_refresher(
+        body=json.dumps({"error": "ACCESS_TOKEN_REFRESH_NEEDED"}),
+        reauthorizer=reauthorizer,
+    )
+    flow_client.st_to_at = AsyncMock(
+        return_value=reauthorized_session(email="someone.else@example.com")
+    )
+
+    outcome = await refresher.refresh(browser, make_target(), profile, settle_seconds=0)
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.IDENTITY_MISMATCH
+    assert outcome.human_action is True
+    db.apply_verified_account_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_authorization_failures_never_trigger_a_reauthorization(profile):
+    reauthorizer = AsyncMock(return_value=REAUTH_ST)
+    refresher, browser, db, *_ = make_refresher(
+        body="not-json",
+        reauthorizer=reauthorizer,
+    )
+
+    outcome = await refresher.refresh(browser, make_target(), profile, settle_seconds=0)
+
+    assert outcome.ok is False
+    assert outcome.code is FailureCode.SESSION_BODY
+    reauthorizer.assert_not_awaited()
+    db.apply_verified_account_snapshot.assert_not_awaited()

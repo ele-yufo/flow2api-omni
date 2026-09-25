@@ -1,5 +1,6 @@
 import unittest
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from src.core.config import config
 
@@ -230,3 +231,66 @@ class KeepaliveConservativeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(ok)
         tm.disable_token.assert_not_called()
         tm._alert.assert_not_called()
+
+
+class SilentReauthOnGrantExpiredTests(unittest.IsolatedAsyncioTestCase):
+    """A dead Google grant must heal itself from the profile instead of banning the号."""
+
+    REAUTH_ST = "eyJ" + "R" * 1200
+
+    def _make_manager(self, *, runtime_mode="persistent"):
+        token = Token(id=7, st=LONG_ST, email="ruby@gmail.com", at="old-at", credits=1000)
+        db = FakeDB(token)
+        db.get_token_lifecycle = AsyncMock(
+            return_value=SimpleNamespace(runtime_mode=runtime_mode)
+        )
+        tm = TokenManager(db=db, flow_client=None)
+        fake_flow = AsyncMock()
+        fake_flow.st_to_at = AsyncMock(
+            return_value={
+                "access_token": "new-at",
+                "expires": "2026-09-14T00:00:00.000Z",
+                "user": {"email": "ruby@gmail.com"},
+            }
+        )
+        # 第一次 credits 401（AT 刷不出来），重授权后第二次成功。
+        fake_flow.get_credits = AsyncMock(
+            side_effect=[
+                Exception("HTTP Error 401: Request had invalid authentication credentials"),
+                {"credits": 1050, "userPaygateTier": "PAYGATE_TIER_ONE"},
+            ]
+        )
+        fake_flow.proxy_manager = SimpleNamespace(
+            get_request_proxy_url=AsyncMock(return_value="http://127.0.0.1:7890")
+        )
+        tm.flow_client = fake_flow
+        return tm, db
+
+    async def test_grant_expired_heals_without_banning(self):
+        tm, db = self._make_manager()
+        reauth = AsyncMock(return_value=self.REAUTH_ST)
+        with patch("src.services.token_manager.silent_reauthorize", reauth):
+            ok = await tm._do_refresh_at(7, LONG_ST)
+        self.assertTrue(ok)
+        reauth.assert_awaited_once()
+        self.assertEqual(reauth.await_args.kwargs["proxy_url"], "http://127.0.0.1:7890")
+        self.assertTrue(any(u.get("st") == self.REAUTH_ST for u in db.updates))
+        self.assertIsNone(db._token.ban_reason)
+
+    async def test_warm_accounts_have_no_profile_to_replay(self):
+        tm, db = self._make_manager(runtime_mode="warm")
+        reauth = AsyncMock(return_value=self.REAUTH_ST)
+        with patch("src.services.token_manager.silent_reauthorize", reauth):
+            ok = await tm._do_refresh_at(7, LONG_ST)
+        self.assertFalse(ok)
+        reauth.assert_not_awaited()
+        self.assertEqual(db._token.ban_reason, "GRANT_EXPIRED")
+
+    async def test_failed_reauthorization_still_bans(self):
+        tm, db = self._make_manager()
+        reauth = AsyncMock(side_effect=RuntimeError("profile has no Chrome cookie store"))
+        with patch("src.services.token_manager.silent_reauthorize", reauth):
+            ok = await tm._do_refresh_at(7, LONG_ST)
+        self.assertFalse(ok)
+        reauth.assert_awaited_once()
+        self.assertEqual(db._token.ban_reason, "GRANT_EXPIRED")

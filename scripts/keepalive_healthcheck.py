@@ -12,11 +12,14 @@
    看 is_active 仍报全部存活)。
 
 每小时运行但只在出问题时投递 Discord(critical=死号或 UNHEALTHY,
-warning=PROBE_ERROR 退避中);每天 00/12 UTC 各投递一次全绿心跳汇总,
-证明巡检自身活着。--force-report 强制立即投递当前状态(运维验收用)。
+warning=PROBE_ERROR 退避中)。全绿心跳汇总由 FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS
+控制,2026-09-06 起默认关闭(长线验证稳定,双日心跳已成噪音);要恢复"证明巡检
+自身活着"的定时汇报,把该环境变量设成 `0,12` 即可。--force-report 强制立即
+投递当前状态(运维验收/手动查状态用),不受心跳开关影响。
 """
 import argparse
 import asyncio
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -32,7 +35,30 @@ from src.services.alert_notifier import AlertNotifier  # noqa: E402
 from src.core.config import config  # noqa: E402
 
 DB = "/opt/Projects/flow2api/data/flow.db"
-HEARTBEAT_HOURS_UTC = frozenset({0, 12})
+
+
+def _heartbeat_hours(raw: str | None = None) -> frozenset[int]:
+    """全绿心跳时刻(UTC)。默认空 = 只在出问题时才响。
+
+    值写错(比如 "0,12 UTC")不能让整个巡检崩掉——它一崩,死号和保活僵死就再也
+    没人报了。解析失败按"心跳关闭"处理,告警通路照常。
+    """
+
+    if raw is None:
+        raw = os.getenv("FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS", "")
+    try:
+        hours = frozenset(int(part) for part in raw.replace(" ", "").split(",") if part)
+    except ValueError:
+        print(
+            f"[healthcheck] 忽略无法解析的 FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS={raw!r}，"
+            "按心跳关闭处理",
+            file=sys.stderr,
+        )
+        return frozenset()
+    return frozenset(h for h in hours if 0 <= h <= 23)
+
+
+HEARTBEAT_HOURS_UTC = _heartbeat_hours()
 
 
 def read_state():
@@ -75,7 +101,14 @@ def decide_report(active, dead, total_credits, lifecycle_rows, *, now, force=Fal
 
     issues = []
     if dead_list:
-        issues.append(f"失效需重新登录注入：{'、'.join(dead_list)}")
+        # 2026-09-13：labs.google 停止自动续 AT 后，GRANT_EXPIRED/ST_REVOKED 的第一
+        # 反应必须是静默重授权（保活已自动试过；这里能看到说明它没救回来），而不是
+        # 直接叫人去 XRDP 重新登录——旧 session cookie 还在时登录动作不写新 cookie，
+        # 纯属白折腾（当日事故）。
+        issues.append(
+            f"失效需人工处理：{'、'.join(dead_list)}"
+            "（先 scripts/tokens.py reauth --token-id N；仍失败才真人重新登录）"
+        )
     if unhealthy:
         overdue = "、".join(f"{r.email}（{reason}）" for r, reason in unhealthy)
         issues.append(f"保活超期未刷新：{overdue}")
@@ -148,10 +181,9 @@ async def main(argv=None) -> int:
         )
 
     if not should_send:
-        print(
-            f"[healthcheck] {now.isoformat()} all-healthy, silent "
-            f"(heartbeat at {sorted(HEARTBEAT_HOURS_UTC)} UTC)"
-        )
+        heartbeat = sorted(HEARTBEAT_HOURS_UTC)
+        cadence = f"heartbeat at {heartbeat} UTC" if heartbeat else "heartbeat disabled"
+        print(f"[healthcheck] {now.isoformat()} all-healthy, silent ({cadence})")
         return 0
 
     notifier = AlertNotifier(config.alert_webhook_url)

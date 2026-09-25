@@ -7,10 +7,10 @@ from typing import Any, Dict, Optional
 
 
 def flow_recaptcha_page_url(project_id: Optional[str]) -> str:
-    # 必须用轻量 JSON 端点而不是 SPA 主页(auth/providers <1s ready;
-    # reCAPTCHA Enterprise 评分只看 origin+siteKey+action+指纹+IP,不看正文)。
+    # Flow 的 reCAPTCHA token 必须从当前第一方 origin 取得。
+    # /about 不依赖项目或账号页面状态，适合作为共享浏览器的执行上下文。
     _ = project_id
-    return "https://labs.google/fx/api/auth/providers"
+    return "https://flow.google.com/about"
 
 
 def browser_fetch_headers(headers: Optional[Dict[str, Any]]) -> Dict[str, str]:

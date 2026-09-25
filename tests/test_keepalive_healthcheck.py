@@ -22,7 +22,7 @@ def _load_module():
 healthcheck = _load_module()
 
 NOW = datetime(2026, 8, 21, 16, 0, tzinfo=timezone.utc)  # 非心跳时刻
-HEARTBEAT_NOW = datetime(2026, 8, 21, 12, 7, tzinfo=timezone.utc)
+HEARTBEAT_NOW = datetime(2026, 8, 21, 12, 7, tzinfo=timezone.utc)  # 曾经的心跳时刻
 
 
 class FakeRecord:
@@ -49,12 +49,34 @@ def test_all_healthy_outside_heartbeat_stays_silent():
     assert should_send is False
 
 
-def test_all_healthy_at_heartbeat_sends_all_clear():
+def test_all_healthy_at_heartbeat_sends_all_clear(monkeypatch):
+    monkeypatch.setattr(healthcheck, "HEARTBEAT_HOURS_UTC", frozenset({0, 12}))
     should_send, severity, title, description, fields = decide(now=HEARTBEAT_NOW)
     assert should_send is True
     assert severity == "warning"
     assert "全部存活" in title
     assert "无需人工介入" in description
+
+
+def test_heartbeat_hours_default_disabled():
+    assert healthcheck._heartbeat_hours("") == frozenset()
+    assert healthcheck._heartbeat_hours("0, 12") == frozenset({0, 12})
+
+
+def test_malformed_heartbeat_hours_never_kills_the_patrol():
+    """值写错只能让心跳关掉,不能让巡检整体崩——崩了死号就没人报了。"""
+
+    assert healthcheck._heartbeat_hours("0,12 UTC") == frozenset()
+    assert healthcheck._heartbeat_hours("每天两次") == frozenset()
+    assert healthcheck._heartbeat_hours("0,99,12") == frozenset({0, 12})
+
+
+def test_heartbeat_disabled_stays_silent_at_former_heartbeat_hour():
+    """心跳关闭后,原 00/12 UTC 时刻也不再投递(2026-09-06 默认)。"""
+
+    assert healthcheck.HEARTBEAT_HOURS_UTC == frozenset()
+    should_send, *_ = decide(now=HEARTBEAT_NOW)
+    assert should_send is False
 
 
 def test_force_report_sends_outside_heartbeat():

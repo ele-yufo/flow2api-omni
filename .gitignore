@@ -82,3 +82,6 @@ tests/__pycache__/
 .coverage
 .coverage.*
 htmlcov/
+
+# Antigravity CLI 会话产物
+.antigravitycli/

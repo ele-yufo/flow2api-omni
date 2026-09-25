@@ -19,7 +19,7 @@ def test_fetch_helpers_golden():
         }),
         "headers_empty": browser_fetch_headers(None),
     }
-    assert out["url"] == "https://labs.google/fx/api/auth/providers"
+    assert out["url"] == "https://flow.google.com/about"
     assert out["headers_filtered"] == {"Accept": "application/json",
                                        "Authorization": "Bearer x",
                                        "Content-Type": "application/json"}
