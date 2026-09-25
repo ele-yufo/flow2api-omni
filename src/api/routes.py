@@ -6,6 +6,7 @@ import base64
 import json
 import mimetypes
 import re
+from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
 from curl_cffi.requests import AsyncSession
@@ -128,10 +129,13 @@ async def retrieve_image_data(url: str) -> Optional[bytes]:
     try:
         if "/tmp/" in url and file_cache:
             path = urlparse(url).path
-            filename = path.split("/tmp/")[-1]
+            # 只取文件名:缓存目录是平铺的,而 URL 由客户端提供——保留目录成分会让
+            # `/tmp/../../etc/passwd` 读到缓存目录以外的文件(公网入口上线后该参数
+            # 来自任意持 key 的远端客户端)。
+            filename = PurePosixPath(path.split("/tmp/")[-1]).name
             local_file_path = file_cache.cache_dir / filename
 
-            if local_file_path.exists() and local_file_path.is_file():
+            if filename and local_file_path.exists() and local_file_path.is_file():
                 data = local_file_path.read_bytes()
                 if data:
                     return data
