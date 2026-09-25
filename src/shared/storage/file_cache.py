@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from .cache_helpers import build_download_headers, guess_extension, normalize_cache_error
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from curl_cffi.requests import AsyncSession
 from ..config import config
 from ..telemetry import debug_logger
@@ -91,6 +91,88 @@ class FileCache:
     def _guess_extension(self, url: str, media_type: str) -> str:
         """委托 cache_helpers。"""
         return guess_extension(url, media_type)
+
+    @staticmethod
+    def _is_presigned_media_url(url: str) -> bool:
+        """预签名媒体 CDN URL（flow-content.google/...?Signature=...）。
+
+        这类 URL 由 getMediaUrlRedirect 签发，约 5 小时有效、不校验出口 IP
+        和 cookie，任何链路（直连或任意代理）都能下载。
+        """
+        try:
+            parsed = urlparse(url)
+            query_keys = {k.lower() for k in (parse_qs(parsed.query) or {}).keys()}
+            if "signature" not in query_keys:
+                return False
+            host = (parsed.hostname or "").lower()
+            return host == "flow-content.google" or host.endswith(".google.com") or host.endswith(".googleusercontent.com")
+        except Exception:
+            return False
+
+    async def _fetch_media_bytes(
+        self,
+        url: str,
+        proxy_url: Optional[str],
+        headers: Dict[str, Any],
+        timeout: int = 20,
+    ) -> Optional[bytes]:
+        """单链路拉取媒体字节，失败返回 None（不抛异常）。"""
+        try:
+            async with AsyncSession() as session:
+                response = await session.get(
+                    url,
+                    timeout=timeout,
+                    proxy=proxy_url,
+                    headers=headers,
+                    impersonate="chrome120",
+                    verify=False,
+                )
+                if response.status_code == 200 and response.content:
+                    return response.content
+        except Exception as e:
+            debug_logger.log_warning(f"[CACHE RACE] 链路下载失败 (proxy={'yes' if proxy_url else 'direct'}): {e}")
+        return None
+
+    async def _race_download_media(
+        self,
+        url: str,
+        proxy_url: Optional[str],
+        headers: Dict[str, Any],
+    ) -> Optional[bytes]:
+        """预签名媒体 URL 的竞速下载：直连与代理并发，取先成功者。
+
+        背景（2026-09-25）：成品下载此前固定走指纹/请求代理（住宅 IP），
+        代理节点间歇抖动时 3MB 图片要 12s~235s，而直连同一 URL 仅 ~2s。
+        预签名 URL 不绑定出口 IP，双路并发取先到者可消除该长尾；
+        全部失败时返回 None，由调用方落回原有 curl_cffi→wget→curl 路径。
+        """
+        routes: Dict[str, Optional[str]] = {"direct": None}
+        if proxy_url:
+            routes["proxy"] = proxy_url
+
+        tasks = {
+            name: asyncio.create_task(self._fetch_media_bytes(url, route_proxy, headers))
+            for name, route_proxy in routes.items()
+        }
+        winner_content: Optional[bytes] = None
+        try:
+            pending = set(tasks.values())
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    content = task.result() if not task.cancelled() else None
+                    if content:
+                        winner_content = content
+                        break
+                if winner_content:
+                    break
+        finally:
+            for task in tasks.values():
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+        return winner_content
 
     def _build_download_headers(self, media_type, fingerprint=None):
         """委托 cache_helpers。"""
@@ -233,6 +315,21 @@ class FileCache:
             fingerprint = self._get_request_fingerprint()
             proxy_url = await self._resolve_download_proxy(media_type, fingerprint=fingerprint)
             headers = self._build_download_headers(media_type, fingerprint=fingerprint)
+
+            # 预签名 CDN URL 不绑定出口 IP：直连+代理竞速，消除代理抖动长尾。
+            # 仅图片竞速——图片只有几 MB，双路流量可忽略；视频几十~几百 MB，
+            # 竞速会让住宅代理流量翻倍，维持单路。
+            if media_type == "image" and self._is_presigned_media_url(url):
+                raced_content = await self._race_download_media(url, proxy_url, headers)
+                if raced_content:
+                    self._write_cached_content(file_path, raced_content)
+                    debug_logger.log_info(
+                        f"File cached (race): {filename} ({len(raced_content)} bytes)"
+                    )
+                    return filename
+                debug_logger.log_warning(
+                    f"[CACHE RACE] 双链路竞速均失败，落回原有下载路径: {url[:120]}"
+                )
 
             # Try method 1: curl_cffi with browser impersonation
             try:

@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import socket
 from dataclasses import dataclass
 from enum import Enum
@@ -338,6 +339,19 @@ def _cmdline_profile_ownership(
     """Return true/false ownership, or None when an argument is ambiguous."""
 
     canonical_profile = profile_path.resolve(strict=False)
+    # nodriver can launch Chrome with the full command line in one argv entry.
+    # Treat that shape as a command only when it clearly starts with Chrome;
+    # otherwise an embedded --user-data-dir must remain unsafe to classify.
+    if len(cmdline) == 1 and " --user-data-dir" in cmdline[0]:
+        try:
+            parsed = shlex.split(cmdline[0])
+        except ValueError:
+            return None
+        if not parsed or Path(parsed[0]).name not in {
+            "chrome", "google-chrome", "google-chrome-stable"
+        }:
+            return None
+        cmdline = parsed
     candidates: list[str] = []
     for index, argument in enumerate(cmdline):
         if argument.startswith("--user-data-dir="):

@@ -46,8 +46,8 @@ video_timeout = 1500
 
 [call_logic]
 call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
-# default 模式下优先把请求路由到高层级账号（Ult > Pro > Free），高层级并发打满后
-# 自动溢出到低层级账号；polling 顺序轮询模式不适用。false 恢复纯负载均衡。
+# default 模式下，2K 图片优先分散给 Pro；其他模型优先高层级账号（Ult > Pro > Free），
+# 并发打满后向低层级溢出。polling 模式不适用；false 恢复纯负载均衡。
 prefer_higher_tier = true
 # 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
 # 单次生成最多消耗 15 credits，低于 20 不足以安全跑完一次，提前退出候选池。
@@ -96,6 +96,7 @@ persistent_profile_path = "/opt/flow2api-profiles/ultra"
 # - 16GB内存: 20个标签
 # 注意：标签数量取决于不同项目的数量，单个项目的并发请求会复用同一个标签页
 personal_max_resident_tabs = 5  # 最大常驻标签页数量
+personal_min_resident_tabs = 3  # 空闲回收保底常驻数量（低流量后波峰免重付建tab成本，0=不保底）
 personal_idle_tab_ttl_seconds = 600  # 标签页空闲超时(秒)，超时后自动回收
 
 yescaptcha_api_key = ""  # YesCaptcha API密钥

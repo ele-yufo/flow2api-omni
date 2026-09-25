@@ -55,8 +55,8 @@ video_timeout = 1500
 
 [call_logic]
 call_mode = "default"  # default=随机轮询策略, polling=顺序轮询策略
-# default 模式下优先把请求路由到高层级账号（Ult > Pro > Free），高层级并发打满后
-# 自动溢出到低层级账号；polling 顺序轮询模式不适用。false 恢复纯负载均衡。
+# default 模式下，2K 图片优先分散给 Pro；其他模型优先高层级账号（Ult > Pro > Free），
+# 并发打满后向低层级溢出。polling 模式不适用；false 恢复纯负载均衡。
 prefer_higher_tier = true
 # 负载均衡时跳过剩余额度 <= 此值的账号（Pro 账号额度耗尽自动跳过）
 min_credits_to_select = 20
@@ -79,6 +79,7 @@ browser_recaptcha_settle_seconds = 3.0  # reload/clr 就绪后的额外稳态等
 browser_count = 1  # browser 模式的有头浏览器实例数量
 personal_project_pool_size = 4  # personal 模式下单个 Token 默认维护的项目池数量（仅影响项目轮换，不决定打码标签页数量）
 personal_max_resident_tabs = 5  # personal 模式共享打码标签页上限，所有 Token/project 共用这组 tab
+personal_min_resident_tabs = 2  # personal 模式空闲回收后的保底常驻标签页数量（0=允许全部回收）
 personal_idle_tab_ttl_seconds = 600  # personal 模式标签页空闲回收时间(秒)
 yescaptcha_api_key = ""  # YesCaptcha API密钥
 yescaptcha_base_url = "https://api.yescaptcha.com"

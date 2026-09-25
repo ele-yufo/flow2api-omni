@@ -97,6 +97,27 @@ def normalize_video_submit_response(result: Dict[str, Any], project_id: str) -> 
     }
 
 
+def media_names_for_status_poll(status_refs: Dict[str, Any]) -> List[str]:
+    """取出用于 media 模式轮询的名字列表。
+
+    提交响应有 operations / media 两种形状，两种都要认——只认 operations 时，
+    media 形状的提交会拿到空列表，轮询查不到任何东西，最后把已经生成好的成品
+    静默丢掉（upsample 尤其致命：放大成功了但结果没人取）。
+    """
+    names = [
+        operation["operation"]["name"]
+        for operation in (status_refs.get("operations") or [])
+        if isinstance(operation, dict) and (operation.get("operation") or {}).get("name")
+    ]
+    if names:
+        return names
+    return [
+        media["name"]
+        for media in (status_refs.get("media") or [])
+        if isinstance(media, dict) and media.get("name")
+    ]
+
+
 def coerce_media_status_to_operations(
     result: Dict[str, Any], status_refs: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
