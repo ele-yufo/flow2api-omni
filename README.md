@@ -23,7 +23,7 @@
 - **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
 - **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
 - **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 20）的账号，多账号池耗尽账号自动退出轮询
-- **高层级账号优先路由** — `call_mode = "default"` 时优先把请求分给高层级账号（Ult > Pro > Free），高层级并发打满后自动溢出到低层级；`_4k` / `_ultra` 模型始终只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭恢复纯负载均衡
+- **按模型资格路由** — `call_mode = "default"` 时，2K 图片优先分散给 Pro 账号，其他模型优先高层级账号（Ult > Pro > Free）；`_4k` / `_ultra` 模型只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭层级优先，恢复纯负载均衡
 - **Discord 运维告警** — 账号失效需重登 / 账号池告急 / 单账号额度耗尽时主动推送到 Discord webhook（带去重），无需盯日志
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制
@@ -135,7 +135,7 @@ python main.py
 
 ### 持久化登录态打码（推荐 `personal` 模式启用）
 
-匿名态向 Google reCAPTCHA Enterprise 提交时拒绝率较高（频繁触发 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`）。开启后，nodriver 浏览器复用固定的 `user-data-dir`，里面保留用户一次性手动登录的 Google 账号 cookie，reCAPTCHA 按"已登录账号"评分，token 长度从 ~2200 跳到 ~2300+，拒绝率显著下降。
+匿名态向 Google reCAPTCHA Enterprise 提交时拒绝率较高（频繁触发 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`）。开启后，nodriver 浏览器复用固定的 `user-data-dir`，保留操作员指定 Google 账号的登录态。共享打码 profile 与每个业务 Token 的保活 profile 相互独立。
 
 #### 配置项（`config/setting.toml`）
 
@@ -152,15 +152,16 @@ persistent_profile_path = "/opt/flow2api-profiles/ultra"
 # 1) 停服释放 profile
 sudo systemctl stop flow2api
 
-# 2) 用 GUI Chrome 打开同一个 profile 路径登录
-google-chrome --user-data-dir=/opt/flow2api-profiles/ultra
-# 在打开的 Chrome 里：登录 Google 账号 → 访问 https://labs.google/fx/tools/flow 确认能进 → 关闭
+# 2) 用 GUI Chrome 打开同一个 profile 路径，并使用与打码浏览器相同的代理
+google-chrome --user-data-dir=/opt/flow2api-profiles/ultra \
+  --profile-directory=Default --proxy-server=http://127.0.0.1:7890
+# 在打开的 Chrome 里：登录指定 Google 账号 → 访问 https://flow.google.com/ 确认能进 → 关闭
 
 # 3) 启服，nodriver 自动复用此 profile
 sudo systemctl start flow2api
 ```
 
-启动日志看到下面这行即为生效：
+启动日志中下面这行只表示 Cookie 数据库存在，不能证明 Google 仍接受登录态：
 
 ```
 [BrowserCaptcha] ✅ 持久化 profile 已检测到登录痕迹 (.../Default/Cookies)
@@ -174,14 +175,7 @@ sudo systemctl start flow2api
 
 #### 工作机制（健康度判定）
 
-`personal` 打码完成后，reCAPTCHA token 长度是登录态生效与否的物理信号：
-
-| 状态 | Token 长度 |
-|---|---|
-| 匿名 / 未登录 | ≤ 2240 |
-| 持久化登录态生效 | ≥ 2295（实测分布 2297-2425） |
-
-在 logs.txt 里搜 `Token 获取成功 (长度: NNNN)` 即可判断。如果开启了持久化但长度仍 ≤ 2240，说明 cookie 没生效或 profile 缺关键 token（SID/HSID/SAPISID/__Secure-1PSID 等），需要重新 GUI 登录。
+`personal` 从 `flow.google.com` 页面取得 reCAPTCHA token。`logs.txt` 中的 `Token 获取成功 (长度: NNNN)` 可用于发现长度突变，但长度本身不能证明登录态有效或上游接受 token。若长度骤降并伴随 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`，依次核对打码页面来源、站点密钥与 action、代理出口、共享 profile 的实际登录身份；以一次真实生成成功作为最终验收。
 
 ### 浏览器保活与多账号生命周期
 
@@ -231,7 +225,7 @@ sudo systemctl start flow2api
 
 重新登录已有账号时指定目标 Token；服务会拒绝邮箱不匹配。目标 profile 已存在时默认拒绝覆盖，只有显式选择 `archive_and_replace` 才会把旧 profile 保留到归档目录后替换，便于回滚。Free 或 unknown 新账号不会因请求业务启用而自动进入业务池。
 
-完整的部署、XRDP 操作、API、命令、维护窗口、回滚和故障排查见 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)。
+完整的部署、XRDP 操作、API、命令、维护窗口、回滚和故障排查见 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)。跨网访问（Tailscale 子网路由、直连依赖的 IPv6、产物中转口径）见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
 
 #### captcha profile 与 keepalive profile 不是同一资源
 
