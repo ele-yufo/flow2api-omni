@@ -40,6 +40,29 @@ class FlowClientUploadImageTests(unittest.IsolatedAsyncioTestCase):
             request_calls[0]["json_data"]["clientContext"]["projectId"],
             "project-123",
         )
+        self.assertTrue(request_calls[0]["force_direct"])
+        self.assertLessEqual(request_calls[0]["timeout"], 45)
+
+    async def test_project_scoped_upload_falls_back_to_proxy_after_direct_timeout(self):
+        client = FlowClient(proxy_manager=None)
+        request_calls = []
+
+        async def fake_make_request(**kwargs):
+            request_calls.append(kwargs)
+            if len(request_calls) == 1:
+                raise TimeoutError("The read operation timed out")
+            return {"media": {"name": "proxy-media-id"}}
+
+        client._make_request = AsyncMock(side_effect=fake_make_request)
+        media_id = await client.upload_image(
+            at="test-at", image_bytes=JPEG_BYTES, project_id="project-123"
+        )
+
+        self.assertEqual(media_id, "proxy-media-id")
+        self.assertEqual(len(request_calls), 2)
+        self.assertTrue(request_calls[0]["force_direct"])
+        self.assertFalse(request_calls[1]["force_direct"])
+        self.assertTrue(request_calls[1]["use_media_proxy"])
 
     async def test_project_scoped_upload_does_not_fallback_to_legacy_endpoint(self):
         client = FlowClient(proxy_manager=None)
@@ -153,23 +176,17 @@ class FlowClientFingerprintTests(unittest.TestCase):
             "Content-Type": "application/json",
         })
 
-    def test_personal_captcha_uses_lightweight_auth_endpoint(self):
-        """reCAPTCHA tab 必须用轻量 JSON 端点。
-
-        SPA 主页 /fx/tools/flow/project/{id} 在未登录态下永远到不了
-        readyState=complete，warmup 7s 全超时；auth/providers 是固定 JSON
-        返回，<1s 就 ready，token 评分跟页面 origin/siteKey/fingerprint 有
-        关，不依赖页面 body。
-        """
+    def test_personal_captcha_uses_flow_origin(self):
+        """reCAPTCHA tab 使用 Flow 第一方页面作为执行上下文。"""
         from src.services.browser_captcha_personal import BrowserCaptchaService
 
         self.assertEqual(
             BrowserCaptchaService._flow_recaptcha_page_url("project-1"),
-            "https://labs.google/fx/api/auth/providers",
+            "https://flow.google.com/about",
         )
         self.assertEqual(
             BrowserCaptchaService._flow_recaptcha_page_url(None),
-            "https://labs.google/fx/api/auth/providers",
+            "https://flow.google.com/about",
         )
 
     def test_captcha_failure_cooldown_increases_then_clears(self):

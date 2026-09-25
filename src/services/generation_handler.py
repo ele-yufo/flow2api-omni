@@ -41,6 +41,7 @@ from .generation.response_parsing import (
     coerce_media_status_to_operations,
     extract_video_info,
     is_media_generation_failed,
+    media_names_for_status_poll,
     poll_progress_percent,
     normalize_media_id_to_uuid_str,
     normalize_video_submit_response,
@@ -643,13 +644,12 @@ class GenerationHandler:
                 if stream:
                     yield self._create_stream_chunk(f"上传 {len(images)} 张参考图片...\n")
 
-                # 支持多图输入
-                for idx, image_bytes in enumerate(images):
-                    media_id = await self._upload_reference_image(token, project_id, model_config, image_bytes)
-                    image_inputs.append({
-                        "name": media_id,
-                        "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"
-                    })
+                # 参考图彼此独立；并行两张缩短多图请求的上传等待。
+                # gather 保持原顺序，避免输入图片顺序改变生成语义。
+                image_inputs = await self._upload_image_inputs(
+                    token, project_id, model_config, images
+                )
+                for idx in range(len(image_inputs)):
                     if stream:
                         yield self._create_stream_chunk(f"已上传第 {idx + 1}/{len(images)} 张图片\n")
             if image_trace is not None:
@@ -1343,6 +1343,22 @@ class GenerationHandler:
             token.at, image_bytes, model_config["aspect_ratio"], project_id=project_id
         )
 
+    async def _upload_image_inputs(self, token, project_id, model_config, images):
+        """最多并行上传两张参考图，并按请求顺序返回 Flow 输入。"""
+        limit = asyncio.Semaphore(2)
+
+        async def upload_one(image_bytes):
+            async with limit:
+                return await self._upload_reference_image(
+                    token, project_id, model_config, image_bytes
+                )
+
+        media_ids = await asyncio.gather(*(upload_one(image) for image in images))
+        return [
+            {"name": media_id, "imageInputType": "IMAGE_INPUT_TYPE_REFERENCE"}
+            for media_id in media_ids
+        ]
+
     async def _persist_video_completion(self, operation, local_url, response_state):
         """收口视频完成落库:task 置 completed + 写 response_state 的 url/generated_assets。
 
@@ -1741,11 +1757,9 @@ class GenerationHandler:
                             )
                             # 上游对 "<原mediaId>_upsampled" 任务不接受 operations 查询(400)，
                             # upsample 任务轮询必须走 media 模式(2026-08-23 实测)。
-                            upsample_media_names = [
-                                op["operation"]["name"]
-                                for op in (upsample_operations.get("operations") or [])
-                                if op.get("operation", {}).get("name")
-                            ]
+                            # 两种提交响应形状都要认：只取 operations 会让 media 形状
+                            # 拿到空列表，空轮询 200 次后把放大好的成品静默丢掉。
+                            upsample_media_names = media_names_for_status_poll(upsample_operations)
                             if upsample_operations.get("operations") or upsample_operations.get("media"):
                                 if stream:
                                     yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")

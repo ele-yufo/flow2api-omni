@@ -168,6 +168,10 @@ class BrowserCaptchaService:
         self._legacy_submit_tabs: Dict[str, Any] = {}  # project_id -> 最近一次 legacy 成功打码页，供同页提交
         self._legacy_submit_lock = asyncio.Lock()
         self._max_resident_tabs = 5  # 最大常驻标签页数量（支持并发）
+        self._min_resident_tabs = max(
+            0,
+            min(int(getattr(config, "personal_min_resident_tabs", 2) or 0), self._max_resident_tabs),
+        )  # 空闲回收的保底常驻数量
         self._idle_tab_ttl_seconds = 600  # 标签页空闲超时(秒)
         self._idle_reaper_task: Optional[asyncio.Task] = None  # 空闲回收任务
         self._command_timeout_seconds = 8.0
@@ -218,17 +222,22 @@ class BrowserCaptchaService:
         """热更新配置（从数据库重新加载）"""
         from ..core.config import config
         old_max_tabs = self._max_resident_tabs
+        old_min_tabs = self._min_resident_tabs
         old_idle_ttl = self._idle_tab_ttl_seconds
         old_probe_ttl = self._health_probe_ttl_seconds
         old_fingerprint_ttl = self._fingerprint_cache_ttl_seconds
 
         self._max_resident_tabs = config.personal_max_resident_tabs
         self._idle_tab_ttl_seconds = config.personal_idle_tab_ttl_seconds
+        self._min_resident_tabs = max(
+            0, min(config.personal_min_resident_tabs, self._max_resident_tabs)
+        )
         self._refresh_runtime_tunables()
 
         debug_logger.log_info(
             f"[BrowserCaptcha] Personal 配置已热更新: "
             f"max_tabs {old_max_tabs}->{self._max_resident_tabs}, "
+            f"min_tabs {old_min_tabs}->{self._min_resident_tabs}, "
             f"idle_ttl {old_idle_ttl}s->{self._idle_tab_ttl_seconds}s, "
             f"probe_ttl {old_probe_ttl}s->{self._health_probe_ttl_seconds}s, "
             f"fingerprint_ttl {old_fingerprint_ttl}s->{self._fingerprint_cache_ttl_seconds}s"
@@ -474,6 +483,21 @@ class BrowserCaptchaService:
             label,
         )
 
+    async def _navigate_flow_recaptcha_tab(self, tab, url: str, label: str):
+        """Navigate without waiting for Flow SPA's never-firing load event."""
+        if not url.startswith("https://flow.google.com/"):
+            raise ValueError("reCAPTCHA page must use the Flow origin")
+        await self._run_with_timeout(
+            tab.send(uc.cdp.page.set_bypass_csp(enabled=True)),
+            self._command_timeout_seconds,
+            f"{label}:csp",
+        )
+        await self._run_with_timeout(
+            tab.send(uc.cdp.page.navigate(url=url)),
+            self._navigation_timeout_seconds,
+            label,
+        )
+
     async def _browser_get(self, url: str, label: str, new_tab: bool = False, timeout_seconds: Optional[float] = None):
         return await self._run_with_timeout(
             self.browser.get(url, new_tab=new_tab),
@@ -518,19 +542,7 @@ class BrowserCaptchaService:
         while True:
             try:
                 await asyncio.sleep(30)  # 每30秒检查一次
-                current_time = time.time()
-                tabs_to_close = []
-
-                async with self._resident_lock:
-                    for slot_id, resident_info in list(self._resident_tabs.items()):
-                        if resident_info.solve_lock.locked():
-                            continue
-                        idle_seconds = current_time - resident_info.last_used_at
-                        if idle_seconds >= self._idle_tab_ttl_seconds:
-                            tabs_to_close.append(slot_id)
-                            debug_logger.log_info(
-                                f"[BrowserCaptcha] slot={slot_id} 空闲 {idle_seconds:.0f}s，准备回收"
-                            )
+                tabs_to_close = await self._collect_idle_tabs_to_close()
 
                 for slot_id in tabs_to_close:
                     await self._close_resident_tab(slot_id)
@@ -539,6 +551,30 @@ class BrowserCaptchaService:
                 return
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] 空闲标签页回收异常: {e}")
+
+    async def _collect_idle_tabs_to_close(self) -> list[str]:
+        """挑选本轮应回收的空闲超时标签页（遵守保底常驻数）。"""
+        current_time = time.time()
+        async with self._resident_lock:
+            idle_candidates: list[tuple[float, str]] = []
+            for slot_id, resident_info in list(self._resident_tabs.items()):
+                if resident_info.solve_lock.locked():
+                    continue
+                idle_seconds = current_time - resident_info.last_used_at
+                if idle_seconds >= self._idle_tab_ttl_seconds:
+                    idle_candidates.append((idle_seconds, slot_id))
+            # 保底常驻：不把池子回收到 min_resident_tabs 以下。
+            # 否则低流量时段池子被清空，下一个波峰要重付每 tab ~7s 的建造成本
+            # （2026-09-25：启动预热满 5 个，10 分钟后回收到剩 2，波峰 9 并发排队 15s）。
+            allowed_to_close = max(0, len(self._resident_tabs) - self._min_resident_tabs)
+            idle_candidates.sort(reverse=True)  # 优先回收空闲最久的
+            tabs_to_close: list[str] = []
+            for idle_seconds, slot_id in idle_candidates[:allowed_to_close]:
+                tabs_to_close.append(slot_id)
+                debug_logger.log_info(
+                    f"[BrowserCaptcha] slot={slot_id} 空闲 {idle_seconds:.0f}s，准备回收"
+                )
+            return tabs_to_close
 
     async def _evict_lru_tab_if_needed(self) -> bool:
         """如果达到共享池上限，使用 LRU 策略淘汰最久未使用的空闲标签页。"""
@@ -729,33 +765,53 @@ class BrowserCaptchaService:
             if len(self._resident_tabs) >= self._max_resident_tabs:
                 return wrap(slot_id, resident_info)
 
-        async with self._tab_build_lock:
-            async with self._resident_lock:
-                slot_id, resident_info = self._select_resident_slot_locked(project_id)
-                if self._resident_tabs:
-                    all_busy = all(info.solve_lock.locked() for info in self._resident_tabs.values())
-                else:
-                    all_busy = True
-
-                should_create = force_create or not resident_info or (all_busy and len(self._resident_tabs) < self._max_resident_tabs)
-                if not should_create:
-                    return wrap(slot_id, resident_info)
-
-                if len(self._resident_tabs) >= self._max_resident_tabs:
-                    return wrap(slot_id, resident_info)
-
-                new_slot_id = self._next_resident_slot_id()
-
-            resident_info = await self._create_resident_tab(new_slot_id, project_id=project_id)
-            if resident_info is None:
+        # 慢路径：所有 tab 忙且池未满，需要新建。建 tab 含页面加载+reCAPTCHA 就绪（约 7s），
+        # 且 _tab_build_lock 串行化建造——排队建 tab 的请求不能干等：
+        # 2026-09-25 波峰实测 9 并发时 7 个请求卡在 build 锁队列，已有 2 个 tab 释放后
+        # 空闲 7s 无人使用。这里在等锁期间定期回查已释放的 tab，有则立即复用。
+        while True:
+            try:
+                await asyncio.wait_for(self._tab_build_lock.acquire(), timeout=0.5)
+            except asyncio.TimeoutError:
+                if not force_create:
+                    async with self._resident_lock:
+                        slot_id, resident_info = self._select_resident_slot_locked(project_id)
+                        if (
+                            resident_info is not None
+                            and resident_info.recaptcha_ready
+                            and not resident_info.solve_lock.locked()
+                        ):
+                            return wrap(slot_id, resident_info)
+                continue
+            try:
                 async with self._resident_lock:
-                    slot_id, fallback_info = self._select_resident_slot_locked(project_id)
-                return wrap(slot_id, fallback_info)
+                    slot_id, resident_info = self._select_resident_slot_locked(project_id)
+                    if self._resident_tabs:
+                        all_busy = all(info.solve_lock.locked() for info in self._resident_tabs.values())
+                    else:
+                        all_busy = True
 
-            async with self._resident_lock:
-                self._resident_tabs[new_slot_id] = resident_info
-                self._sync_compat_resident_state()
-                return wrap(new_slot_id, resident_info)
+                    should_create = force_create or not resident_info or (all_busy and len(self._resident_tabs) < self._max_resident_tabs)
+                    if not should_create:
+                        return wrap(slot_id, resident_info)
+
+                    if len(self._resident_tabs) >= self._max_resident_tabs:
+                        return wrap(slot_id, resident_info)
+
+                    new_slot_id = self._next_resident_slot_id()
+
+                resident_info = await self._create_resident_tab(new_slot_id, project_id=project_id)
+                if resident_info is None:
+                    async with self._resident_lock:
+                        slot_id, fallback_info = self._select_resident_slot_locked(project_id)
+                    return wrap(slot_id, fallback_info)
+
+                async with self._resident_lock:
+                    self._resident_tabs[new_slot_id] = resident_info
+                    self._sync_compat_resident_state()
+                    return wrap(new_slot_id, resident_info)
+            finally:
+                self._tab_build_lock.release()
 
     async def _rebuild_resident_tab(
         self,
@@ -1622,6 +1678,14 @@ class BrowserCaptchaService:
         """
         debug_logger.log_info("[BrowserCaptcha] 注入 reCAPTCHA 脚本...")
 
+        # 页面来源错误时不提交可能无效的 reCAPTCHA token。
+        origin = await self._tab_evaluate(
+            tab, "location.origin", label="recaptcha_page_origin", timeout_seconds=3.0,
+        )
+        if origin != "https://flow.google.com":
+            debug_logger.log_error("[BrowserCaptcha] reCAPTCHA 页面来源不正确")
+            return False
+
         # 注入 reCAPTCHA Enterprise 脚本
         await self._tab_evaluate(tab, f"""
             (() => {{
@@ -2345,7 +2409,7 @@ class BrowserCaptchaService:
             if available_tab:
                 tab = available_tab
                 debug_logger.log_info(f"[BrowserCaptcha] 复用未占用的标签页")
-                await self._tab_get(
+                await self._navigate_flow_recaptcha_tab(
                     tab,
                     website_url,
                     label=f"resident_tab_get:{slot_id}",
@@ -2353,9 +2417,12 @@ class BrowserCaptchaService:
             else:
                 debug_logger.log_info(f"[BrowserCaptcha] 创建新标签页")
                 tab = await self._browser_get(
-                    website_url,
+                    "about:blank",
                     label=f"resident_browser_get:{slot_id}",
                     new_tab=True,
+                )
+                await self._navigate_flow_recaptcha_tab(
+                    tab, website_url, label=f"resident_tab_get:{slot_id}",
                 )
 
             # 等待页面加载完成（减少等待时间）
@@ -2365,11 +2432,12 @@ class BrowserCaptchaService:
                     await asyncio.sleep(0.5)
                     ready_state = await self._tab_evaluate(
                         tab,
-                        "document.readyState",
+                        "location.origin === 'https://flow.google.com' && "
+                        "['interactive', 'complete'].includes(document.readyState)",
                         label=f"resident_document_ready:{slot_id}",
                         timeout_seconds=2.0,
                     )
-                    if ready_state == "complete":
+                    if ready_state:
                         page_loaded = True
                         debug_logger.log_info(f"[BrowserCaptcha] 页面已加载")
                         break
@@ -2464,9 +2532,12 @@ class BrowserCaptchaService:
                         f"[BrowserCaptcha] [Legacy] 创建独立临时标签页执行验证，避免污染 resident/custom 页面: {website_url}"
                     )
                     tab = await self._browser_get(
-                        website_url,
+                        "about:blank",
                         label=f"legacy_browser_get:{project_id}",
                         new_tab=True,
+                    )
+                    await self._navigate_flow_recaptcha_tab(
+                        tab, website_url, label=f"legacy_tab_get:{project_id}",
                     )
 
                     # 等待页面完全加载（增加等待时间）
@@ -2477,11 +2548,12 @@ class BrowserCaptchaService:
                     for _ in range(10):
                         ready_state = await self._tab_evaluate(
                             tab,
-                            "document.readyState",
+                            "location.origin === 'https://flow.google.com' && "
+                            "['interactive', 'complete'].includes(document.readyState)",
                             label=f"legacy_document_ready:{project_id}",
                             timeout_seconds=2.0,
                         )
-                        if ready_state == "complete":
+                        if ready_state:
                             break
                         await tab.sleep(0.5)
 

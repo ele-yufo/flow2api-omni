@@ -240,6 +240,7 @@ class FlowClient:
         use_media_proxy: bool = False,
         respect_fingerprint_proxy: bool = True,
         force_urllib: bool = False,
+        force_direct: bool = False,
         capture_set_cookie: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """统一HTTP请求处理
@@ -260,7 +261,7 @@ class FlowClient:
         fingerprint = self._request_fingerprint_ctx.get()
 
         proxy_url = None
-        if self.proxy_manager:
+        if self.proxy_manager and not force_direct:
             if use_media_proxy and hasattr(self.proxy_manager, "get_media_proxy_url"):
                 proxy_url = await self.proxy_manager.get_media_proxy_url()
             elif hasattr(self.proxy_manager, "get_request_proxy_url"):
@@ -268,7 +269,7 @@ class FlowClient:
             else:
                 proxy_url = await self.proxy_manager.get_proxy_url()
 
-        if respect_fingerprint_proxy and isinstance(fingerprint, dict) and "proxy_url" in fingerprint:
+        if not force_direct and respect_fingerprint_proxy and isinstance(fingerprint, dict) and "proxy_url" in fingerprint:
             proxy_url = fingerprint.get("proxy_url")
             if proxy_url == "":
                 proxy_url = None
@@ -801,7 +802,13 @@ class FlowClient:
                 "tool": "ASSET_MANAGER"
             }
         }
-        max_retries = max(1, getattr(config, "flow_max_retries", 3))
+        # 带 projectId 的参考图上传先直连。该接口不依赖 reCAPTCHA，实测
+        # 2.2MB 上传直连 18s，而媒体代理偶发 120s 读/写超时。
+        # 第二次才经代理回退，避免一张参考图重复等待数个长超时。
+        max_retries = (
+            min(2, max(1, config.flow_max_retries))
+            if normalized_project_id else max(1, config.flow_max_retries)
+        )
         last_error: Optional[Exception] = None
 
         for retry_attempt in range(max_retries):
@@ -812,8 +819,11 @@ class FlowClient:
                     json_data=new_json_data,
                     use_at=True,
                     at_token=at,
-                    use_media_proxy=True,
+                    use_media_proxy=not normalized_project_id or retry_attempt > 0,
+                    respect_fingerprint_proxy=False if normalized_project_id else True,
                     force_urllib=True,
+                    force_direct=bool(normalized_project_id and retry_attempt == 0),
+                    timeout=min(self.timeout, 45) if normalized_project_id else None,
                 )
                 media_id = (
                     new_result.get("media", {}).get("name")

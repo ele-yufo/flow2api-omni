@@ -492,6 +492,15 @@ class Config(CorsConfigMixin):
         except Exception:
             return 600
 
+    @property
+    def personal_min_resident_tabs(self) -> int:
+        """空闲回收后保留的保底常驻标签页数量（0=不保底，允许全部回收）"""
+        value = self._config.get("captcha", {}).get("personal_min_resident_tabs", 2)
+        try:
+            return max(0, min(50, int(value)))
+        except Exception:
+            return 2
+
     def set_personal_max_resident_tabs(self, value: int):
         """设置内置浏览器打码的共享标签页上限"""
         if "captcha" not in self._config:

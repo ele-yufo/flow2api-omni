@@ -182,6 +182,22 @@ def test_active_dangling_singleton_lock_reports_busy_without_cleanup(tmp_path):
     assert os.path.lexists(profile / "SingletonSocket")
 
 
+def test_single_argv_chrome_command_still_owns_profile(tmp_path):
+    profile = _make_profile(tmp_path / "profiles")
+    _make_singleton_artifacts(profile, 43210)
+    process_reader = lambda pid: ProcessSnapshot(
+        pid=pid,
+        start_ticks=900,
+        cmdline=(
+            f"/opt/google/chrome/chrome --remote-allow-origins=* "
+            f"--user-data-dir={profile} --remote-debugging-port=12345",
+        ),
+    )
+    assert inspect_singleton_lock(
+        profile, process_reader=process_reader
+    ).state is SingletonLockState.BUSY
+
+
 def test_dead_pid_proves_stale_lock_and_removes_only_singleton_artifacts(tmp_path):
     base_dir = tmp_path / "profiles"
     profile = _make_profile(base_dir)

@@ -63,6 +63,46 @@ class BrowserCaptchaPersonalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(token)
 
+    async def test_flow_navigation_bypasses_csp_before_navigation(self):
+        commands = []
+
+        async def send(command):
+            commands.append(next(command))
+
+        tab = types.SimpleNamespace(send=send)
+        await self.service._navigate_flow_recaptcha_tab(
+            tab, "https://flow.google.com/about", label="test_flow_navigation",
+        )
+
+        self.assertEqual([command["method"] for command in commands], [
+            "Page.setBypassCSP", "Page.navigate",
+        ])
+        self.assertEqual(commands[0]["params"], {"enabled": True})
+        self.assertEqual(commands[1]["params"]["url"], "https://flow.google.com/about")
+
+    async def test_flow_recaptcha_injects_only_on_flow_origin(self):
+        events = []
+
+        async def evaluate(_tab, _expression, *, label, **_kwargs):
+            events.append(label)
+            if label == "recaptcha_page_origin":
+                return "https://flow.google.com"
+            if label == "check_recaptcha_ready":
+                return True
+            return None
+
+        self.service._tab_evaluate = evaluate
+        self.assertTrue(await self.service._wait_for_recaptcha(object()))
+        self.assertEqual(events, [
+            "recaptcha_page_origin", "inject_recaptcha_script", "check_recaptcha_ready",
+        ])
+
+    async def test_flow_recaptcha_rejects_wrong_origin(self):
+        self.service._tab_evaluate = AsyncMock(return_value="https://accounts.google.com")
+
+        self.assertFalse(await self.service._wait_for_recaptcha(object()))
+        self.service._tab_evaluate.assert_awaited_once()
+
     async def test_create_resident_tab_returns_none_when_browser_missing(self):
         self.service.browser = None
 
