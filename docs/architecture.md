@@ -158,7 +158,9 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 
 `KeepaliveRefresher` 访问账号当前 Flow 项目（没有项目时访问 Flow 首页），等待页面就绪，再访问 `/fx/api/auth/session` 获取浏览器会话 AT 和邮箱。身份校验通过后，从 Chrome `Default/Cookies` 中确定性选择 `labs.google` 的 `__Secure-next-auth.session-token`，拒绝短于 100 字节的值，然后以 AT 调用真实 credits 接口。
 
-成功数据作为一个 `VerifiedAccountSnapshot` 原子写入。会话拒绝、身份不匹配、cookie 缺失和授权过期会标记为需要人工处理；网络/浏览器错误按策略重试。错误遥测不包含 ST、AT、项目 ID 或 profile 路径。
+成功数据作为一个 `VerifiedAccountSnapshot` 原子写入。身份不匹配和 cookie 缺失标记为需要人工处理；网络/浏览器错误按策略重试。错误遥测不包含 ST、AT、项目 ID 或 profile 路径。
+
+**2026-09-13 起，`session_rejected` 与 `grant_expired` 不再直接判人工**：这两种失败先由 `tokens/silent_reauth.py` 用 profile 里的 Google 账号 cookie 在纯 HTTP 下重放一次 next-auth 登录（`/auth/csrf` → `/auth/signin/google` → 跟完 OAuth 链 → 回调 `Set-Cookie` 即新 ST），成功就走正常成功路径写快照并解除 `GRANT_EXPIRED` 业务禁用；只有重放也失败才保留原失败码与 human_action。原因见 §上游依赖与迁移风险。同一条自愈也接在 `TokenManager._do_refresh_at`（业务请求路径）上。
 
 ### 调度与运行模式
 
@@ -232,6 +234,22 @@ Finalize 只停止记录的 PID，且同时校验 procfs start ticks 和 canonic
 普通 `GET /api/tokens` 仅返回 `has_st` / `has_at` 等状态，不返回原始凭据。
 
 同源管理页面不需要 CORS。跨域 Web 控制台与 Chrome extension 只能使用 `[server].cors_allowed_origins` 或 `FLOW2API_CORS_ALLOWED_ORIGINS` 中的精确 Origin；`*` 被拒绝。插件端点仍使用独立 connection token Bearer 认证，CORS 不构成授权。
+
+## 上游依赖与迁移风险
+
+Flow 前台位于 **flow.google.com**（第一方 Boq/Angular 应用 `AiSandboxAngularFrontend`，cookie 认证 + `/google.internal.labs.aisandbox.proto.flow.v1.FlowService` gRPC-web，rpcid `L2jnw` = `StreamGenerateContent`），`labs.google/fx/tools/*` 会跳转到该站点。本项目的凭证、生成和媒体路径仍使用 `labs.google/fx/api`（next-auth session、trpc project/media）与 `aisandbox-pa.googleapis.com`（生成、credits、上传、upsample）；业务可用性以端到端生成探测为准。
+
+next-auth 的 AT 自动续期由静默重授权处理（见上）。reCAPTCHA token 从 `flow.google.com/about` 页面取得；该页面可持续停留在 `document.readyState=interactive`，浏览器在导航前为受控标签页启用 CDP CSP bypass，再注入 Enterprise 脚本。
+
+如果哪天旧面被下掉，症状是**全部账号同时失效且静默重授权也救不回来**（不是单号异常）。届时需要替换的代码接缝只有三处，其余业务逻辑与之无关：
+
+| 接缝 | 位置 | 现状 |
+|---|---|---|
+| 凭证获取 | `flow_client.st_to_at` + `tokens/silent_reauth.py` | next-auth session → OAuth AT |
+| 生成/查询传输 | `flow_client._make_request`（`aisandbox-pa` REST + `labs.google/fx/api/trpc`） | AT Bearer / ST cookie |
+| reCAPTCHA 取 token 的页面 | `captcha/fetch_helpers.flow_recaptcha_page_url`（`flow.google.com/about`）+ `browser_captcha_personal.website_key` | 站点 key、action、Flow 页面来源与代理出口一致 |
+
+迁移方向是改成第一方 cookie + Boq RPC（页面里的 `SNlM0e` 是 XSRF token，`K21R3e` 是 API key），需要先在登录态浏览器里抓一遍新应用的请求/响应形状，不能凭推测改。
 
 ## 测试与架构守卫
 

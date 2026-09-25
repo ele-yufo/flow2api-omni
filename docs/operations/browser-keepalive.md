@@ -78,8 +78,8 @@ XRDP 是可选 provisioning 依赖，不是 sidecar 的 systemd runtime dependen
 | `navigation` | Flow 或 session 页面导航/页面目标失败 | 浏览器错误时重启；网络错误按网络重试 |
 | `session_body` | `/auth/session` 未返回有效 JSON/AT | 普通重试或浏览器重启 |
 | `cookie_missing` | ST cookie 缺失、无法解密或短于 100 字节 | 人工重新登录/修 keyring |
-| `session_rejected` | 浏览器会话返回 401/403 或无身份 | 人工重新登录 |
-| `grant_expired` | credits 认证返回 401 | 人工重新授权 |
+| `session_rejected` | 浏览器会话返回 401/403、`error` 字段或无身份 | 先自动静默重授权（§3.5），仍失败才人工重新登录 |
+| `grant_expired` | credits 认证返回 401 | 先自动静默重授权（§3.5），仍失败才人工重新授权 |
 | `credits` | credits 响应格式无效或请求非网络失败 | 指数退避 |
 | `network` | DNS、代理、连接或 timeout | 指数退避 |
 | `internal` | 输入、事务或内部一致性失败 | 指数退避并检查日志 |
@@ -100,6 +100,32 @@ created → browser_start → awaiting_login → validating_destination
 ```
 
 失败记录可能停在 `stop_browser`、`verify_account`、`migrate_profile`、`final_validation`、`account_commit`、`cancel` 或 `recovery`。`failed` job 可以在服务允许的 phase 上继续 finalize；如果 `stop_browser` / `verify_account` 尚无 resolved token、身份发现结果和迁移元数据，可以再次调用原 `start` 端点，用同一临时 profile 补做 Flow 登录。恢复启动持有 service lease，只清理已证明 stale 的 Singleton artifacts；BUSY、UNSAFE、所有权不确定、其他 failed/running job 或迁移后的 phase 都会拒绝。即使原 `expires_at` 已经过期，满足条件的 failed job 也可恢复，服务会在原子认领事务中把截止时间刷新为当前时间加 session TTL；pending 过期任务仍会取消。`commit_complete` 表示账号状态已经提交，只需安全补写 completed。
+
+### 3.5 静默重授权（2026-09-13 引入）
+
+2026-09-11 起 `labs.google/fx` 的 next-auth 不再自己续 Google access token：
+`/fx/api/auth/session` 固定回 `"error": "ACCESS_TOKEN_REFRESH_NEEDED"` 并继续返回
+那个已经过期的 AT，于是 `/credits` 401、业务池把全部账号标成 `GRANT_EXPIRED`。
+浏览器保活救不了它——它刷新用的 Flow 工具页现在 308 跳到第一方
+`flow.google.com`（Boq/Angular 应用，完全不碰 next-auth），ST cookie 一直活着但再也
+换不出可用 AT。
+
+profile 里的 Google 账号 cookie 仍然有效，足以在纯 HTTP 下重放一次 next-auth 登录：
+`/auth/csrf` → `/auth/signin/google` → 跟完 OAuth 重定向链 → 回调的 `Set-Cookie`
+就是一枚全新 session token（账号早已对该 OAuth client 授权，Google 静默放行）。
+
+落点：
+
+- `src/services/tokens/silent_reauth.py::silent_reauthorize` —— 纯传输层，不碰库、
+  不写日志里的 cookie；
+- keepalive refresher 在 `session_rejected` / `grant_expired` 两种失败上自动重放一次，
+  成功即按正常成功路径写快照（同时解除 `GRANT_EXPIRED` 业务禁用），失败才保留原失败
+  码与 human_action；其余失败码不触发重放（网络、浏览器、cookie 缺失重放也救不回来）；
+- `TokenManager._do_refresh_at` 在业务请求路径上同样先重放一次再考虑封号，只对
+  `runtime_mode=persistent`（有 profile）的号生效；
+- 手动兜底命令见 §8.6。
+
+新会话寿命约 24h，短于 keepalive cadence，因此正常情况下无需人工介入。
 
 ## 4. 调度、模式与动态 reconcile
 
@@ -135,7 +161,7 @@ Token ID 会产生稳定 stagger，避免所有账号在同一秒启动。成功
 
 两个关键语义：**attempt 预算从拿到全局信号量之后才起算**，全池同时到期时排队等待不消耗预算，慢 attempt 不会误杀后排账号；**同步阻塞调用（cookie 解密读取、profile lease/prepare 的文件锁与文件 IO）一律 `asyncio.to_thread` 卸载并限时**——asyncio 超时管不住事件循环线程上的同步阻塞，卸载后 wedge 只泄漏一个 worker 线程，调度循环存活。四层预算需保持 `call < attempt < cycle`，配置时不要倒置。
 
-巡检告警闭环（2026-08-21 事故后修复）：`flow2api-healthcheck.timer` 每小时触发 `scripts/keepalive_healthcheck.py`，双层判定——业务层（`is_active`/ban）+ 保活层（复用 `keepalive_patrol.py` 的 cadence 新鲜度分类）。只在出问题时投递 Discord（死号或 UNHEALTHY → critical；PROBE_ERROR 退避中 → warning），00:07/12:07 UTC 各发一次全绿心跳证明巡检自身活着，其余时段全绿则静默。保活 daemon 静默僵死（is_active 不变但刷新停止）从此 1 小时内可见；事故前该巡检 12h 一次且只看 `is_active`，曾在 2 个账号 AT 过期时误报 `active=7 dead=0`。运维验收可用 `--force-report` 强制立即投递当前状态。
+巡检告警闭环（2026-08-21 事故后修复）：`flow2api-healthcheck.timer` 每小时触发 `scripts/keepalive_healthcheck.py`，双层判定——业务层（`is_active`/ban）+ 保活层（复用 `keepalive_patrol.py` 的 cadence 新鲜度分类）。只在出问题时投递 Discord（死号或 UNHEALTHY → critical；PROBE_ERROR 退避中 → warning），全绿心跳汇总（曾经的 00:07/12:07 UTC 各一次）自 2026-09-06 起默认关闭——长线运行稳定后它只剩噪音；需要恢复时给 service 加环境变量 `FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS=0,12` 即可。全绿时巡检静默，出问题才响。保活 daemon 静默僵死（is_active 不变但刷新停止）从此 1 小时内可见；事故前该巡检 12h 一次且只看 `is_active`，曾在 2 个账号 AT 过期时误报 `active=7 dead=0`。运维验收可用 `--force-report` 强制立即投递当前状态。
 
 **human_action 失败宽限（2026-08-22 引入）**：human_action 类失败（`session_rejected`/`cookie_missing`/`identity_mismatch`/`profile_missing`/`grant_expired`）不再是"一次即 6h"。当日账号 21 被 Google 瞬时会话拒绝一次就直接挂进 6h 人工退避，期间 AT 过期——实际登录态活着，手动重试一次即恢复。自此 human_action 失败前 `browser_human_retry_min_failures - 1` 次（默认 2 次：60s/120s）按普通指数退避重试，连续失败达阈值（默认第 3 次）才进 `browser_human_retry_seconds` 的人工退避。瞬时拒绝通常在 1-2 次内自愈，真正需要人工的连续失败升级行为不变；首次失败照样立即产生告警事件，可见性不受影响。
 
@@ -498,6 +524,10 @@ scripts/tokens.py disable --token-id 21
 # 开关保活；永远 runtime_mode=persistent（无 --mode，机队不再运行 warm）
 scripts/tokens.py keepalive --token-id 21 on
 scripts/tokens.py keepalive --token-id 21 off
+
+# 静默重授权（无浏览器、无人工）：从该号自己的 profile cookie 换一枚新会话并入库
+scripts/tokens.py reauth --token-id 21
+scripts/tokens.py reauth --token-id 21 --dry-run
 ```
 
 `status` 输出 `{"tokens": [...], "excluded_keepalive_disabled": [...]}` 两个
@@ -642,7 +672,30 @@ patrol 以 SQLite read-only mode 读取 `keepalive_enabled=1` 的 lifecycle tele
 
 退出码：`0` 表示所有 enabled 记录健康；`1` 表示至少一个明确 `UNHEALTHY` 且没有 probe error；`2` 表示存在 `PROBE_ERROR`，其优先级高于 unhealthy。空的 keepalive-enabled 集合返回 `1`。
 
+### 8.6 静默重授权
+
+```bash
+# 单号：换新会话、验证余额、写库（同时解除 GRANT_EXPIRED 业务禁用）
+scripts/tokens.py reauth --token-id 21
+
+# 只验证不写库
+scripts/tokens.py reauth --token-id 21 --dry-run
+```
+
+机制与适用条件见 §3.5。前提是该号的 profile 里还有有效的 Google 账号 cookie；
+profile 为空或 Google 主会话已失效的号只能走 §7.5.2 的浏览器重新登录。
+
 ## 9. systemd 与日志
+
+主服务的持久化打码 Chrome 可能被 Chrome 移入用户 app scope；若主进程在停止超时后被强杀，浏览器仍会持有 `SingletonLock`，阻止新进程启动打码。将仓库中的 `config/systemd/flow2api-captcha-cleanup.conf` 安装为主服务 drop-in：停机后只检查配置的 captcha profile、锁所属 PID 和 nodriver 启动参数，确认所有权后结束残留浏览器。它不删除 profile 数据，也不碰业务账号保活 profile。
+
+```bash
+sudo install -m 0644 \
+  /opt/Projects/flow2api/config/systemd/flow2api-captcha-cleanup.conf \
+  /etc/systemd/system/flow2api.service.d/captcha-cleanup.conf
+sudo systemctl daemon-reload
+python /opt/Projects/flow2api/scripts/cleanup_captcha_chrome.py  # 只读检查当前锁状态
+```
 
 安装或更新 unit：
 
