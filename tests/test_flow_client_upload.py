@@ -125,6 +125,88 @@ class FlowClientUploadImageTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_transient_errors_retry_five_times_with_backoff(self):
+        """网络/TLS、5xx 类瞬态错误拉长到 5 次指数退避（2026-10-01 网络事件止血）。"""
+        client = FlowClient(proxy_manager=None)
+        request_calls = []
+        sleeps = []
+
+        real_sleep = asyncio.sleep
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+            await real_sleep(0)
+
+        async def fake_make_request(**kwargs):
+            request_calls.append(kwargs)
+            if len(request_calls) < 5:
+                raise OSError("<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING]]>")
+            return {"media": {"name": "recovered-media-id"}}
+
+        client._make_request = AsyncMock(side_effect=fake_make_request)
+
+        with unittest.mock.patch("src.services.flow_client.asyncio.sleep", fake_sleep):
+            media_id = await client.upload_image(
+                at="test-at",
+                image_bytes=JPEG_BYTES,
+                aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE",
+                project_id="project-123",
+            )
+
+        self.assertEqual(media_id, "recovered-media-id")
+        self.assertEqual(len(request_calls), 5)
+        # 第 1 次直连，后续走代理
+        self.assertTrue(request_calls[0]["force_direct"])
+        self.assertFalse(request_calls[4]["force_direct"])
+        # 退避 1/2/4/8
+        self.assertEqual(sleeps, [1, 2, 4, 8])
+
+    async def test_upstream_5xx_transient_retry_recovers(self):
+        """上游 5xx 瞬断同样享受长退避重试（00:33 复发场景）。"""
+        client = FlowClient(proxy_manager=None)
+        request_calls = []
+
+        async def fake_make_request(**kwargs):
+            request_calls.append(kwargs)
+            if len(request_calls) < 3:
+                raise RuntimeError("HTTP Error 503: Service Unavailable")
+            return {"media": {"name": "ok-media-id"}}
+
+        client._make_request = AsyncMock(side_effect=fake_make_request)
+
+        with unittest.mock.patch("src.services.flow_client.asyncio.sleep", new=AsyncMock()):
+            media_id = await client.upload_image(
+                at="test-at",
+                image_bytes=JPEG_BYTES,
+                aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE",
+                project_id="project-123",
+            )
+
+        self.assertEqual(media_id, "ok-media-id")
+        self.assertEqual(len(request_calls), 3)
+
+    async def test_non_transient_error_still_fails_fast_after_two_attempts(self):
+        """非瞬态错误（如 403）维持 2 次即弃，不拖长退避。"""
+        client = FlowClient(proxy_manager=None)
+        request_calls = []
+
+        async def fake_make_request(**kwargs):
+            request_calls.append(kwargs)
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+        client._make_request = AsyncMock(side_effect=fake_make_request)
+
+        with self.assertRaisesRegex(RuntimeError, "legacy :uploadUserImage fallback is disabled"):
+            with unittest.mock.patch("src.services.flow_client.asyncio.sleep", new=AsyncMock()):
+                await client.upload_image(
+                    at="test-at",
+                    image_bytes=JPEG_BYTES,
+                    aspect_ratio="IMAGE_ASPECT_RATIO_LANDSCAPE",
+                    project_id="project-123",
+                )
+
+        self.assertEqual(len(request_calls), 2)
+
 class FlowClientFingerprintTests(unittest.TestCase):
     def test_fallback_user_agent_is_chromium_only(self):
         client = FlowClient(proxy_manager=None)

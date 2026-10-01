@@ -804,11 +804,14 @@ class FlowClient:
         }
         # 带 projectId 的参考图上传先直连。该接口不依赖 reCAPTCHA，实测
         # 2.2MB 上传直连 18s，而媒体代理偶发 120s 读/写超时。
-        # 第二次才经代理回退，避免一张参考图重复等待数个长超时。
-        max_retries = (
-            min(2, max(1, config.flow_max_retries))
-            if normalized_project_id else max(1, config.flow_max_retries)
-        )
+        # 第二次起经代理并指数退避：2026-10-01 22:00 网络事件（SSL EOF，直连+
+        # 代理同时抖 ~50 分钟）与 00:33 上游 5xx 瞬断都证明，只试 2 次×1s 间隔
+        # 扛不过抖动窗口，业务侧直接失败；对网络/TLS 与 5xx 类瞬态错误拉长到
+        # 5 次尝试（1/2/4/8s 退避，直连/代理交替），非瞬态错误仍 2 次即弃。
+        if normalized_project_id:
+            max_retries = 5
+        else:
+            max_retries = max(1, config.flow_max_retries)
         last_error: Optional[Exception] = None
 
         for retry_attempt in range(max_retries):
@@ -835,15 +838,20 @@ class FlowClient:
             except Exception as new_upload_error:
                 last_error = new_upload_error
                 retry_reason = "网络超时" if self._is_timeout_error(new_upload_error) else self._get_retry_reason(str(new_upload_error))
+                # 瞬态类错误拉长退避扛抖动窗口；其余（reCAPTCHA 等）维持短重试。
+                transient = retry_reason in ("网络超时", "网络/TLS错误", "5xx/上游瞬断")
 
                 # 旧接口不携带 projectId，带项目上下文的上传一旦回退就可能把图片挂到错误项目。
                 if normalized_project_id:
-                    if retry_reason and retry_attempt < max_retries - 1:
+                    effective_max = max_retries if transient else 2
+                    if retry_reason and retry_attempt < effective_max - 1:
+                        backoff = min(8, 2 ** retry_attempt) if transient else 1
                         debug_logger.log_warning(
                             f"[UPLOAD] Project-scoped upload 遇到{retry_reason}，准备重试新版接口 "
-                            f"({retry_attempt + 2}/{max_retries}, project_id={normalized_project_id})..."
+                            f"({retry_attempt + 2}/{effective_max}, backoff={backoff}s, "
+                            f"project_id={normalized_project_id})..."
                         )
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(backoff)
                         continue
                     raise RuntimeError(
                         "Project-scoped image upload failed via /flow/uploadImage; "
