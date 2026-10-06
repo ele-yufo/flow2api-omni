@@ -173,35 +173,17 @@ const STATE = { selectedModel: null, modelConfig: null, images: [], generating: 
 <script>
 // Model categories for sidebar
 const MODEL_CATEGORIES = {
-  "Gemini 3.2 Flash 图片": { filter: m => m.startsWith("gemini-3.2-flash-image") },
-  "Gemini 3.0 Pro 图片": { filter: m => m.startsWith("gemini-3.0-pro-image") },
-  "Veo 3.1 文生视频 (T2V)": { filter: m => m.startsWith("veo_3_1_t2v") && !m.includes("4k") && !m.includes("1080p") },
-  "Veo 3.1 图生视频 (I2V)": { filter: m => m.startsWith("veo_3_1_i2v") && !m.includes("4k") && !m.includes("1080p") },
-  "Veo 3.1 多图视频 (R2V)": { filter: m => m.startsWith("veo_3_1_r2v") && !m.includes("4k") && !m.includes("1080p") },
-  "Veo 2.x 视频": { filter: m => m.startsWith("veo_2") },
+  "Gemini 3.2 Flash 图片 (Nano Banana 2.1)": { filter: m => m.startsWith("gemini-3.2-flash-image") },
+  "Gemini Omni T2V": { filter: m => m.startsWith("gemini_omni_t2v") && !m.includes("4k") && !m.includes("1080p") && !m.includes("360p") },
+  "Gemini Omni R2V": { filter: m => m.startsWith("gemini_omni_r2v") && !m.includes("4k") && !m.includes("1080p") && !m.includes("360p") },
+  "Gemini Omni I2V/首尾帧": { filter: m => m.startsWith("gemini_omni_i2v") || m.startsWith("gemini_omni_fl") },
+  "Omni 延长/编辑": { filter: m => m.startsWith("gemini_omni_edit") },
+  "Omni 360P 半价档": { filter: m => m.includes("360p") },
   "视频放大 (Upsample)": { filter: m => m.includes("4k") || m.includes("1080p") },
 };
 
 const FALLBACK_MODELS = {
   "gemini-3.2-flash-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
-  "gemini-3.0-pro-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
-  "veo_3_1_t2v_fast": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_t2v_fast_ultra": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_t2v_fast_ultra_relaxed": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_t2v": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_i2v_s_fast_fl": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_i2v_s_fast_ultra_fl": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_i2v_s_fast_ultra_relaxed": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_i2v_s": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_r2v_fast": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_r2v_fast_ultra": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_r2v_fast_ultra_relaxed": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_2_1_fast_d_15_t2v": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_2_0_t2v": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_2_1_fast_d_15_i2v": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_2_0_i2v": "Video generation (alias) - supports landscape/portrait via generationConfig",
-  "veo_3_1_upsampler_1080p": "Video upsample - 1080p",
-  "veo_3_1_upsampler_4k": "Video upsample - 4k",
 };
 
 let ALL_MODELS = {};
@@ -293,7 +275,7 @@ function renderSidebar() {
       item.dataset.model = modelId;
 
       const type = getModelType(modelId);
-      const shortName = modelId.replace("gemini-3.2-flash-image-", "").replace("gemini-3.0-pro-image-", "").replace("gemini-2.5-flash-image-", "");
+      const shortName = modelId.replace("gemini-3.2-flash-image-", "");
       item.innerHTML = `<span>${shortName}</span><span class="model-tag ${type === 'image' ? 'tag-image' : 'tag-video'}">${type === 'image' ? '图片' : '视频'}</span>`;
       item.onclick = () => selectModel(modelId);
       list.appendChild(item);

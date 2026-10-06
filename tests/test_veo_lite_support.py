@@ -7,19 +7,10 @@ from src.services.flow_client import FlowClient
 from src.services.generation_handler import MODEL_CONFIG, GenerationHandler
 
 
-class VeoLiteModelResolverTests(unittest.TestCase):
-    def test_resolve_t2v_lite_alias_to_portrait_variant(self):
-        request = types.SimpleNamespace(
-            generationConfig=types.SimpleNamespace(aspectRatio="portrait")
-        )
-
-        resolved = resolve_model_name(
-            "veo_3_1_t2v_lite",
-            request=request,
-            model_config=MODEL_CONFIG,
-        )
-
-        self.assertEqual(resolved, "veo_3_1_t2v_lite_portrait")
+# 简化名→方向变体的解析机制随 veo 目录下线一并移除（2026-10 目录收敛）；
+# fallthrough 行为由 test_model_resolver_golden 的 passthrough case 锁定。
+# 本文件其余测试锁的是 tier 升级 / v2 payload / 轮询模式等通用管道逻辑，
+# Omni 全家同样依赖，与 veo 是否注册无关。
 
 
 class VeoLiteGenerationHandlerTests(unittest.TestCase):

@@ -282,21 +282,6 @@ onboarding_session_ttl_seconds = 1800
 
 | 模型名称 | 说明 | 尺寸 |
 |---------|------|------|
-| `gemini-3.0-pro-image-landscape` | 图/文生图 | 横屏 |
-| `gemini-3.0-pro-image-portrait` | 图/文生图 | 竖屏 |
-| `gemini-3.0-pro-image-square` | 图/文生图 | 方图 |
-| `gemini-3.0-pro-image-four-three` | 图/文生图 | 横屏 4:3 |
-| `gemini-3.0-pro-image-three-four` | 图/文生图 | 竖屏 3:4 |
-| `gemini-3.0-pro-image-landscape-2k` | 图/文生图(2K) | 横屏 |
-| `gemini-3.0-pro-image-portrait-2k` | 图/文生图(2K) | 竖屏 |
-| `gemini-3.0-pro-image-square-2k` | 图/文生图(2K) | 方图 |
-| `gemini-3.0-pro-image-four-three-2k` | 图/文生图(2K) | 横屏 4:3 |
-| `gemini-3.0-pro-image-three-four-2k` | 图/文生图(2K) | 竖屏 3:4 |
-| `gemini-3.0-pro-image-landscape-4k` | 图/文生图(4K) | 横屏 |
-| `gemini-3.0-pro-image-portrait-4k` | 图/文生图(4K) | 竖屏 |
-| `gemini-3.0-pro-image-square-4k` | 图/文生图(4K) | 方图 |
-| `gemini-3.0-pro-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
-| `gemini-3.0-pro-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
 | `gemini-3.2-flash-image-landscape` | 图/文生图 | 横屏 |
 | `gemini-3.2-flash-image-portrait` | 图/文生图 | 竖屏 |
 | `gemini-3.2-flash-image-square` | 图/文生图 | 方图 |
@@ -312,178 +297,6 @@ onboarding_session_ttl_seconds = 1800
 | `gemini-3.2-flash-image-square-4k` | 图/文生图(4K) | 方图 |
 | `gemini-3.2-flash-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
 | `gemini-3.2-flash-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
-
-### 视频生成
-
-#### 文生视频 (T2V - Text to Video)
-
-不支持上传图片
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_t2v_fast_portrait` | 文生视频 | 竖屏 |
-| `veo_3_1_t2v_fast_landscape` | 文生视频 | 横屏 |
-| `veo_2_1_fast_d_15_t2v_portrait` | 文生视频 | 竖屏 |
-| `veo_2_1_fast_d_15_t2v_landscape` | 文生视频 | 横屏 |
-| `veo_2_0_t2v_portrait` | 文生视频 | 竖屏 |
-| `veo_2_0_t2v_landscape` | 文生视频 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra` | 文生视频 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra` | 文生视频 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_relaxed` | 文生视频 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_relaxed` | 文生视频 | 横屏 |
-| `veo_3_1_t2v_portrait` | 文生视频 | 竖屏 |
-| `veo_3_1_t2v_landscape` | 文生视频 | 横屏 |
-| `veo_3_1_t2v_lite_portrait` | 文生视频 Lite | 竖屏 |
-| `veo_3_1_t2v_lite_landscape` | 文生视频 Lite | 横屏 |
-
-#### 首尾帧模型 (I2V - Image to Video)
-
-支持 1-2 张图片：1 张作为首帧，2 张作为首尾帧
-
-> **自动适配**：系统会根据图片数量自动选择对应的 model_key
-> - **单帧模式**（1张图）：使用首帧生成视频
-> - **双帧模式**（2张图）：使用首帧+尾帧生成过渡视频
-> - `veo_3_1_i2v_lite_*` 仅支持 **1 张** 首帧图片
-> - `veo_3_1_interpolation_lite_*` 仅支持 **2 张** 首尾帧图片
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_i2v_s_portrait` | 图生视频 满血版 | 竖屏 |
-| `veo_3_1_i2v_s_landscape` | 图生视频 满血版 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_fl` | 图生视频 | 竖屏 |
-| `veo_3_1_i2v_s_fast_fl` | 图生视频 | 横屏 |
-| `veo_2_1_fast_d_15_i2v_portrait` | 图生视频 | 竖屏 |
-| `veo_2_1_fast_d_15_i2v_landscape` | 图生视频 | 横屏 |
-| `veo_2_0_i2v_portrait` | 图生视频 | 竖屏 |
-| `veo_2_0_i2v_landscape` | 图生视频 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl` | 图生视频 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl` | 图生视频 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_relaxed` | 图生视频 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_relaxed` | 图生视频 | 横屏 |
-| `veo_3_1_i2v_lite_portrait` | 图生视频 Lite（仅首帧） | 竖屏 |
-| `veo_3_1_i2v_lite_landscape` | 图生视频 Lite（仅首帧） | 横屏 |
-| `veo_3_1_interpolation_lite_portrait` | 图生视频 Lite（首尾帧过渡） | 竖屏 |
-| `veo_3_1_interpolation_lite_landscape` | 图生视频 Lite（首尾帧过渡） | 横屏 |
-
-#### 多图生成 (R2V - Reference Images to Video)
-
-支持多张参考图（最多 3 张）
-
-> 服务端自动组装新版视频请求体，调用方仍然使用 OpenAI 兼容输入即可。
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_r2v_fast_portrait` | 多图视频 | 竖屏 |
-| `veo_3_1_r2v_fast` | 多图视频 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra` | 多图视频 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra` | 多图视频 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_relaxed` | 多图视频 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_relaxed` | 多图视频 | 横屏 |
-
-### 视频放大 (Upsample)
-
-| 模型名称 | 说明 | 输出 |
-|---------|------|------|
-| `veo_3_1_t2v_fast_portrait_4k` | 文生视频放大 | 4K |
-| `veo_3_1_t2v_fast_4k` | 文生视频放大 | 4K |
-| `veo_3_1_t2v_fast_portrait_ultra_4k` | 文生视频放大 | 4K |
-| `veo_3_1_t2v_fast_ultra_4k` | 文生视频放大 | 4K |
-| `veo_3_1_t2v_fast_portrait_1080p` | 文生视频放大 | 1080P |
-| `veo_3_1_t2v_fast_1080p` | 文生视频放大 | 1080P |
-| `veo_3_1_t2v_fast_portrait_ultra_1080p` | 文生视频放大 | 1080P |
-| `veo_3_1_t2v_fast_ultra_1080p` | 文生视频放大 | 1080P |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_4k` | 图生视频放大 | 4K |
-| `veo_3_1_i2v_s_fast_ultra_fl_4k` | 图生视频放大 | 4K |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_1080p` | 图生视频放大 | 1080P |
-| `veo_3_1_i2v_s_fast_ultra_fl_1080p` | 图生视频放大 | 1080P |
-| `veo_3_1_r2v_fast_portrait_ultra_4k` | 多图视频放大 | 4K |
-| `veo_3_1_r2v_fast_ultra_4k` | 多图视频放大 | 4K |
-| `veo_3_1_r2v_fast_portrait_ultra_1080p` | 多图视频放大 | 1080P |
-| `veo_3_1_r2v_fast_ultra_1080p` | 多图视频放大 | 1080P |
-
-### 视频延长 15s (Video Extend)
-
-内部流程：生成 8s 视频 → 延长 8s → 拼接（跳过 1s 重叠）→ 返回约 15s 视频。对上游调用方透明，使用方式与普通视频模型完全一致。
-
-使用 `_15s` 后缀的模型名即可触发。也支持省略横竖屏后缀的简写（如 `veo_3_1_t2v_fast_15s`），服务端根据请求自动匹配横竖屏。
-
-#### 文生视频 15s (T2V 15s)
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_t2v_fast_portrait_15s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_15s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_15s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_15s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_relaxed_15s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_relaxed_15s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_portrait_15s` | 文生视频延长 | 竖屏 |
-| `veo_3_1_t2v_landscape_15s` | 文生视频延长 | 横屏 |
-| `veo_3_1_t2v_lite_portrait_15s` | 文生视频延长 Lite | 竖屏 |
-| `veo_3_1_t2v_lite_landscape_15s` | 文生视频延长 Lite | 横屏 |
-
-#### 图生视频 15s (I2V 15s)
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_i2v_s_portrait_15s` | 图生视频延长 满血版 | 竖屏 |
-| `veo_3_1_i2v_s_landscape_15s` | 图生视频延长 满血版 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_fl_15s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_fl_15s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_15s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_relaxed_15s` | 图生视频延长 | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_relaxed_15s` | 图生视频延长 | 横屏 |
-| `veo_3_1_i2v_lite_portrait_15s` | 图生视频延长 Lite（仅首帧） | 竖屏 |
-| `veo_3_1_i2v_lite_landscape_15s` | 图生视频延长 Lite（仅首帧） | 横屏 |
-| `veo_3_1_interpolation_lite_portrait_15s` | 图生视频延长 Lite（首尾帧） | 竖屏 |
-| `veo_3_1_interpolation_lite_landscape_15s` | 图生视频延长 Lite（首尾帧） | 横屏 |
-
-#### 多图视频 15s (R2V 15s)
-
-| 模型名称 | 说明 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_r2v_fast_portrait_15s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_15s` | 多图视频延长 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_15s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_15s` | 多图视频延长 | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_relaxed_15s` | 多图视频延长 | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_relaxed_15s` | 多图视频延长 | 横屏 |
-
-### 视频延长 15s + 放大 (Extend + Upsample)
-
-在 15s 延长基础上叠加 1080P 或 4K 放大。流程：生成 8s → 放大 → 延长 8s → 拼接（跳过 1s 重叠）→ 返回 15s 高清视频。
-
-#### T2V 延长 + 放大
-
-| 模型名称 | 输出 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_t2v_fast_portrait_15s_1080p` | 15s + 1080P | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_15s_1080p` | 15s + 1080P | 横屏 |
-| `veo_3_1_t2v_fast_portrait_15s_4k` | 15s + 4K | 竖屏 |
-| `veo_3_1_t2v_fast_landscape_15s_4k` | 15s + 4K | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_15s_1080p` | 15s + 1080P | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_15s_1080p` | 15s + 1080P | 横屏 |
-| `veo_3_1_t2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
-| `veo_3_1_t2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
-
-#### I2V 延长 + 放大
-
-| 模型名称 | 输出 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_1080p` | 15s + 1080P | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_15s_1080p` | 15s + 1080P | 横屏 |
-| `veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_4k` | 15s + 4K | 竖屏 |
-| `veo_3_1_i2v_s_fast_ultra_fl_15s_4k` | 15s + 4K | 横屏 |
-
-#### R2V 延长 + 放大
-
-| 模型名称 | 输出 | 尺寸 |
-|---------|------|------|
-| `veo_3_1_r2v_fast_portrait_ultra_15s_1080p` | 15s + 1080P | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_15s_1080p` | 15s + 1080P | 横屏 |
-| `veo_3_1_r2v_fast_portrait_ultra_15s_4k` | 15s + 4K | 竖屏 |
-| `veo_3_1_r2v_fast_ultra_15s_4k` | 15s + 4K | 横屏 |
 
 ### Gemini Omni 1.1 Flash (T2V / R2V / I2V / 首尾帧)
 
@@ -675,7 +488,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo_3_1_t2v_fast_landscape",
+    "model": "gemini_omni_t2v_8s",
     "messages": [
       {
         "role": "user",
@@ -693,7 +506,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo_3_1_t2v_fast_landscape_15s",
+    "model": "gemini_omni_t2v_10s",
     "messages": [
       {
         "role": "user",
@@ -711,7 +524,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo_3_1_i2v_s_fast_fl_landscape",
+    "model": "gemini_omni_fl_8s",
     "messages": [
       {
         "role": "user",
@@ -800,7 +613,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo_3_1_r2v_fast_portrait",
+    "model": "gemini_omni_r2v_portrait_8s",
     "messages": [
       {
         "role": "user",

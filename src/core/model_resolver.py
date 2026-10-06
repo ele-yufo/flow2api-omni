@@ -5,10 +5,10 @@ along with generationConfig containing aspectRatio / imageSize, this module
 resolves them to the specific internal model name used by flow2api.
 
 Example:
-    model = "gemini-3.0-pro-image"
+    model = "gemini-3.2-flash-image"
     generationConfig.imageConfig.aspectRatio = "16:9"
     generationConfig.imageConfig.imageSize = "2k"
-    → resolved to "gemini-3.0-pro-image-landscape-2k"
+    → resolved to "gemini-3.2-flash-image-landscape-2k"
 """
 
 import re
@@ -19,9 +19,7 @@ from ..core.logger import debug_logger
 # 简化模型名 → 基础模型名前缀 的映射
 # ──────────────────────────────────────────────
 IMAGE_BASE_MODELS = {
-    # Gemini 3.0 Pro (GEM_PIX_2)
-    "gemini-3.0-pro-image": "gemini-3.0-pro-image",
-    # Gemini 3.2 Flash (BELUGA, Nano Banana 2.1)
+    # Gemini 3.2 Flash (BELUGA, Nano Banana 2.1) — 目录收敛后唯一图片系
     "gemini-3.2-flash-image": "gemini-3.2-flash-image",
 }
 
@@ -53,13 +51,6 @@ ASPECT_RATIO_MAP = {
 # 每个基础模型支持的 aspectRatio 列表
 # 如果请求的 ratio 不在支持列表中，降级到默认值
 MODEL_SUPPORTED_ASPECTS = {
-    "gemini-3.0-pro-image": [
-        "landscape",
-        "portrait",
-        "square",
-        "four-three",
-        "three-four",
-    ],
     "gemini-3.2-flash-image": [
         "landscape",
         "portrait",
@@ -71,7 +62,6 @@ MODEL_SUPPORTED_ASPECTS = {
 
 # 每个基础模型支持的 imageSize（分辨率）列表
 MODEL_SUPPORTED_SIZES = {
-    "gemini-3.0-pro-image": ["2k", "4k"],
     "gemini-3.2-flash-image": ["2k", "4k"],
 }
 
@@ -116,177 +106,13 @@ ASPECT_RATIO_FLOAT_MAP = {
 # ──────────────────────────────────────────────
 # 视频模型简化名映射
 # ──────────────────────────────────────────────
-VIDEO_BASE_MODELS = {
-    # T2V models
-    "veo_3_1_t2v_fast": {
-        "landscape": "veo_3_1_t2v_fast_landscape",
-        "portrait": "veo_3_1_t2v_fast_portrait",
-    },
-    "veo_2_1_fast_d_15_t2v": {
-        "landscape": "veo_2_1_fast_d_15_t2v_landscape",
-        "portrait": "veo_2_1_fast_d_15_t2v_portrait",
-    },
-    "veo_2_0_t2v": {
-        "landscape": "veo_2_0_t2v_landscape",
-        "portrait": "veo_2_0_t2v_portrait",
-    },
-    "veo_3_1_t2v_fast_ultra": {
-        "landscape": "veo_3_1_t2v_fast_ultra",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra",
-    },
-    "veo_3_1_t2v_fast_ultra_relaxed": {
-        "landscape": "veo_3_1_t2v_fast_ultra_relaxed",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_relaxed",
-    },
-    "veo_3_1_t2v": {
-        "landscape": "veo_3_1_t2v_landscape",
-        "portrait": "veo_3_1_t2v_portrait",
-    },
-    "veo_3_1_t2v_lite": {
-        "landscape": "veo_3_1_t2v_lite_landscape",
-        "portrait": "veo_3_1_t2v_lite_portrait",
-    },
-    # I2V models
-    "veo_3_1_i2v_s_fast_fl": {
-        "landscape": "veo_3_1_i2v_s_fast_fl",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_fl",
-    },
-    "veo_2_1_fast_d_15_i2v": {
-        "landscape": "veo_2_1_fast_d_15_i2v_landscape",
-        "portrait": "veo_2_1_fast_d_15_i2v_portrait",
-    },
-    "veo_2_0_i2v": {
-        "landscape": "veo_2_0_i2v_landscape",
-        "portrait": "veo_2_0_i2v_portrait",
-    },
-    "veo_3_1_i2v_s_fast_ultra_fl": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl",
-    },
-    "veo_3_1_i2v_s_fast_ultra_relaxed": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed",
-    },
-    "veo_3_1_i2v_lite": {
-        "landscape": "veo_3_1_i2v_lite_landscape",
-        "portrait": "veo_3_1_i2v_lite_portrait",
-    },
-    "veo_3_1_interpolation_lite": {
-        "landscape": "veo_3_1_interpolation_lite_landscape",
-        "portrait": "veo_3_1_interpolation_lite_portrait",
-    },
-    "veo_3_1_i2v_s": {
-        "landscape": "veo_3_1_i2v_s_landscape",
-        "portrait": "veo_3_1_i2v_s_portrait",
-    },
-    # R2V models
-    "veo_3_1_r2v_fast": {
-        "landscape": "veo_3_1_r2v_fast",
-        "portrait": "veo_3_1_r2v_fast_portrait",
-    },
-    "veo_3_1_r2v_fast_ultra": {
-        "landscape": "veo_3_1_r2v_fast_ultra",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra",
-    },
-    "veo_3_1_r2v_fast_ultra_relaxed": {
-        "landscape": "veo_3_1_r2v_fast_ultra_relaxed",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_relaxed",
-    },
-    # ========== 视频延长 15s (Video Extend) ==========
-    # T2V 15s
-    "veo_3_1_t2v_fast_15s": {
-        "landscape": "veo_3_1_t2v_fast_landscape_15s",
-        "portrait": "veo_3_1_t2v_fast_portrait_15s",
-    },
-    "veo_3_1_t2v_fast_ultra_15s": {
-        "landscape": "veo_3_1_t2v_fast_ultra_15s",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s",
-    },
-    "veo_3_1_t2v_fast_ultra_relaxed_15s": {
-        "landscape": "veo_3_1_t2v_fast_ultra_relaxed_15s",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_relaxed_15s",
-    },
-    "veo_3_1_t2v_15s": {
-        "landscape": "veo_3_1_t2v_landscape_15s",
-        "portrait": "veo_3_1_t2v_portrait_15s",
-    },
-    "veo_3_1_t2v_lite_15s": {
-        "landscape": "veo_3_1_t2v_lite_landscape_15s",
-        "portrait": "veo_3_1_t2v_lite_portrait_15s",
-    },
-    # I2V 15s
-    "veo_3_1_i2v_s_fast_fl_15s": {
-        "landscape": "veo_3_1_i2v_s_fast_fl_15s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_fl_15s",
-    },
-    "veo_3_1_i2v_s_fast_ultra_fl_15s": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s",
-    },
-    "veo_3_1_i2v_s_fast_ultra_relaxed_15s": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_relaxed_15s",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_relaxed_15s",
-    },
-    "veo_3_1_i2v_lite_15s": {
-        "landscape": "veo_3_1_i2v_lite_landscape_15s",
-        "portrait": "veo_3_1_i2v_lite_portrait_15s",
-    },
-    "veo_3_1_interpolation_lite_15s": {
-        "landscape": "veo_3_1_interpolation_lite_landscape_15s",
-        "portrait": "veo_3_1_interpolation_lite_portrait_15s",
-    },
-    "veo_3_1_i2v_s_15s": {
-        "landscape": "veo_3_1_i2v_s_landscape_15s",
-        "portrait": "veo_3_1_i2v_s_portrait_15s",
-    },
-    # R2V 15s
-    "veo_3_1_r2v_fast_15s": {
-        "landscape": "veo_3_1_r2v_fast_15s",
-        "portrait": "veo_3_1_r2v_fast_portrait_15s",
-    },
-    "veo_3_1_r2v_fast_ultra_15s": {
-        "landscape": "veo_3_1_r2v_fast_ultra_15s",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s",
-    },
-    "veo_3_1_r2v_fast_ultra_relaxed_15s": {
-        "landscape": "veo_3_1_r2v_fast_ultra_relaxed_15s",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_relaxed_15s",
-    },
-
-    # ========== 视频延长+放大 (Video Extend 15s + Upsample) ==========
-    "veo_3_1_t2v_fast_15s_1080p": {
-        "landscape": "veo_3_1_t2v_fast_landscape_15s_1080p",
-        "portrait": "veo_3_1_t2v_fast_portrait_15s_1080p",
-    },
-    "veo_3_1_t2v_fast_15s_4k": {
-        "landscape": "veo_3_1_t2v_fast_landscape_15s_4k",
-        "portrait": "veo_3_1_t2v_fast_portrait_15s_4k",
-    },
-    "veo_3_1_t2v_fast_ultra_15s_1080p": {
-        "landscape": "veo_3_1_t2v_fast_ultra_15s_1080p",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s_1080p",
-    },
-    "veo_3_1_t2v_fast_ultra_15s_4k": {
-        "landscape": "veo_3_1_t2v_fast_ultra_15s_4k",
-        "portrait": "veo_3_1_t2v_fast_portrait_ultra_15s_4k",
-    },
-    "veo_3_1_i2v_s_fast_ultra_fl_15s_1080p": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s_1080p",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_1080p",
-    },
-    "veo_3_1_i2v_s_fast_ultra_fl_15s_4k": {
-        "landscape": "veo_3_1_i2v_s_fast_ultra_fl_15s_4k",
-        "portrait": "veo_3_1_i2v_s_fast_portrait_ultra_fl_15s_4k",
-    },
-    "veo_3_1_r2v_fast_ultra_15s_1080p": {
-        "landscape": "veo_3_1_r2v_fast_ultra_15s_1080p",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s_1080p",
-    },
-    "veo_3_1_r2v_fast_ultra_15s_4k": {
-        "landscape": "veo_3_1_r2v_fast_ultra_15s_4k",
-        "portrait": "veo_3_1_r2v_fast_portrait_ultra_15s_4k",
-    },
-}
+# ──────────────────────────────────────────────
+# 视频模型简化名映射
+# ──────────────────────────────────────────────
+# 2026-10 目录收敛后视频只留 Gemini Omni 1.1 全家（gemini_omni_*，无简化名机制，
+# 直接用完整模型名请求）。veo_* 简化名映射随旧模型一并下线；保留空表让
+# resolve_model_name 的视频分支自然 fallthrough 到完整名校验。
+VIDEO_BASE_MODELS: Dict[str, Dict[str, str]] = {}
 
 
 def _extract_generation_params(request) -> Tuple[Optional[str], Optional[str]]:

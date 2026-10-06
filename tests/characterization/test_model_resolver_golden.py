@@ -20,13 +20,13 @@ def _resolve(model, gen_cfg=None):
 def test_resolver_golden_matrix(subtests):
     cases = [
         # passthrough: already-full MODEL_CONFIG keys return as-is
-        ("img_full_key", "gemini-3.0-pro-image-square-2k", None),
+        ("img_full_key", "gemini-3.2-flash-image-square-2k", None),
         ("omni_full_key", "gemini_omni_t2v_4s", None),
         ("unknown_model", "this-model-does-not-exist", None),
         # assembly branch (what P2 refactors): short base + generationConfig → full key
         (
             "img_assemble_square_2k",
-            "gemini-3.0-pro-image",
+            "gemini-3.2-flash-image",
             {"imageConfig": {"aspectRatio": "1:1", "imageSize": "2K"}},
         ),
         (
@@ -34,15 +34,12 @@ def test_resolver_golden_matrix(subtests):
             "gemini-3.2-flash-image",
             {},
         ),
+        # veo 简化名映射已随旧模型下线（2026-10 目录收敛）：现在原样透传，
+        # 由后续 MODEL_CONFIG 校验拒绝——锁住这个 fallthrough 不炸。
         (
-            "video_assemble_portrait",
+            "video_simplified_name_passthrough",
             "veo_3_1_t2v_fast",
             {"imageConfig": {"aspectRatio": "9:16"}},
-        ),
-        (
-            "video_assemble_default_landscape",
-            "veo_3_1_t2v_fast",
-            {},
         ),
     ]
     results = {}
