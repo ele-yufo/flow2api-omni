@@ -26,7 +26,7 @@
 | 跟踪日志 | `journalctl -u flowproxy.service -f`（同步落盘仓库根 `logs.txt`） |
 | 账号池健康 | `.venv/bin/python scripts/tokens.py status`（JSON，永不打凭据） |
 | 池子诊断 | `.venv/bin/python scripts/keepalive_patrol.py` |
-| 模型目录 | `curl -s -H "Authorization: Bearer REDACTED_SAMPLE_KEY" http://localhost:18282/v1/models` |
+| 模型目录 | `curl -s -H "Authorization: Bearer $FLOWPROXY_KEY" http://localhost:18282/v1/models` |
 | 管理后台 | `http://localhost:18282/manage`（默认 admin/admin，部署后立即改密） |
 | 模型测试页 | `http://localhost:18282/test` |
 | 服务地址（全场景） | `192.168.124.151:18282`（在家直连；在外经 Tailscale 子网路由） |
@@ -161,7 +161,7 @@ docker compose up -d --build    # 使用仓库根 Dockerfile 就地构建，不�
 
 ```toml
 [global]
-api_key = "REDACTED_SAMPLE_KEY"            # 调用 /v1/* 与 Gemini 端点的 Bearer key
+api_key = "$FLOWPROXY_KEY"            # 调用 /v1/* 与 Gemini 端点的 Bearer key
 admin_username = "admin"       # 管理后台登录（默认 admin/admin，部署后立即改密）
 admin_password = "admin"
 
@@ -278,7 +278,7 @@ sudo systemctl start flowproxy
 
 ```bash
 curl -X POST "http://localhost:18282/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Authorization: Bearer $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-3.2-flash-image-landscape",
@@ -291,7 +291,7 @@ curl -X POST "http://localhost:18282/v1/chat/completions" \
 
 ```bash
 curl -X POST "http://localhost:18282/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Authorization: Bearer $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini-3.2-flash-image-landscape",
@@ -307,7 +307,7 @@ curl -X POST "http://localhost:18282/v1/chat/completions" \
 
 ```bash
 curl -X POST "http://localhost:18282/models/gemini-3.2-flash-image-square:generateContent" \
-  -H "x-goog-api-key: REDACTED_SAMPLE_KEY" \
+  -H "x-goog-api-key: $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "contents": [{"role": "user", "parts": [{"text": "一颗放在木桌上的红苹果，棚拍光线，极简背景"}]}],
@@ -324,7 +324,7 @@ curl -X POST "http://localhost:18282/models/gemini-3.2-flash-image-square:genera
 
 ```bash
 curl -X POST "http://localhost:18282/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Authorization: Bearer $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini_omni_t2v_10s_1080p",
@@ -337,7 +337,7 @@ curl -X POST "http://localhost:18282/v1/chat/completions" \
 
 ```bash
 curl -X POST "http://localhost:18282/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Authorization: Bearer $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini_omni_fl_8s_1080p",
@@ -354,7 +354,7 @@ curl -X POST "http://localhost:18282/v1/chat/completions" \
 
 ```bash
 curl -X POST "http://localhost:18282/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Authorization: Bearer $FLOWPROXY_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gemini_omni_r2v_portrait_8s_4k",
