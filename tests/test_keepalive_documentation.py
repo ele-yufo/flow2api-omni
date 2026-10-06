@@ -29,12 +29,13 @@ def test_architecture_documents_sidecar_transactions_and_onboarding():
 
     for term in (
         "services/keepalive",
-        "OnboardingService",
         "token_lifecycle",
         "onboarding_jobs",
         "BEGIN IMMEDIATE",
         "Xvfb",
         "XRDP",
+        "410 Gone",
+        "scripts/tokens.py onboard",
     ):
         assert term in source
 

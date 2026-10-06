@@ -77,14 +77,14 @@ def client():
     database = FakeDatabase()
     app = FastAPI()
     app.include_router(admin.router)
-    admin.set_dependencies(None, None, database, None, None)
+    admin.set_dependencies(None, None, database, None)
     admin.active_admin_tokens.add(ADMIN_TOKEN)
     try:
         with TestClient(app, base_url="https://flow.example.com") as test_client:
             yield test_client
     finally:
         admin.active_admin_tokens.discard(ADMIN_TOKEN)
-        admin.set_dependencies(None, None, None, None, None)
+        admin.set_dependencies(None, None, None, None)
 
 
 def test_ordinary_token_list_omits_credentials_and_includes_lifecycle(client):

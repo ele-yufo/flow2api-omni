@@ -228,7 +228,7 @@ def test_admin_delete_returns_conflict_for_nonterminal_onboarding_job():
     admin_token = "delete-conflict-admin-token"
     app = FastAPI()
     app.include_router(admin.router)
-    admin.set_dependencies(BlockingTokenManager(), None, None, None, None)
+    admin.set_dependencies(BlockingTokenManager(), None, None, None)
     admin.active_admin_tokens.add(admin_token)
     try:
         with TestClient(app) as client:
@@ -238,7 +238,7 @@ def test_admin_delete_returns_conflict_for_nonterminal_onboarding_job():
             )
     finally:
         admin.active_admin_tokens.discard(admin_token)
-        admin.set_dependencies(None, None, None, None, None)
+        admin.set_dependencies(None, None, None, None)
 
     assert response.status_code == 409
     assert response.json()["detail"] == {

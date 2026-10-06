@@ -21,7 +21,6 @@ src/
                          ┌─────────────────────────────┐
 HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     │
                          │ FastAPI + TokenManager      │
-                         │ OnboardingService           │
                          └──────────────┬──────────────┘
                                         │
                                         │ SQLite/WAL
@@ -40,15 +39,15 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 └───────────────────┘    └─────────────────────────────┘
 
 ┌───────────────────┐    ┌─────────────────────────────┐
-│ 可选 XRDP :11     │◀───│ OnboardingService Chrome   │
-│ 人工 Google 登录  │    │ 仅入库/重新登录时启动       │
+│ 可选 XRDP :11     │◀───│ scripts/tokens.py onboard  │
+│ 人工 Google 登录  │    │ CLI 发起的入库 Chrome      │
 └───────────────────┘    └─────────────────────────────┘
 ```
 
-- **主服务**负责 schema 迁移、业务 API、Token 管理、项目池和 `OnboardingService`。主服务启动时恢复或安全检查未完成的入库任务。
+- **主服务**负责 schema 迁移、业务 API、Token 管理与管理 API。旧 `OnboardingService` 状态机已整体移除（见下文），入库不再由主服务承载。
 - **保活 sidecar**运行 `scripts/keepalive_browser.py --daemon`，读取 `token_lifecycle.keepalive_enabled=1` 的账号，而不是只读取 `tokens.is_active=1`。数据库中的 desired state 改动可在 reconcile 周期内生效，无需重启 sidecar。systemd unit 可选读取 `/etc/flow2api-keepalive.env`；该 root-owned `0600` 文件用于在仓库外注入 `FLOW2API_ALERT_WEBHOOK_URL`，unit 本身不包含 webhook 值。
 - **Xvfb `:10`**是有头保活 Chrome 的运行显示器。保活实现始终以 `headless=False` 启动浏览器。
-- **XRDP `:11`**是可选的人工入库显示器，只在创建或修复账号 profile 时使用，不是 sidecar 的 systemd 运行依赖。
+- **XRDP `:11`**是可选的人工入库显示器，只在 `scripts/tokens.py onboard` 创建或修复账号 profile 时使用，不是 sidecar 的 systemd 运行依赖。
 - **每账号 profile**位于配置的 `browser_profile_base/<token_id>`。验证码 `personal` 模式使用的 captcha profile/共享标签页属于另一运行域，不能与某个账号的 keepalive profile 混用或并发占用。
 
 ## `shared/`：通用基础
@@ -94,15 +93,15 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 
 #### `onboarding_jobs`
 
-保存可恢复的服务器 XRDP 入库状态。表中只允许 job ID、目标/解析 Token ID、state/phase、发现的邮箱/tier/credits/有效期、项目数、profile 就绪状态、冲突策略、请求的业务/保活选择、受管 PID 身份、安全错误码和时间戳。
+历史表，保留已移除的 XRDP 入库状态机留下的记录。表中只允许 job ID、目标/解析 Token ID、state/phase、发现的邮箱/tier/credits/有效期、项目数、profile 就绪状态、冲突策略、请求的业务/保活选择、受管 PID 身份、安全错误码和时间戳。
 
-该表不保存 ST、AT、cookie、profile 路径、浏览器命令或任意请求参数。外键删除 Token 时只解除 job 与 Token 的关联；未完成任务会阻止服务层直接删除关联 Token。
+该表不保存 ST、AT、cookie、profile 路径、浏览器命令或任意请求参数。2026-10 起没有写入方（入库改走 `scripts/tokens.py onboard` 隧道，不经过该表）；建表与增列迁移保留，未完成任务检查继续保护历史行关联的 Token 不被直接删除。
 
 ### repositories
 
 - `core/repositories/token_repository.py`：Token CRUD、业务状态与删除约束。
 - `core/repositories/token_lifecycle_repository.py`：desired state、原子验证快照、会员转换、保活遥测和告警状态。
-- `core/repositories/onboarding_job_repository.py`：安全字段 CRUD、单活动任务原子 claim 与可恢复 state/phase 更新。
+- `core/repositories/onboarding_job_repository.py`：仅服务历史 `onboarding_jobs` 表的安全字段 CRUD、单活动任务原子 claim 与删除保护。
 - `core/repositories/project_repository.py`：账号项目池持久化。
 - 其余 repositories 管理请求日志、统计、任务和配置。
 
@@ -141,7 +140,7 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 - 当前指针缺失或指向无效项目时，修复为池中的第一个项目；
 - pool size 被限制在支持范围内。
 
-`OnboardingService` 在账号身份验证后调用该幂等路径，所以重新入库不会因为“补齐项目池”而无条件切换当前业务项目。
+`services/tokens/onboard.py`（`scripts/tokens.py onboard` 的实现）在账号身份验证后调用该幂等路径，所以重新入库不会因为“补齐项目池”而无条件切换当前业务项目。
 
 ## `services/keepalive/`：浏览器保活包
 
@@ -185,36 +184,20 @@ sidecar 不使用 `pkill -f`。每个 profile 先获取 `.flow2api-locks/<token_
 - 删除 stale Singleton artifacts 前再次比较 inode、device 与 symlink target，避免 TOCTOU 误删；
 - sidecar launcher 与 setup helper 在生成 `--proxy-server` 前拒绝含 username/password userinfo 的代理 URL，错误信息不回显用户名或密码。认证代理应由不暴露凭据的本地代理端点承接。
 
-## `OnboardingService`：服务器 XRDP 入库
+## 服务器 XRDP 入库：已移除的 `OnboardingService`
 
-`services/onboarding.py::OnboardingService` 由主服务 lifespan 构造，所有浏览器 executable、display、proxy、Flow URL 和 profile base 都来自服务端配置，不接受请求提供路径或命令参数。
-
-### 实际 state 与 phase
-
-- state：`pending`、`running`、`failed`、`cancelled`、`completed`。
-- 正常 phase：`created` → `browser_start` → `awaiting_login` → `validating_destination` → `account_commit` → `commit_complete` → `completed`。
-- 安全失败会记录发生阶段，例如 `stop_browser`、`verify_account`、`migrate_profile`、`final_validation`、`account_commit`、`cancel` 或 `recovery`。
-
-`claim_onboarding_job()` 在 `BEGIN IMMEDIATE` 事务中保证同一时刻只有一个 running XRDP job。Chrome 使用参数数组、`shell=False`、`umask 077` 和 `<profile_base>/.onboarding/<job-id>` 私有目录启动。
-
-如果操作员关闭 Chrome 后 finalize 因缺少 Flow 登录 cookie 停在 `failed/verify_account`，或安全停浏览器阶段停在 `failed/stop_browser`，且任务尚无 resolved token、身份发现结果或迁移元数据，原有 `POST .../start` 可以重新打开同一个临时 profile。恢复启动先持有 onboarding profile service lease，拒绝 BUSY/UNSAFE 或所有权不确定状态，仅清理由稳定检查证明 stale 的 Singleton artifacts；随后用 compare-and-swap 在没有其他 running/failed job 时原子认领该 failed job，并在同一次事务写入中把 `expires_at` 刷新为当前时间加服务端 session TTL。原截止时间已经过期不阻止满足全部安全条件的 failed job 恢复；pending 过期任务仍按原行为取消。迁移、final validation 与 `account_commit` 失败不可通过 start 重启浏览器。
-
-Finalize 只停止记录的 PID，且同时校验 procfs start ticks 和 canonical `--user-data-dir`。随后读取 cookie、验证真实身份、匹配现有账号或创建 `onboarding_pending` 的新账号、补齐项目池、在同一文件系统使用 `os.rename` 迁移 profile，再从目标目录二次验证相同身份。
-
-目标 profile 已存在时默认 `reject`。显式 `archive_and_replace` 会先把旧目录移动到 `<profile_base>/.archive/<token_id>/<job-id>`，再采用新目录；第二次 rename 失败会把旧 profile 恢复。账号状态提交完成后用 `commit_complete` 作为可恢复标记，避免进程崩溃造成重复创建或回滚已发布凭据。
-
-新账号只有在精确 paid tier 且操作员请求业务启用时才会进入业务池。已有账号保留原有 business state 与 ban owner；重新登录不会清除人工或 429 禁用。
+2810 行的 `services/onboarding.py::OnboardingService` 状态机曾在生产引发事故（强制反复重新登录、销毁一个有效会话、操作了错误的 XRDP Chrome 窗口），先于 2026-07 被禁用（HTTP 全部 410），2026-10 结构清理中整体删除。它由 `scripts/tokens.py onboard`（实现位于 `services/tokens/onboard.py`，凭据发布走 `TokenLifecycleRepository.publish_verified_account` 隧道）取代；历史 `onboarding_jobs` 表与其 repository 保留（见上文），仅作数据留存与删除保护。
 
 ## 管理 API 与浏览器安全边界
 
-所有入库、profile validation、lifecycle 修改和凭据导出端点都要求管理员 session Bearer token。入库相关响应设置 `Cache-Control: no-store`，并排除 ST、AT、内部 row ID、browser PID/start ticks、路径和命令。
+所有 lifecycle 修改和凭据导出端点都要求管理员 session Bearer token。相关响应设置 `Cache-Control: no-store`，并排除 ST、AT、内部 row ID、browser PID/start ticks、路径和命令。
 
 主要安全端点：
 
-> 下表前 8 个 `onboarding` 状态机路由已永久禁用（固定返回 `410 Gone`，路由保留
+> 下表前 9 个 `onboarding` 家族路由已永久禁用（固定返回 `410 Gone`，路由保留
 > 注册以避免 404 混淆，见 `src/api/admin.py::_reject_onboarding_deprecated`）——
-> 该状态机曾在生产引发事故（强制反复重新登录、销毁一个有效会话、操作了错误的
-> XRDP Chrome 窗口）。新入库、旧号重登录一律使用
+> 其中 `validate-profile` 的实现运行在已删除的 `OnboardingService` 上，随状态机
+> 一起退役。新入库、旧号重登录一律使用
 > `scripts/tokens.py onboard`（详见 `docs/operations/browser-keepalive.md` §7.5）。
 
 | 方法 | 路径 | 作用 | 状态 |
@@ -227,7 +210,7 @@ Finalize 只停止记录的 PID，且同时校验 procfs start ticks 和 canonic
 | `POST` | `/api/onboarding/jobs/{job_id}/finalize` | 验证、迁移并提交账号 | 已禁用，固定 `410 Gone` |
 | `POST` | `/api/onboarding/jobs/{job_id}/cancel` | 停止已验证归属的进程并取消 | 已禁用，固定 `410 Gone` |
 | `POST` | `/api/onboarding/recover` | 恢复或安全收敛未完成任务 | 已禁用，固定 `410 Gone` |
-| `POST` | `/api/tokens/{token_id}/validate-profile` | 只读验证 retained profile，不写 Token/lifecycle | 正常 |
+| `POST` | `/api/tokens/{token_id}/validate-profile` | 只读验证 retained profile（实现随 `OnboardingService` 移除） | 已禁用，固定 `410 Gone` |
 | `PUT` | `/api/tokens/{token_id}/lifecycle` | 只改 keepalive desired state/mode（`runtime_mode` 只接受 `persistent`，传 `warm` 返回 422） | 正常 |
 | `POST` | `/api/tokens/{token_id}/export` | 显式、不可缓存地导出凭据 | 正常 |
 
@@ -259,4 +242,4 @@ next-auth 的 AT 自动续期由静默重授权处理（见上）。reCAPTCHA to
 /opt/Projects/flow2api/scripts/test.sh
 ```
 
-测试默认使用临时 SQLite 数据库，不启动真实 Chrome、不访问生产 profile，也不访问真实 Google API。重点守卫包括 shared 可提取性、未定义名称、数据库迁移/事务、原子身份快照、profile/PID 所有权、scheduler/supervisor、入库恢复、安全 API、CORS 与运维脚本契约。
+测试默认使用临时 SQLite 数据库，不启动真实 Chrome、不访问生产 profile，也不访问真实 Google API。重点守卫包括 shared 可提取性、未定义名称、数据库迁移/事务、原子身份快照、profile/PID 所有权、scheduler/supervisor、入库 API 禁用契约（410）、CORS 与运维脚本契约。

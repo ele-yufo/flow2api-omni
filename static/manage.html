@@ -102,15 +102,6 @@
                                 <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
                             </svg>
                         </button>
-                        <button onclick="openOnboardingModal()" class="inline-flex items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 h-8 px-3" title="通过 XRDP 登录接入账号">
-                            <svg class="h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-                                <circle cx="9" cy="7" r="4"/>
-                                <line x1="19" y1="8" x2="19" y2="14"/>
-                                <line x1="22" y1="11" x2="16" y2="11"/>
-                            </svg>
-                            <span class="text-sm font-medium">账号接入</span>
-                        </button>
                         <button onclick="openImportModal()" class="inline-flex items-center justify-center rounded-md bg-green-600 text-white hover:bg-green-700 h-8 px-3" title="导入Token">
                             <svg class="h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -805,87 +796,6 @@
         </div>
     </div>
 
-    <!-- XRDP 账号接入模态框 -->
-    <div id="onboardingModal" role="dialog" aria-modal="true" aria-labelledby="onboardingDialogTitle" aria-describedby="onboardingDialogDescription" aria-hidden="true" tabindex="-1" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 overflow-y-auto">
-        <div class="bg-background rounded-lg border border-border w-full max-w-3xl shadow-xl my-auto">
-            <div class="flex items-center justify-between p-5 border-b border-border sticky top-0 bg-background z-10">
-                <div>
-                    <h3 id="onboardingDialogTitle" class="text-lg font-semibold">账号接入</h3>
-                    <p id="onboardingDialogDescription" class="text-xs text-muted-foreground mt-1">通过服务器 XRDP 桌面完成真实 Google Flow 登录并绑定持久化 Profile</p>
-                </div>
-                <button onclick="closeOnboardingModal()" class="text-muted-foreground hover:text-foreground" aria-label="关闭账号接入窗口">
-                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="p-5 space-y-5 max-h-[calc(100vh-190px)] overflow-y-auto">
-                <div class="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-                    <p class="font-medium">XRDP 登录说明</p>
-                    <ol class="mt-2 list-decimal space-y-1 pl-5 text-xs leading-5">
-                        <li>使用 XRDP 连接服务器桌面，目标显示器为 <code id="onboardingDisplayValue" class="rounded bg-white px-1 py-0.5 font-mono">加载中</code>。</li>
-                        <li>点击“启动”后，在服务器桌面弹出的 Chrome 中登录目标 Google 账号并打开 Flow。</li>
-                        <li>确认页面已登录后返回本窗口点击“完成接入”；完成前不要手动关闭该 Chrome。</li>
-                    </ol>
-                </div>
-
-                <div class="grid gap-4 md:grid-cols-2">
-                    <div class="space-y-2">
-                        <label for="onboardingTargetToken" class="text-sm font-medium">接入目标</label>
-                        <select id="onboardingTargetToken" onchange="handleOnboardingTargetChange()" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                            <option value="">新账号（登录后自动识别）</option>
-                        </select>
-                        <p class="text-xs text-muted-foreground">重新登录已有账号时必须选择对应账号，系统会校验登录邮箱。</p>
-                    </div>
-                    <div class="space-y-2">
-                        <label for="onboardingConflictPolicy" class="text-sm font-medium">Profile 冲突策略</label>
-                        <select id="onboardingConflictPolicy" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                            <option value="reject">拒绝覆盖</option>
-                            <option value="archive_and_replace">归档旧 Profile 后替换</option>
-                        </select>
-                        <p class="text-xs text-muted-foreground">已有 Profile 时建议先使用拒绝覆盖；确认替换时再选择归档。</p>
-                    </div>
-                </div>
-
-                <div class="grid gap-4 rounded-md border border-border p-4 md:grid-cols-3">
-                    <label class="inline-flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="onboardingBusinessEnabled" class="h-4 w-4 rounded border-input">
-                        <span class="text-sm font-medium">完成后加入业务池</span>
-                    </label>
-                    <label class="inline-flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" id="onboardingKeepaliveEnabled" class="h-4 w-4 rounded border-input">
-                        <span class="text-sm font-medium">启用账号保活</span>
-                    </label>
-                    <div class="flex items-center gap-2">
-                        <label for="onboardingRuntimeMode" class="text-sm font-medium whitespace-nowrap">运行模式</label>
-                        <select id="onboardingRuntimeMode" class="flex h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm">
-                            <option value="warm">按需唤醒</option>
-                            <option value="persistent">常驻运行</option>
-                        </select>
-                    </div>
-                    <p class="md:col-span-3 text-xs text-muted-foreground">业务池默认关闭。只有最终验证为付费会员时，接入流程才会按选择启用业务流量。</p>
-                </div>
-
-                <div id="onboardingJobStatus" class="rounded-md border border-border bg-muted/30 p-4" aria-live="polite">
-                    <div class="flex items-center justify-between gap-3">
-                        <p class="text-sm font-medium">任务状态</p>
-                        <span class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-700">尚未创建</span>
-                    </div>
-                    <p class="mt-2 text-xs text-muted-foreground">选择接入参数后点击“启动”。</p>
-                </div>
-            </div>
-            <div class="flex flex-wrap items-center justify-between gap-3 p-5 border-t border-border sticky bottom-0 bg-background">
-                <p class="text-xs text-muted-foreground">任务状态只展示阶段、结果和已发现的账号信息，不展示凭据或进程元数据。</p>
-                <div class="flex items-center gap-2">
-                    <button id="onboardingCancelBtn" onclick="cancelOnboardingJob()" disabled class="inline-flex items-center justify-center rounded-md border border-red-200 bg-background text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 h-9 px-4">取消任务</button>
-                    <button id="onboardingFinalizeBtn" onclick="finalizeOnboardingJob()" disabled class="inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 h-9 px-4">完成接入</button>
-                    <button id="onboardingStartBtn" onclick="startOnboardingJob()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 h-9 px-5">启动</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Token 导入模态框 -->
     <div id="importModal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
         <div class="bg-background rounded-lg border border-border w-full max-w-md shadow-xl">
@@ -1279,6 +1189,5 @@
         window.addEventListener('DOMContentLoaded',()=>{checkAuth();refreshTokens();loadATAutoRefreshConfig();const copyLabsBtn=document.getElementById('copyLabsUrlBtn');if(copyLabsBtn)copyLabsBtn.addEventListener('click',async()=>{const url=document.getElementById('labsFlowLink').href;try{await navigator.clipboard.writeText(url);showToast('网址已复制','success')}catch(e){prompt('手动复制以下网址：',url)}})});
     </script>
     <script src="/static/manage-account-lifecycle.js"></script>
-    <script src="/static/manage-account-onboarding.js"></script>
 </body>
 </html>

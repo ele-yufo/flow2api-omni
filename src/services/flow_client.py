@@ -456,30 +456,6 @@ class FlowClient:
         """控制轻量控制面请求的超时，避免认证/项目接口长时间挂起。"""
         return max(5, min(int(self.timeout or 0) or 120, 10))
 
-    async def _acquire_image_launch_gate(
-        self,
-        token_id: Optional[int],
-        token_image_concurrency: Optional[int],
-    ) -> tuple[bool, int, int]:
-        """图片请求不再做本地发车排队，直接进入取 token 并提交上游。"""
-        return True, 0, 0
-
-    async def _release_image_launch_gate(self, token_id: Optional[int]):
-        """保留接口形状，当前无需释放任何本地发车状态。"""
-        return
-
-    async def _acquire_video_launch_gate(
-        self,
-        token_id: Optional[int],
-        token_video_concurrency: Optional[int],
-    ) -> tuple[bool, int, int]:
-        """视频请求不再做本地发车排队，直接进入取 token 并提交上游。"""
-        return True, 0, 0
-
-    async def _release_video_launch_gate(self, token_id: Optional[int]):
-        """保留接口形状，当前无需释放任何本地发车状态。"""
-        return
-
     async def _make_image_generation_request(
         self,
         url: str,
@@ -896,7 +872,6 @@ class FlowClient:
         aspect_ratio: str,
         image_inputs: Optional[List[Dict]] = None,
         token_id: Optional[int] = None,
-        token_image_concurrency: Optional[int] = None,
         progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None,
     ) -> tuple[dict, str, Dict[str, Any]]:
         """生成图片(同步返回)
@@ -935,31 +910,11 @@ class FlowClient:
             recaptcha_started_at = time.time()
             if progress_callback is not None:
                 await progress_callback("solving_image_captcha", 38)
-            launch_gate_acquired = False
-            launch_ok, launch_queue_ms, launch_stagger_ms = await self._acquire_image_launch_gate(
-                token_id=token_id,
-                token_image_concurrency=token_image_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="IMAGE_GENERATION",
+                token_id=token_id
             )
-            attempt_trace["launch_queue_ms"] = launch_queue_ms
-            attempt_trace["launch_stagger_ms"] = launch_stagger_ms
-            if not launch_ok:
-                last_error = Exception("Image launch queue wait timeout")
-                attempt_trace["success"] = False
-                attempt_trace["error"] = str(last_error)
-                attempt_trace["duration_ms"] = int((time.time() - attempt_started_at) * 1000)
-                perf_trace["generation_attempts"].append(attempt_trace)
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="IMAGE_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_image_launch_gate(token_id)
             attempt_trace["recaptcha_ms"] = int((time.time() - recaptcha_started_at) * 1000)
             attempt_trace["recaptcha_ok"] = bool(recaptcha_token)
             if not recaptcha_token:
@@ -1142,7 +1097,6 @@ class FlowClient:
         use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """文生视频,返回task_id
 
@@ -1172,25 +1126,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(
@@ -1258,7 +1198,6 @@ class FlowClient:
         reference_images: List[Dict],
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """图生视频,返回task_id
 
@@ -1282,25 +1221,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(
@@ -1370,7 +1295,6 @@ class FlowClient:
         use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """收尾帧生成视频,返回task_id
 
@@ -1395,25 +1319,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(
@@ -1484,7 +1394,6 @@ class FlowClient:
         use_v2_model_config: bool = False,
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """仅首帧生成视频,返回task_id
 
@@ -1508,25 +1417,11 @@ class FlowClient:
         
         for retry_attempt in range(max_retries):
             # 每次重试都重新获取 reCAPTCHA token - 视频使用 VIDEO_GENERATION action
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(
@@ -1596,7 +1491,6 @@ class FlowClient:
         resolution: str,
         model_key: str,
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """视频放大到 4K/1080P，返回 task_id
 
@@ -1618,25 +1512,11 @@ class FlowClient:
         last_error = None
         
         for retry_attempt in range(max_retries):
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(
@@ -1704,7 +1584,6 @@ class FlowClient:
         resolution: str = "VIDEO_RESOLUTION_720P",
         user_paygate_tier: str = "PAYGATE_TIER_ONE",
         token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
     ) -> dict:
         """Omni 视频编辑/延长 (abra_edit, batchAsyncGenerateVideoEditVideo)
 
@@ -1734,25 +1613,11 @@ class FlowClient:
         last_error = None
 
         for retry_attempt in range(max_retries):
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
+            recaptcha_token, browser_id = await self._get_recaptcha_token(
+                project_id,
+                action="VIDEO_GENERATION",
+                token_id=token_id
             )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
             if not recaptcha_token:
                 last_error = Exception("Failed to obtain reCAPTCHA token")
                 should_retry = await self._handle_missing_recaptcha_token(

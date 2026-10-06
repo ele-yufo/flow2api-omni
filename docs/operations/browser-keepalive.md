@@ -29,7 +29,7 @@
 
 | 组件 | 默认位置/显示器 | 责任 |
 |---|---|---|
-| 主服务 `flow2api.service` | 应用 HTTP 端口 | FastAPI、迁移、Token 管理、`OnboardingService`、管理 API |
+| 主服务 `flow2api.service` | 应用 HTTP 端口 | FastAPI、迁移、Token 管理、管理 API |
 | 保活 sidecar `flow2api-keepalive.service` | Xvfb `:10` | 动态读取 `token_lifecycle`，运行 headed Chrome 刷新账号 |
 | SQLite | `/opt/Projects/flow2api/data/flow.db` | `tokens`、`token_lifecycle`、`onboarding_jobs`、projects |
 | keepalive profiles | `/opt/flow2api-profiles/<token_id>` | 每账号 Google/Flow 登录态 |
@@ -298,19 +298,12 @@ AUTH_HEADER="Authorization: Bearer $ADMIN_TOKEN"
 
 ### 7.1 profile validation
 
-> `GET /api/onboarding/config`（获取 UI 所需的有效 XRDP display）随旧状态机一起
-> [DEPRECATED]，固定返回 410；已从本节移除。管理页面的 XRDP display 配置改由
-> `scripts/tokens.py onboard --display :N` 显式传入（见 §7.5）。
-
-只读验证已有 profile（不受 onboarding 状态机禁用影响，正常工作）：
-
-```bash
-curl --fail-with-body -sS -X POST \
-  -H "$AUTH_HEADER" \
-  "$BASE_URL/api/tokens/$TOKEN_ID/validate-profile"
-```
-
-validation 从 retained profile 读取真实 ST，调用账号检查，要求观察邮箱同时匹配 Token 邮箱和 `verified_email`，返回 email、tier、credits、expiry、active project count 与 `profile_ready`。该端点不更新 Token、lifecycle 或项目池，也不会回退使用数据库中的 ST。
+> `GET /api/onboarding/config`（获取 UI 所需的有效 XRDP display）与
+> `POST /api/tokens/{token_id}/validate-profile`（profile 只读验证）都随旧状态机
+> 一起 [DEPRECATED]，固定返回 410；`validate-profile` 的实现运行在已删除的
+> `OnboardingService` 上。管理页面的 XRDP display 配置改由
+> `scripts/tokens.py onboard --display :N` 显式传入（见 §7.5）；验证账号身份
+> 用 `scripts/tokens.py status`（读 keepalive 遥测）或直接跑一次 onboard。
 
 ### 7.2 lifecycle desired state
 
@@ -351,10 +344,8 @@ curl --fail-with-body -sS -X PUT \
 > `410 Gone`（`{"code":"onboarding_deprecated","message":"..."}`），不再执行下方任何流程。
 > 保留本节仅供历史/排障参考。新入库/重登录见 §7.5。
 >
-> 注：主服务启动时仍会内部调用 `OnboardingService.recover_incomplete()`
-> 清理遗留 `onboarding_jobs` 行（未改动，属于服务层而非 HTTP 层，见 Task 7
-> 范围说明）——这与下方 `POST /api/onboarding/recover` 的**HTTP 入口**已禁用
-> 并不矛盾，二者是两回事。
+> 注：`OnboardingService` 及其启动期 `recover_incomplete()` 装配已于 2026-10
+> 随状态机整体删除；历史 `onboarding_jobs` 行保留在库中不再被任何进程写入。
 
 创建新账号 job 时不传 `target_token_id`；重新登录已有账号时传目标 ID。请求只接受 allowlisted choices，不接受 path、display、proxy、URL 或浏览器参数。
 

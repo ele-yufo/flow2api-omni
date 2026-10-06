@@ -1,6 +1,4 @@
 """FastAPI application initialization"""
-import os
-
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,15 +14,12 @@ from .services.token_manager import TokenManager
 from .services.load_balancer import LoadBalancer
 from .services.concurrency_manager import ConcurrencyManager
 from .services.generation_handler import GenerationHandler
-from .services.onboarding import OnboardingService
 from .api import routes, admin
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    global onboarding_service
-
     # Startup
     print("=" * 60)
     print("Flow2API Starting...")
@@ -51,49 +46,6 @@ async def lifespan(app: FastAPI):
 
     # 启动时统一把数据库配置同步到内存，避免 personal/brower 相关运行时配置遗漏。
     await db.reload_config_to_memory()
-
-    browser_executable = (
-        os.environ.get("BROWSER_EXECUTABLE_PATH", "").strip()
-        or "/usr/bin/google-chrome-stable"
-    )
-    try:
-        onboarding_service = OnboardingService(
-            db=db,
-            token_manager=token_manager,
-            profile_base=config.keepalive_browser_profile_base,
-            browser_executable=browser_executable,
-            display=config.keepalive_onboarding_display,
-            proxy=config.keepalive_browser_proxy,
-            session_ttl_seconds=config.keepalive_onboarding_session_ttl_seconds,
-        )
-        recovered_onboarding_jobs = await onboarding_service.recover_incomplete()
-        admin.set_dependencies(
-            token_manager,
-            proxy_manager,
-            db,
-            concurrency_manager,
-            onboarding_service,
-        )
-        if recovered_onboarding_jobs:
-            print(
-                "✓ XRDP onboarding recovery checked "
-                f"({len(recovered_onboarding_jobs)} incomplete job(s))"
-            )
-        else:
-            print("✓ XRDP onboarding service initialized")
-    except Exception as error:
-        onboarding_service = None
-        admin.set_dependencies(
-            token_manager,
-            proxy_manager,
-            db,
-            concurrency_manager,
-            None,
-        )
-        print(
-            "⚠ XRDP onboarding service unavailable: "
-            f"{type(error).__name__}"
-        )
 
     generation_handler.file_cache.set_timeout(config.cache_timeout)
     cache_cleanup_enabled = await generation_handler.file_cache.refresh_cleanup_task()
@@ -253,8 +205,6 @@ generation_handler = GenerationHandler(
     concurrency_manager,
     proxy_manager  # 添加 proxy_manager 参数
 )
-onboarding_service = None
-
 # Set dependencies
 routes.set_generation_handler(generation_handler)
 admin.set_dependencies(token_manager, proxy_manager, db, concurrency_manager)

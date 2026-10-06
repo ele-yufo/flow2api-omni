@@ -171,12 +171,11 @@ function renderTokenLifecycleActions(account) {
     }
     const keepaliveEnabled = Boolean(account.keepalive_enabled);
     const runtimeMode = normalizeRuntimeMode(account.runtime_mode);
-    const accountLabel = escapeLogHtml(account.email || `账号 ${tokenId}`);
     const toggleLabel = keepaliveEnabled ? "停保活" : "开保活";
     const nextKeepalive = keepaliveEnabled ? "false" : "true";
     const runtimeModeLabel = runtimeMode === "persistent" ? "常驻" : "按需";
     const runtimeModeBadge = `<span class="inline-flex h-7 items-center rounded-md bg-gray-100 px-2 text-xs text-gray-700" title="保活运行模式（只读；仅 persistent 可由入库隧道发布）">${escapeLogHtml(runtimeModeLabel)}</span>`;
-    return `<button onclick="validateTokenProfile(${tokenId})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-emerald-50 hover:text-emerald-700" title="验证 ${accountLabel} 的持久化 Profile">验证 Profile</button><button onclick="openOnboardingModal(${tokenId})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-purple-50 hover:text-purple-700" title="重新登录 ${accountLabel}">重登</button><button onclick="saveTokenLifecycle(${tokenId},{keepalive_enabled:${nextKeepalive}})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-blue-50 hover:text-blue-700">${toggleLabel}</button>${runtimeModeBadge}<button onclick="exportTokenCredentials(${tokenId})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-amber-50 hover:text-amber-700">导出凭据</button>`;
+    return `<button onclick="saveTokenLifecycle(${tokenId},{keepalive_enabled:${nextKeepalive}})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-blue-50 hover:text-blue-700">${toggleLabel}</button>${runtimeModeBadge}<button onclick="exportTokenCredentials(${tokenId})" class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-amber-50 hover:text-amber-700">导出凭据</button>`;
 }
 async function readApiPayload(response) {
     if (!response) {
@@ -294,35 +293,6 @@ async function saveTokenLifecycle(tokenId, changes) {
         }
     }
 }
-async function validateTokenProfile(tokenId) {
-    const id = Number(tokenId);
-    if (!Number.isInteger(id) || id <= 0) {
-        showToast("账号 ID 无效", "error");
-        renderAccountActionFeedback("Profile 验证失败：账号 ID 无效", "error", true);
-        return;
-    }
-    try {
-        showToast("正在验证持久化 Profile", "info");
-        renderAccountActionFeedback("正在验证持久化 Profile", "status");
-        const payload = await requestApiJson(`/api/tokens/${id}/validate-profile`, {
-            method: "POST",
-        }, "Profile 验证失败");
-        const profile = payload.profile;
-        if (!profile || typeof profile !== "object") {
-            throw new Error("服务器未返回 Profile 验证结果");
-        }
-        const tier = profile.tier || "未知层级";
-        const expiry = formatLifecycleDate(profile.expiry);
-        const readiness = profile.profile_ready ? "已就绪" : "未就绪";
-        const message = `Profile 验证通过：邮箱 ${profile.email}；层级 ${tier}；余额 ${profile.credits}；项目数量 ${profile.project_count}；Profile ${readiness}；授权到期 ${expiry}`;
-        showToast("Profile 验证通过，详细结果已显示", "success");
-        renderAccountActionFeedback(message, "success", true);
-    } catch (error) {
-        const message = `Profile 验证失败：${error.message}`;
-        showToast(message, "error");
-        renderAccountActionFeedback(message, "error", true);
-    }
-}
 async function exportTokenCredentials(tokenId) {
     const id = Number(tokenId);
     if (!Number.isInteger(id) || id <= 0) {
@@ -373,6 +343,5 @@ async function exportTokenCredentials(tokenId) {
 window.renderAccountLifecycleCells = renderAccountLifecycleCells;
 window.renderTokenLifecycleActions = renderTokenLifecycleActions;
 window.saveTokenLifecycle = saveTokenLifecycle;
-window.validateTokenProfile = validateTokenProfile;
 window.exportTokenCredentials = exportTokenCredentials;
 window.extractApiError = extractApiError;

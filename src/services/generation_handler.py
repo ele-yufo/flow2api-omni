@@ -468,18 +468,12 @@ class GenerationHandler:
                 response_data["url"] = response_state["url"]
             if response_state.get("generated_assets"):
                 response_data["generated_assets"] = response_state["generated_assets"]
-            image_perf = perf_trace.get("image_generation", {}) if isinstance(perf_trace, dict) else {}
-            video_perf = perf_trace.get("video_generation", {}) if isinstance(perf_trace, dict) else {}
             debug_logger.log_info(
                 f"[PERF] [{request_id}] total={perf_trace.get('total_ms', 0)}ms, "
                 f"select={perf_trace.get('token_select_ms', 0)}ms, "
                 f"ensure_at={perf_trace.get('ensure_at_ms', 0)}ms, "
                 f"project={perf_trace.get('ensure_project_ms', 0)}ms, "
-                f"pipeline={perf_trace.get('generation_pipeline_ms', 0)}ms, "
-                f"slot_wait={image_perf.get('slot_wait_ms', 0)}ms, "
-                f"launch_queue={image_perf.get('launch_queue_wait_ms', 0)}ms, "
-                f"launch_stagger={image_perf.get('launch_stagger_wait_ms', 0)}ms, "
-                f"video_slot_wait={video_perf.get('slot_wait_ms', 0)}ms"
+                f"pipeline={perf_trace.get('generation_pipeline_ms', 0)}ms"
             )
 
             await self._log_request(
@@ -611,9 +605,6 @@ class GenerationHandler:
         # 不在本地等待图片硬并发槽位；请求一到就直接向上游提交。
         normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
 
-        if image_trace is not None:
-            image_trace["slot_wait_ms"] = 0
-
         if images and len(images) > 0:
             await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="uploading_images", progress=28)
         else:
@@ -662,17 +653,11 @@ class GenerationHandler:
                 aspect_ratio=model_config["aspect_ratio"],
                 image_inputs=image_inputs,
                 token_id=token.id,
-                token_image_concurrency=token.image_concurrency,
                 progress_callback=_image_progress_callback,
             )
             if image_trace is not None:
                 image_trace["generate_api_ms"] = int((time.time() - generate_started_at) * 1000)
                 image_trace["upstream_trace"] = upstream_trace
-                attempts = upstream_trace.get("generation_attempts") if isinstance(upstream_trace, dict) else None
-                if isinstance(attempts, list) and attempts:
-                    first_attempt = attempts[0] if isinstance(attempts[0], dict) else {}
-                    image_trace["launch_queue_wait_ms"] = int(first_attempt.get("launch_queue_ms") or 0)
-                    image_trace["launch_stagger_wait_ms"] = int(first_attempt.get("launch_stagger_ms") or 0)
             await self._update_request_log_progress(
                 request_log_state,
                 token_id=token.id,
@@ -902,9 +887,6 @@ class GenerationHandler:
         # 不在本地等待视频硬并发槽位；请求一到就直接向上游提交。
         normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
 
-        if video_trace is not None:
-            video_trace["slot_wait_ms"] = 0
-
         await self._update_request_log_progress(request_log_state, token_id=token.id, status_text="preparing_video", progress=24)
 
         try:
@@ -1053,7 +1035,6 @@ class GenerationHandler:
                     resolution=(model_config.get("edit") or {}).get("resolution", "VIDEO_RESOLUTION_720P"),
                     user_paygate_tier=normalized_tier,
                     token_id=token.id,
-                    token_video_concurrency=token.video_concurrency,
                 )
 
             # I2V: 首尾帧生成
@@ -1071,8 +1052,7 @@ class GenerationHandler:
                         use_v2_model_config=use_v2_model_config,
                         user_paygate_tier=normalized_tier,
                         token_id=token.id,
-                        token_video_concurrency=token.video_concurrency,
-                    )
+                        )
                 else:
                     # 只有首帧 - 需要去掉 model_key 中的 _fl
                     # 情况1: _fl_ 在中间 (如 veo_3_1_i2v_s_fast_fl_ultra_relaxed -> veo_3_1_i2v_s_fast_ultra_relaxed)
@@ -1091,8 +1071,7 @@ class GenerationHandler:
                         use_v2_model_config=use_v2_model_config,
                         user_paygate_tier=normalized_tier,
                         token_id=token.id,
-                        token_video_concurrency=token.video_concurrency,
-                    )
+                        )
 
             # R2V: 多图生成
             elif video_type == "r2v" and reference_images:
@@ -1105,7 +1084,6 @@ class GenerationHandler:
                     reference_images=reference_images,
                     user_paygate_tier=normalized_tier,
                     token_id=token.id,
-                    token_video_concurrency=token.video_concurrency,
                 )
 
             # T2V 或 R2V无图: 纯文本生成
@@ -1119,7 +1097,6 @@ class GenerationHandler:
                     use_v2_model_config=use_v2_model_config,
                     user_paygate_tier=normalized_tier,
                     token_id=token.id,
-                    token_video_concurrency=token.video_concurrency,
                 )
             if video_trace is not None:
                 video_trace["submit_generation_ms"] = int((time.time() - submit_started_at) * 1000)
@@ -1527,8 +1504,7 @@ class GenerationHandler:
                                 resolution=upsample_config["resolution"],
                                 model_key=upsample_config["model_key"],
                                 token_id=token.id,
-                                token_video_concurrency=token.video_concurrency,
-                            )
+                                        )
 
                             upsample_operations = self._normalize_video_submit_response(
                                 upsample_result,

@@ -154,78 +154,6 @@ class Config(CorsConfigMixin):
         return bool(self._config.get("flow", {}).get("browser_submit_fallback_enabled", True))
 
     @property
-    def flow_image_slot_wait_timeout(self) -> float:
-        """图片硬并发槽位等待超时(秒)。"""
-        timeout = self._config.get("flow", {}).get("image_slot_wait_timeout", 120)
-        try:
-            return max(1.0, min(600.0, float(timeout)))
-        except Exception:
-            return 120.0
-
-    @property
-    def flow_image_launch_soft_limit(self) -> int:
-        """图片生成前置发车软并发上限(0 表示关闭软整形，仅使用硬并发)。"""
-        value = self._config.get("flow", {}).get("image_launch_soft_limit", 0)
-        try:
-            return max(0, min(200, int(value)))
-        except Exception:
-            return 0
-
-    @property
-    def flow_image_launch_wait_timeout(self) -> float:
-        """图片前置发车软并发等待超时(秒)。"""
-        timeout = self._config.get("flow", {}).get("image_launch_wait_timeout", 180)
-        try:
-            return max(1.0, min(600.0, float(timeout)))
-        except Exception:
-            return 180.0
-
-    @property
-    def flow_image_launch_stagger_ms(self) -> int:
-        """图片请求前置发车间隔(毫秒)，用于平滑同批突发。"""
-        value = self._config.get("flow", {}).get("image_launch_stagger_ms", 0)
-        try:
-            return max(0, min(5000, int(value)))
-        except Exception:
-            return 0
-
-    @property
-    def flow_video_slot_wait_timeout(self) -> float:
-        """视频硬并发槽位等待超时(秒)。"""
-        timeout = self._config.get("flow", {}).get("video_slot_wait_timeout", 120)
-        try:
-            return max(1.0, min(600.0, float(timeout)))
-        except Exception:
-            return 120.0
-
-    @property
-    def flow_video_launch_soft_limit(self) -> int:
-        """视频生成前置发车软并发上限(0 表示关闭软整形，仅使用硬并发)。"""
-        value = self._config.get("flow", {}).get("video_launch_soft_limit", 0)
-        try:
-            return max(0, min(200, int(value)))
-        except Exception:
-            return 0
-
-    @property
-    def flow_video_launch_wait_timeout(self) -> float:
-        """视频前置发车软并发等待超时(秒)。"""
-        timeout = self._config.get("flow", {}).get("video_launch_wait_timeout", 180)
-        try:
-            return max(1.0, min(600.0, float(timeout)))
-        except Exception:
-            return 180.0
-
-    @property
-    def flow_video_launch_stagger_ms(self) -> int:
-        """视频请求前置发车间隔(毫秒)，用于平滑同批突发。"""
-        value = self._config.get("flow", {}).get("video_launch_stagger_ms", 0)
-        try:
-            return max(0, min(5000, int(value)))
-        except Exception:
-            return 0
-
-    @property
     def poll_interval(self) -> float:
         return self._config["flow"]["poll_interval"]
 
@@ -342,10 +270,6 @@ class Config(CorsConfigMixin):
             return "polling"
         return "default"
 
-    def set_polling_mode_enabled(self, enabled: bool):
-        """Set polling mode enabled/disabled."""
-        self.set_call_logic_mode("polling" if enabled else "default")
-
     def set_call_logic_mode(self, mode: str):
         """Set call logic mode (default or polling)."""
         normalized = "polling" if mode == "polling" else "default"
@@ -358,12 +282,6 @@ class Config(CorsConfigMixin):
     def upsample_timeout(self) -> int:
         """Get upsample (4K/2K) timeout in seconds"""
         return self._config.get("generation", {}).get("upsample_timeout", 300)
-
-    def set_upsample_timeout(self, timeout: int):
-        """Set upsample (4K/2K) timeout in seconds"""
-        if "generation" not in self._config:
-            self._config["generation"] = {}
-        self._config["generation"]["upsample_timeout"] = timeout
 
     # Cache configuration
     @property
@@ -415,12 +333,6 @@ class Config(CorsConfigMixin):
     def browser_launch_background(self) -> bool:
         """有头浏览器打码是否默认后台启动，避免抢占前台窗口。"""
         return self._config.get("captcha", {}).get("browser_launch_background", True)
-
-    def set_browser_launch_background(self, enabled: bool):
-        """设置有头浏览器打码是否后台启动。"""
-        if "captcha" not in self._config:
-            self._config["captcha"] = {}
-        self._config["captcha"]["browser_launch_background"] = bool(enabled)
 
     @property
     def browser_recaptcha_settle_seconds(self) -> float:

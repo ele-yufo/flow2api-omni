@@ -18,7 +18,6 @@ from ..core.config import config
 from ..services.token_manager import TokenDeletionConflictError, TokenManager
 from ..services.proxy_manager import ProxyManager
 from ..services.concurrency_manager import ConcurrencyManager
-from ..services.onboarding import OnboardingService, OnboardingServiceError
 from ..core.cookie_extractor import extract_session_token
 from ..core.repositories.token_lifecycle_repository import PublishError
 from ..core.token_states import TOKEN_REASON_MANUAL_DISABLED
@@ -48,7 +47,6 @@ token_manager: Optional[TokenManager] = None
 proxy_manager: Optional[ProxyManager] = None
 db: Optional[Database] = None
 concurrency_manager: Optional[ConcurrencyManager] = None
-onboarding_service: Optional[OnboardingService] = None
 
 # Store active admin session tokens (in production, use Redis or database)
 active_admin_tokens = set()
@@ -60,15 +58,13 @@ def set_dependencies(
     pm: Optional[ProxyManager],
     database: Optional[Database],
     cm: Optional[ConcurrencyManager] = None,
-    onboarding: Optional[OnboardingService] = None,
 ):
     """Set service instances used by the admin router."""
-    global token_manager, proxy_manager, db, concurrency_manager, onboarding_service
+    global token_manager, proxy_manager, db, concurrency_manager
     token_manager = tm
     proxy_manager = pm
     db = database
     concurrency_manager = cm
-    onboarding_service = onboarding
 
 
 # ========== Request Models ==========
@@ -226,65 +222,15 @@ def _set_private_response_headers(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
 
 
-def _raise_onboarding_http_error(error: Exception) -> None:
-    if not isinstance(error, OnboardingServiceError):
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "internal_error",
-                "message": "Onboarding operation failed safely.",
-            },
-        ) from None
-
-    status_code = 500
-    if error.code in {"job_not_found", "target_not_found"}:
-        status_code = 404
-    elif error.code in {
-        "invalid_job_state",
-        "active_job_exists",
-        "target_identity_mismatch",
-        "profile_identity_mismatch",
-        "duplicate_email",
-        "login_required",
-        "account_inspection_failed",
-        "process_ownership_mismatch",
-        "destination_conflict",
-        "archive_conflict",
-        "profile_not_found",
-        "unsafe_profile_path",
-        "final_validation_failed",
-    }:
-        status_code = 409
-    elif error.code in {"process_launch_failed", "process_identity_unavailable"}:
-        status_code = 503
-
-    raise HTTPException(
-        status_code=status_code,
-        detail={"code": error.code, "message": str(error)},
-    ) from None
-
-
-def _require_onboarding_service() -> OnboardingService:
-    if onboarding_service is None:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "onboarding_unavailable",
-                "message": "Onboarding service is not initialized.",
-            },
-        )
-    return onboarding_service
-
-
 def _reject_onboarding_deprecated() -> None:
     """Reject all onboarding state-machine routes with 410 Gone.
 
     The 2810-line ``OnboardingService`` state machine caused a production
     incident (forced re-logins, a destroyed valid session, the wrong XRDP
-    Chrome window operated) and is permanently disabled. Routes stay
-    registered (not removed) so misdirected clients get 410 instead of a
-    404 that would look like a deploy regression. Use
-    ``scripts/tokens.py onboard`` instead.
+    Chrome window operated) and has been deleted. Routes stay registered
+    (not removed) so misdirected clients get 410 instead of a 404 that
+    would look like a deploy regression. Use ``scripts/tokens.py onboard``
+    instead.
     """
     raise HTTPException(
         status_code=410,
@@ -794,13 +740,9 @@ async def validate_token_profile(
     response: Response,
     token: str = Depends(verify_admin_token),
 ):
-    """Read and verify one retained browser profile without persisting credentials."""
+    """[DEPRECATED] Profile validation ran on the removed onboarding service; returns 410."""
     _set_private_response_headers(response)
-    try:
-        profile = await _require_onboarding_service().validate_profile(token_id)
-    except Exception as error:
-        _raise_onboarding_http_error(error)
-    return {"success": True, "profile": profile.model_dump(mode="json")}
+    _reject_onboarding_deprecated()
 
 
 @router.post("/api/onboarding/jobs")

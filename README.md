@@ -220,9 +220,9 @@ sudo systemctl start flow2api
 
 #### 服务器 XRDP 入库与重新登录
 
-管理后台的账号入库流程在服务器端创建持久化 `onboarding_jobs`：服务在配置好的 XRDP 显示器上启动受管 Chrome，操作员仅负责 Google 登录并确认 Flow 页面可用。Finalize 会关闭并核验受管进程、读取真实账号身份、匹配或创建 Token、补齐项目池、原子迁移 profile，再次验证目标 profile，最后分别应用“加入业务池”和“启用保活”的选择。
+账号入库与重新登录由 CLI 隧道完成：`scripts/tokens.py onboard` 在服务器配置好的 XRDP 显示器上启动 Chrome，操作员仅负责 Google 登录并确认 Flow 页面可用；随后 CLI 读取真实账号身份、匹配或创建 Token、补齐项目池、原子迁移 profile，并通过 `publish_verified_account` 事务发布“加入业务池”和“启用保活”的选择。旧的 Web 端 `OnboardingService` 状态机（含 `onboarding_jobs` 写入）已删除，其 HTTP 路由固定返回 `410 Gone`；历史 `onboarding_jobs` 行保留在库中仅作审计。
 
-重新登录已有账号时指定目标 Token；服务会拒绝邮箱不匹配。目标 profile 已存在时默认拒绝覆盖，只有显式选择 `archive_and_replace` 才会把旧 profile 保留到归档目录后替换，便于回滚。Free 或 unknown 新账号不会因请求业务启用而自动进入业务池。
+重新登录已有账号时指定目标 Token（`--token-id`）；隧道会拒绝邮箱不匹配，且不会归档或覆盖已有 profile（旧号不 archive/不覆盖）。Free 或 unknown 新账号不会因请求业务启用而自动进入业务池。
 
 完整的部署、XRDP 操作、API、命令、维护窗口、回滚和故障排查见 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)。跨网访问（Tailscale 子网路由、直连依赖的 IPv6、产物中转口径）见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
 

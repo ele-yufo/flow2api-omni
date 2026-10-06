@@ -1,19 +1,20 @@
-"""Onboarding state-machine admin routes are disabled (410 Gone).
+"""Onboarding-family admin routes are disabled (410 Gone).
 
 The 2810-line ``OnboardingService`` state machine caused a production incident
 (forced re-logins, a destroyed valid session, the wrong XRDP Chrome window
-operated). It is replaced by ``scripts/tokens.py onboard`` + the
-``TokenLifecycleRepository.publish_verified_account`` tunnel. Its HTTP surface
-must stay registered (so misdirected clients get 410, not a confusing 404)
-but must never execute the old state machine again.
+operated) and has been deleted outright. Onboarding now runs through
+``scripts/tokens.py onboard`` + the
+``TokenLifecycleRepository.publish_verified_account`` tunnel. The old HTTP
+surface must stay registered (so misdirected clients get 410, not a confusing
+404) but there is no backing service left to reach.
 
-``validate-profile``, ``lifecycle``, and ``export`` are NOT part of the
-disabled state machine and must keep working normally.
+``validate-profile`` ran on the deleted service and is disabled with the rest;
+``lifecycle`` and ``export`` are NOT part of the disabled surface and must
+keep working normally.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -21,63 +22,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.api import admin
-from src.core.models import ProfileValidationResult, Token, TokenLifecycle
+from src.core.models import Token, TokenLifecycle
 
 
-NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 ADMIN_TOKEN = "admin-onboarding-disabled-test"
 AUTH_HEADERS = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
-
-
-class FakeOnboardingService:
-    """A service whose methods must never be called once routes are disabled."""
-
-    def __init__(self):
-        self.calls: list[tuple[str, object]] = []
-        self.profile_validation = ProfileValidationResult(
-            email="ruby@example.com",
-            tier="PAYGATE_TIER_ONE",
-            credits=850,
-            expiry=NOW + timedelta(hours=1),
-            project_count=4,
-            profile_ready=True,
-        )
-
-    def get_safe_config(self):
-        self.calls.append(("config", None))
-        return {"display": ":42"}
-
-    async def create_job(self, **kwargs):
-        self.calls.append(("create", kwargs))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def list(self, **filters):
-        self.calls.append(("list", filters))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def get(self, job_id):
-        self.calls.append(("get", job_id))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def start_job(self, job_id):
-        self.calls.append(("start", job_id))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def finalize(self, job_id):
-        self.calls.append(("finalize", job_id))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def cancel(self, job_id):
-        self.calls.append(("cancel", job_id))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def recover_incomplete(self):
-        self.calls.append(("recover", None))
-        raise AssertionError("disabled onboarding route must not reach the service")
-
-    async def validate_profile(self, token_id):
-        self.calls.append(("validate_profile", token_id))
-        return self.profile_validation
 
 
 class FakeDatabase:
@@ -119,7 +68,6 @@ class FakeDatabase:
 
 @pytest.fixture
 def admin_context():
-    onboarding = FakeOnboardingService()
     database = FakeDatabase()
     app = FastAPI()
     app.include_router(admin.router)
@@ -128,15 +76,14 @@ def admin_context():
         SimpleNamespace(),
         database,
         None,
-        onboarding,
     )
     admin.active_admin_tokens.add(ADMIN_TOKEN)
     try:
         with TestClient(app) as client:
-            yield client, onboarding, database
+            yield client, database
     finally:
         admin.active_admin_tokens.discard(ADMIN_TOKEN)
-        admin.set_dependencies(None, None, None, None, None)
+        admin.set_dependencies(None, None, None, None)
 
 
 DISABLED_ROUTES = [
@@ -148,12 +95,13 @@ DISABLED_ROUTES = [
     ("post", "/api/onboarding/jobs/job-1/finalize", None),
     ("post", "/api/onboarding/jobs/job-1/cancel", None),
     ("post", "/api/onboarding/recover", None),
+    ("post", "/api/tokens/23/validate-profile", None),
 ]
 
 
 @pytest.mark.parametrize(("method", "path", "json_body"), DISABLED_ROUTES)
 def test_onboarding_state_machine_routes_return_410(admin_context, method, path, json_body):
-    client, onboarding, _database = admin_context
+    client, _database = admin_context
 
     kwargs = {"headers": AUTH_HEADERS}
     if json_body is not None:
@@ -168,15 +116,13 @@ def test_onboarding_state_machine_routes_return_410(admin_context, method, path,
             "use 'scripts/tokens.py onboard' instead"
         ),
     }
-    # The disabled state machine must never actually run.
-    assert onboarding.calls == []
 
 
 @pytest.mark.parametrize(("method", "path", "json_body"), DISABLED_ROUTES)
 def test_onboarding_state_machine_routes_still_require_admin_auth(
     admin_context, method, path, json_body
 ):
-    client, _onboarding, _database = admin_context
+    client, _database = admin_context
 
     kwargs = {}
     if json_body is not None:
@@ -186,28 +132,8 @@ def test_onboarding_state_machine_routes_still_require_admin_auth(
     assert response.status_code == 401
 
 
-def test_validate_profile_route_is_unaffected_by_onboarding_disable(admin_context):
-    client, onboarding, _database = admin_context
-
-    response = client.post("/api/tokens/23/validate-profile", headers=AUTH_HEADERS)
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "success": True,
-        "profile": {
-            "email": "ruby@example.com",
-            "tier": "PAYGATE_TIER_ONE",
-            "credits": 850,
-            "expiry": "2026-07-20T13:00:00Z",
-            "project_count": 4,
-            "profile_ready": True,
-        },
-    }
-    assert onboarding.calls == [("validate_profile", 23)]
-
-
 def test_lifecycle_put_route_is_unaffected_by_onboarding_disable(admin_context):
-    client, _onboarding, database = admin_context
+    client, database = admin_context
 
     response = client.put(
         "/api/tokens/23/lifecycle",
@@ -228,11 +154,11 @@ def test_lifecycle_put_route_rejects_warm_runtime_mode(admin_context):
     """``runtime_mode: warm`` is rejected at request validation (422), never reaches the DB.
 
     A ``warm`` one-shot destroyed a valid Google session in a prior production
-    incident by tearing down the resident Chrome and re-navigating, rotating
-    the session cookie into an unauthorized state. The admin API must not
+    incident by tearing down the resident Chrome and re-navigating, rotating the
+    session cookie into an unauthorized state. The admin API must not
     offer any path back to that mode.
     """
-    client, _onboarding, database = admin_context
+    client, database = admin_context
 
     response = client.put(
         "/api/tokens/23/lifecycle",
@@ -245,7 +171,7 @@ def test_lifecycle_put_route_rejects_warm_runtime_mode(admin_context):
 
 
 def test_export_route_is_unaffected_by_onboarding_disable(admin_context):
-    client, _onboarding, _database = admin_context
+    client, _database = admin_context
 
     response = client.post("/api/tokens/23/export", headers=AUTH_HEADERS)
 

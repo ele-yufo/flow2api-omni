@@ -96,8 +96,6 @@ class VideoResponseNormalizationTests(unittest.TestCase):
 class VeoLiteFlowClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.client = FlowClient(proxy_manager=None)
-        self.client._acquire_video_launch_gate = AsyncMock(return_value=(True, None, None))
-        self.client._release_video_launch_gate = AsyncMock()
         self.client._get_recaptcha_token = AsyncMock(return_value=("recaptcha-token", "browser-1"))
         self.client._notify_browser_captcha_request_finished = AsyncMock()
 

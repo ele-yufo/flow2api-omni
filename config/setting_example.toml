@@ -19,14 +19,6 @@ image_prefer_media_proxy = false
 browser_submit_enabled = false
 # 浏览器内提交失败时是否回退到 HTTP 客户端（开启 browser_submit_enabled 时建议保持 true）。
 browser_submit_fallback_enabled = true
-image_slot_wait_timeout = 480
-image_launch_soft_limit = 20
-image_launch_wait_timeout = 480
-image_launch_stagger_ms = 0
-video_slot_wait_timeout = 480
-video_launch_soft_limit = 20
-video_launch_wait_timeout = 480
-video_launch_stagger_ms = 0
 poll_interval = 3.0
 max_poll_attempts = 200
 
