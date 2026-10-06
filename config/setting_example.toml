@@ -114,6 +114,4 @@ browser_call_timeout_seconds = 60
 browser_attempt_timeout_seconds = 300
 browser_cycle_timeout_seconds = 1800
 browser_reconcile_timeout_seconds = 120
-onboarding_display = ":11"
-onboarding_session_ttl_seconds = 1800
 # Chrome 可执行文件由宿主环境变量 BROWSER_EXECUTABLE_PATH 配置，默认 /usr/bin/google-chrome-stable。

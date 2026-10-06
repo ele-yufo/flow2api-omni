@@ -1,283 +1,151 @@
-# Flow2API
+# Flow2API（flow2api-omni）
 
 <div align="center">
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/fastapi-0.119.0-green.svg)](https://fastapi.tiangolo.com/)
-[![Docker](https://img.shields.io/badge/docker-supported-blue.svg)](https://www.docker.com/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/fastapi-supported-green.svg)](https://fastapi.tiangolo.com/)
+[![Tests](https://img.shields.io/badge/tests-748%20passed-brightgreen.svg)](#开发与测试)
 
-**一个功能完整的 OpenAI 兼容 API 服务，为 Flow 提供统一的接口**
+**把 Google Flow（flow.google.com）的图片 / 视频生成封装为 OpenAI 兼容 + Gemini 官方格式的本地 API 服务**
 
 </div>
 
+这是一个**私有独立项目**（`ele-yufo/flow2api-omni`），派生自一个已停止维护的上游开源项目（见文末[致谢](#致谢)），现按自己的节奏演进。单机自用部署在 2080TI 主机上，systemd 常驻，是个人媒体生成管线的生产后端；不提供公共 issue 入口，维护者就是自己（或接手的 agent）。
+
 ## 核心特性
 
-- **文生图** / **图生图**
-- **文生视频** / **图生视频** / **多图视频**
-- **首尾帧视频**
-- **视频放大** (1080P / 4K)
-- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 1080P/4K 两档高清上采样，共 64 个变体（2026-10 收敛后仅留高清档），另加 `gemini_omni_edit` 视频延长/编辑（原生，可链式）
-- **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
-- **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
-- **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
-- **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 20）的账号，多账号池耗尽账号自动退出轮询
-- **按模型资格路由** — `call_mode = "default"` 时，2K 图片优先分散给 Pro 账号，其他模型优先高层级账号（Ult > Pro > Free）；`_4k` 模型只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭层级优先，恢复纯负载均衡
-- **Discord 运维告警** — 账号失效需重登 / 账号池告急 / 单账号额度耗尽时主动推送到 Discord webhook（带去重），无需盯日志
-- **余额显示** - 实时查询和显示 VideoFX Credits
-- **负载均衡** - 多 Token 轮询和并发控制
-- **代理支持** - 支持 HTTP/SOCKS5 代理
-- **Web 管理界面** - 直观的 Token 和配置管理
-- **图片生成连续对话**
-- **Gemini 官方请求体兼容** - 支持 `generateContent` / `streamGenerateContent`、`systemInstruction`、`contents.parts.text/inlineData/fileData`
-- **Gemini 官方格式已实测出图** - 已使用真实 Token 验证 `/models/{model}:generateContent` 可正常返回官方 `candidates[].content.parts[].inlineData`
+- **图片生成**：Nano Banana 2.1（模型族 `gemini-3.2-flash-image`）5 种画幅 × 1K/2K/4K 三档，0 额度消耗
+- **视频生成**：Gemini Omni 1.1 Flash（模型族 `gemini_omni_*`，上游 family `abra`）T2V / R2V（最多 7 张参考图）/ 首帧 I2V / 首尾帧 × 4 个时长档（4/6/8/10s）× 横竖屏 × 1080P/4K 两档高清，另加 `gemini_omni_edit` 原生视频延长/编辑（可链式）
+- **OpenAI 与 Gemini 双协议**：`/v1/chat/completions` 与 `/models/{model}:generateContent` / `:streamGenerateContent`（支持 `systemInstruction`、`inlineData`、`fileData`、`imageConfig` 等），均需流式
+- **多账号池**：credits 感知负载均衡（低额度账号自动退出轮询）、按模型资格路由（Ult > Pro > Free；`_4k` 仅 Ultra；2K 图片分散给 Pro）、配额耗尽双信号摘除与自愈
+- **浏览器验证式账号保活**：每账号独立持久化 Chrome profile，有头浏览器刷新会话并严格校验身份后原子写回数据库；`token_lifecycle` 表管理 `persistent` / `warm` 两种生命周期与会员状态
+- **持久化登录态打码**：`personal` 验证码模式复用固定 profile 的登录态 cookie 提交 reCAPTCHA，拒绝率从匿名态 30%+ 降到个位数
+- **运维告警**：账号需重登 / 池低水位 / 额度耗尽推送 Discord webhook（带去重），另有每小时保活巡检 timer
+- **Web 管理界面**与内置模型测试页
 
-## 快速开始
+## 架构
 
-### 前置要求
+代码分层（依赖方向 `api → services → core → shared`，`shared/` 不反向依赖业务层，由测试守卫）：
 
-- Docker 和 Docker Compose（推荐）
-- 或 Python 3.8+
-
-- 由于Flow增加了额外的验证码，你可以自行选择使用浏览器打码或第三发打码：
-注册[YesCaptcha](https://yescaptcha.com/i/13Xd8K)并获取api key，将其填入系统配置页面```YesCaptcha API密钥```区域
-- 默认 `docker-compose.yml` 建议搭配第三方打码（yescaptcha/capmonster/ezcaptcha/capsolver）。
-如需 Docker 内有头打码（browser/personal），请使用下方 `docker-compose.headed.yml`。
-
-- Chrome 扩展（**可选**）：[Flow2API-Token-Updater](https://github.com/TheSmallHanCat/Flow2API-Token-Updater) 可用于显式提交账号凭据，但不替代每账号浏览器保活 profile。跨域调用 `/api/plugin/update-token` 时，必须把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 CORS allowlist，并继续使用插件 connection token 的 Bearer 认证。
-
-### 方式一：Docker 部署（推荐）
-
-#### 标准模式（不使用代理）
-
-```bash
-# 克隆项目
-git clone https://github.com/TheSmallHanCat/flow2api.git
-cd flow2api
-
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
+```text
+src/
+├── shared/     通用配置、SQLite 引擎、存储、鉴权与基础工具
+├── core/       数据模型、schema、迁移与 repositories
+├── services/   生成、Flow 客户端、Token、验证码、保活业务逻辑
+├── api/        FastAPI 路由、管理 API 与协议转换
+└── main.py     应用组合根
 ```
 
-> 说明：Compose 已默认挂载 `./tmp:/app/tmp`。如果把缓存超时设为 `0`，语义是"不自动过期删除"；若希望容器重建后仍保留缓存文件，也需要保留这个 `tmp` 挂载。
+运行时拓扑（生产机的真实形态）：
 
-#### WARP 模式（使用代理）
-
-```bash
-# 使用 WARP 代理启动
-docker-compose -f docker-compose.warp.yml up -d
-
-# 查看日志
-docker-compose -f docker-compose.warp.yml logs -f
+```text
+HTTP / 管理后台 ──▶ flow2api.service（FastAPI + TokenManager，:18282）
+                        │ SQLite/WAL（data/flow.db：tokens / token_lifecycle / projects）
+                        ▼ 动态 reconcile（每 15s 读 desired state）
+Xvfb :10 ◀── flow2api-keepalive.service（有头 Chrome sidecar，逐账号刷会话）
+XRDP :11 ◀── scripts/tokens.py onboard（仅入库/重登录时人工 Google 登录）
 ```
 
-#### Docker 有头打码模式（browser / personal）
+数据库是账号状态的唯一权威：业务池启停（`tokens.is_active` / `ban_reason`）与保活 desired state（`token_lifecycle`）解耦。完整分层、事务与生命周期设计见 [`docs/architecture.md`](docs/architecture.md)。
 
-> 适用于你有虚拟化桌面需求、希望在容器里启用有头浏览器打码的场景。
-> 该模式默认启动 `Xvfb + Fluxbox` 实现容器内部可视化，并设置 `ALLOW_DOCKER_HEADED_CAPTCHA=true`。
-> 仅开放应用端口，不提供任何远程桌面连接端口。
+## 部署
 
-```bash
-# 启动有头模式（首次建议带 --build）
-docker compose -f docker-compose.headed.yml up -d --build
+### systemd（生产方式，本机实际运行形态）
 
-# 查看日志
-docker compose -f docker-compose.headed.yml logs -f
-```
+服务跑在仓库内的 `.venv` 上，端口由 `config/setting.toml` 的 `[server].port` 决定（当前 **18282**）。四个 unit / drop-in：
 
-- API 端口：`8000`
-- 进入管理后台后，将验证码方式设为 `browser` 或 `personal`
-
-### 方式二：本地部署
+| Unit / 文件 | 作用 |
+|---|---|
+| `flow2api.service`（宿主 `/etc/systemd/system/`） | 主服务：`.venv/bin/python main.py`，`Restart=always`，`Upholds=flow2api-keepalive.service` |
+| [`flow2api-keepalive.service`](flow2api-keepalive.service)（仓库文件即部署源） | 保活 sidecar：`ExecStartPre` 先 `--preflight` 再 `--daemon`；`Requires=xvfb@10.service`；可选读取 root 0600 的 `/etc/flow2api-keepalive.env`（只放 webhook 密钥） |
+| `flow2api-healthcheck.timer` | 每小时跑 `scripts/keepalive_healthcheck.py` 巡检，异常即报 Discord，00/12 UTC 心跳汇总 |
+| drop-in `config/systemd/flow2api-captcha-cleanup.conf` | 主服务停止时 `ExecStopPost` 运行 `scripts/cleanup_captcha_chrome.py --terminate` 清理打码 Chrome |
 
 ```bash
-# 克隆项目
-git clone https://github.com/TheSmallHanCat/flow2api.git
-cd flow2api
-
-# 创建虚拟环境
-python -m venv venv
-
-# 激活虚拟环境
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 启动服务
-python main.py
+# 日常操作
+sudo systemctl restart flow2api.service
+sudo systemctl restart flow2api-keepalive.service
+journalctl -u flow2api.service -f          # 主服务日志；logs.txt 同步落盘在仓库根
 ```
 
-### 首次访问
+首次部署：`python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt`，准备 `config/setting.toml`（见下），装好 Xvfb `:10` 与 XRDP 后依次启用上述 unit。
 
-服务启动后,访问管理后台: **http://localhost:8000**,首次登录后请立即修改密码!
+### Docker（备选）
 
-- **用户名**: `admin`
-- **密码**: `admin`
+```bash
+docker compose up -d --build    # 使用仓库根 Dockerfile 就地构建，不拉任何外部镜像
+```
 
-### 模型测试页面
+- `docker-compose.yml` 挂载 `./data`、`./tmp`、`./config/setting.toml`；容器内应用端口跟随配置里的 `[server].port`（仓库当前为 18282），`ports` 映射右侧的容器端口必须与之一致，左侧宿主端口自定。
+- 需要容器内有头打码（browser/personal 模式）时用 `docker-compose.headed.yml`（容器内 Xvfb + Fluxbox，不开放远程桌面端口）；`docker-compose.local.yml` 是等价的本地构建变体。
+- **浏览器保活不在 Docker 里**：sidecar 依赖宿主 Xvfb/XRDP 与 systemd，Docker 适合无保活的轻量部署。
 
-访问 **http://localhost:8000/test** 可打开内置的模型测试页面，支持：
+## 配置
 
-- 按分类浏览所有可用模型（图片生成、文/图生视频、多图视频、视频放大等）
-- 输入提示词一键测试，流式显示生成进度
-- 图生图 / 图生视频场景支持上传图片
-- 生成完成后直接预览图片或视频
-
-## 配置进阶
-
-### 持久化登录态打码（推荐 `personal` 模式启用）
-
-匿名态向 Google reCAPTCHA Enterprise 提交时拒绝率较高（频繁触发 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`）。开启后，nodriver 浏览器复用固定的 `user-data-dir`，保留操作员指定 Google 账号的登录态。共享打码 profile 与每个业务 Token 的保活 profile 相互独立。
-
-#### 配置项（`config/setting.toml`）
+配置文件 `config/setting.toml`（git 跟踪，即本机生产配置）；完整默认键位与注释见 [`config/setting_example.toml`](config/setting_example.toml)（其 `[keepalive]` 块被 `tests/test_keepalive_packaging.py` 锁定）。
 
 ```toml
+[global]
+api_key = "REDACTED_SAMPLE_KEY"            # 调用 /v1/* 与 Gemini 端点的 Bearer key
+admin_username = "admin"       # 管理后台登录（默认 admin/admin，部署后立即改密）
+admin_password = "admin"
+
+[server]
+host = "0.0.0.0"
+port = 18282
+# 跨域 Origin 精确 allowlist（不支持 *），Chrome 扩展入口需要；也可用
+# 环境变量 FLOW2API_CORS_ALLOWED_ORIGINS（逗号分隔）覆盖
+cors_allowed_origins = ["chrome-extension://<扩展ID>"]
+
+[call_logic]
+call_mode = "default"          # default=随机轮询 + 层级优先；polling=顺序轮询
+prefer_higher_tier = true      # false 恢复纯负载均衡
+min_credits_to_select = 20     # 余额 ≤ 此值的账号退出候选池
+quota_exhausted_cooldown_seconds = 43200   # 配额耗尽标记的摘除窗口（默认 12h）
+
 [captcha]
-captcha_method = "personal"
+captcha_method = "personal"    # 生产路径：持久化登录态打码；yescaptcha/capmonster/ezcaptcha/capsolver/remote_browser 为休眠备选
 persistent_profile_enabled = true
 persistent_profile_path = "/opt/flow2api-profiles/ultra"
+personal_max_resident_tabs = 5       # 常驻打码标签页上限（每 tab 约 200-300MB）
+personal_min_resident_tabs = 3
+personal_idle_tab_ttl_seconds = 600
+
+[token]
+st_keepalive_enabled = true          # 旧版 HTTP ST 巡检；浏览器保活启用后由 token_lifecycle 接管
+st_browser_refresh_enabled = false   # 旧版共享浏览器刷新（多账号写错号），仅兼容保留
+
+[keepalive]
+browser_enabled = true
+browser_interval_seconds = 1200      # 活跃会员刷新周期；grant 寿命约 1h，20min 留 3x 余量
+browser_token_ids = "23"             # 仅旧部署首次迁移用；此后以数据库动态管理
+browser_profile_base = "/opt/flow2api-profiles"   # 每账号子目录 = {token_id}
+browser_proxy = "http://127.0.0.1:7890"           # 必须与登录时同一出口（住宅 IP）
+browser_display = ":10"
+browser_settle_seconds = 8.0
+# 初始延迟、退休间隔、并发上限、三层超时兜底等其余键走内置缺省，完整清单见 setting_example.toml
 ```
 
-#### 一次性登录步骤
+相关环境变量：`FLOW2API_ALERT_WEBHOOK_URL`（Discord 告警 webhook，优先于 `[admin].alert_webhook_url`，密钥只放 `/etc/flow2api-keepalive.env`，不进 git）、`FLOW2API_CORS_ALLOWED_ORIGINS`、`BROWSER_EXECUTABLE_PATH`（Chrome 路径，默认 `/usr/bin/google-chrome-stable`）。
+
+### personal 打码 profile 的一次性登录
 
 ```bash
-# 1) 停服释放 profile
-sudo systemctl stop flow2api
-
-# 2) 用 GUI Chrome 打开同一个 profile 路径，并使用与打码浏览器相同的代理
-google-chrome --user-data-dir=/opt/flow2api-profiles/ultra \
-  --profile-directory=Default --proxy-server=http://127.0.0.1:7890
-# 在打开的 Chrome 里：登录指定 Google 账号 → 访问 https://flow.google.com/ 确认能进 → 关闭
-
-# 3) 启服，nodriver 自动复用此 profile
+sudo systemctl stop flow2api        # 释放 profile
+google-chrome --user-data-dir=/opt/flow2api-profiles/ultra --profile-directory=Default \
+  --proxy-server=http://127.0.0.1:7890
+# 在打开的 Chrome 里登录目标 Google 账号 → 访问 https://flow.google.com/ 确认能进 → 关闭
 sudo systemctl start flow2api
 ```
 
-启动日志中下面这行只表示 Cookie 数据库存在，不能证明 Google 仍接受登录态：
+换账号同流程（停服 → 登出旧号登新号 → 启服）。GUI Chrome 未退出就启服会触发 `SingletonLock` 硬错误。注意这套 captcha profile 与每账号的 keepalive profile 是**两套独立资源**，不要混用。健康度以一次真实生成成功为最终验收（`logs.txt` 中 `Token 获取成功 (长度: NNNN)` 的长度骤降 + `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 是失联信号）。
 
-```
-[BrowserCaptcha] ✅ 持久化 profile 已检测到登录痕迹 (.../Default/Cookies)
-```
+## 模型目录
 
-#### 更换账号
+`/v1/models` 共 **80** 个模型 = 15 图片 + 65 视频（2026-10 目录收敛：只保留下列两族 SOTA，veo / imagen / 360P / 720P 原生档等旧模型已永久移除）。
 
-同上流程：停服 → GUI Chrome 登出旧账号登入新账号 → 启服。
-
-> ⚠️ GUI Chrome 没退出就启服会触发 `SingletonLock` 硬错误，启动日志里有清晰报错。
-
-#### 工作机制（健康度判定）
-
-`personal` 从 `flow.google.com` 页面取得 reCAPTCHA token。`logs.txt` 中的 `Token 获取成功 (长度: NNNN)` 可用于发现长度突变，但长度本身不能证明登录态有效或上游接受 token。若长度骤降并伴随 `PUBLIC_ERROR_UNUSUAL_ACTIVITY`，依次核对打码页面来源、站点密钥与 action、代理出口、共享 profile 的实际登录身份；以一次真实生成成功作为最终验收。
-
-### 浏览器保活与多账号生命周期
-
-#### 为什么不能把纯 HTTP 轮换视为永久保活
-
-`st_to_at` 在 Google 授权仍有效时可以轮换 ST，但它不能保证背后的 Google OAuth 授权无限存活。授权过期时可能出现“ST 仍可兑换响应，但 `get_credits` 返回 401”的 `GRANT_EXPIRED` 状态；ST 本身被撤销则是 `ST_REVOKED`。因此生产保活采用**浏览器支持、身份验证后再写库**的流程，而不是把一次 ST 注入视为永久凭据。
-
-每个保活账号使用独立目录 `<browser_profile_base>/<token_id>`。有头 Chrome 访问账号的 Flow 项目与 `/fx/api/auth/session`，服务随后：
-
-1. 校验浏览器会话邮箱与 Token 邮箱、`verified_email` 绑定一致；
-2. 从该 profile 的 Chrome SQLite cookie 库读取长度合格的轮换 ST；
-3. 用浏览器会话 AT 调用真实 credits 接口并读取精确 tier；
-4. 在 `BEGIN IMMEDIATE` 事务中原子写入 ST、AT、有效期、credits、tier 和生命周期遥测。
-
-身份不匹配、ST 与其他账号冲突、cookie 缺失、credits 验证失败时不会写入部分凭据。保活也不会修改业务请求统计 `last_used_at` / `use_count`。
-
-#### 业务池与保活 desired state 分离
-
-- `tokens.is_active` 与 `tokens.ban_reason` 决定账号是否进入图片/视频业务负载均衡。
-- `token_lifecycle.keepalive_enabled` 决定浏览器 sidecar 是否继续维护该账号，即使账号已退出业务池。
-- `token_lifecycle.runtime_mode` 支持两种浏览器生命周期：
-  - `persistent`：刷新后保留浏览器和 profile lease，适用于已验证的兼容基线账号。
-  - `warm`：到期时启动，完成一次刷新后关闭浏览器并释放 lease，适用于普通多账号运行。
-- 默认成功周期为活跃会员 **1200 秒**；已退休会员仍以 **43200 秒**低频维护登录态。sidecar 默认每 15 秒从数据库动态 reconcile，启停或切换模式不需要重启 systemd。
-
-业务“禁用”不会自动关闭保活；保活成功也不会清除 `manual_disabled`、`429_rate_limit` 或 `consecutive_errors` 等由其他策略拥有的禁用原因。管理 API `PUT /api/tokens/{token_id}/lifecycle` 只修改保活 desired state，不等价于 `/enable` 或 `/disable`。
-
-#### 账号配额耗尽双信号摘除（2026-08-16）
-
-生成链路遇到 Google 账号级配额耗尽（`PUBLIC_ERROR_USER_QUOTA_REACHED` / `Resource has been exhausted (e.g. check quota).`）时，`generation_handler` 给该账号打**配额耗尽标记**（`quota_exhausted_at` 时间 + 打标时的 `credits` 快照），不改 `credits` / `is_active`（管理页数据保持真实），也不禁用账号。负载均衡对"标记在冷却窗口（`quota_exhausted_cooldown_seconds`，默认 12h）内 **且** credits 未回涨（≤ max(打标快照, `min_credits_to_select`)）"的账号不路由，同账号的秒级重试也被跳过。回池自愈有三条路：**月度充值**后保活写回高 credits，快照对比发现回涨立即回池（约 20 分钟内）；窗口内任何一次**成功生成**即清标回池；标记**到期**后放行一次探测，仍失败会再打标（credits 与配额脱节的最坏情况每 12h 仅一个失败请求，不会随保活周期 20 分钟翻覆）。
-
-背景：保活刷新 credits 有 ~20 分钟窗口，账号可能在批次中途耗尽配额而库里 credits 仍显示高于阈值（2026-08-16 00:19 事故根因，credits 为月度充值周期）；配额错误是"此账号当下无额度"的实时信号，标记补上这段盲区，长期仍由 credits 阈值接管。分钟级限流（普通 `429 Too Many Requests`、`Quota exceeded ... per minute`）不触发打标，仍走连续错误计数，避免误摘。注意上游曾用 `"429" in str(e)` 判断——Google 文案里没有字面 `429`，该匹配从未命中过，已移除。
-
-#### 会员过期与条件恢复
-
-只有成功、身份一致的 credits 检查才计入会员观察：
-
-- `PAYGATE_TIER_ONE` / `PAYGATE_TIER_TWO` 精确值为 paid；
-- `PAYGATE_TIER_NOT_PAID` 精确值为 free；
-- 缺失、大小写不同、带额外空白或未知 tier 均为 unknown，不会被当作 free。
-
-活跃账号连续两次观察为 free 后，生命周期进入 retired；仅当该账号当时没有其他禁用原因时，业务状态才改为 `is_active=0`、`ban_reason=membership_expired`。退休账号续费后，连续两次观察为 paid 才尝试恢复；恢复事务会重新读取账号，只在状态仍为 `is_active=0` 且 `ban_reason='membership_expired'` 时恢复。人工禁用、429 或连续错误封禁不会被会员恢复误清除。
-
-#### 服务器 XRDP 入库与重新登录
-
-账号入库与重新登录由 CLI 隧道完成：`scripts/tokens.py onboard` 在服务器配置好的 XRDP 显示器上启动 Chrome，操作员仅负责 Google 登录并确认 Flow 页面可用；随后 CLI 读取真实账号身份、匹配或创建 Token、补齐项目池、原子迁移 profile，并通过 `publish_verified_account` 事务发布“加入业务池”和“启用保活”的选择。旧的 Web 端 `OnboardingService` 状态机（含 `onboarding_jobs` 写入）已删除，其 HTTP 路由固定返回 `410 Gone`；历史 `onboarding_jobs` 行保留在库中仅作审计。
-
-重新登录已有账号时指定目标 Token（`--token-id`）；隧道会拒绝邮箱不匹配，且不会归档或覆盖已有 profile（旧号不 archive/不覆盖）。Free 或 unknown 新账号不会因请求业务启用而自动进入业务池。
-
-完整的部署、XRDP 操作、API、命令、维护窗口、回滚和故障排查见 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)。跨网访问（Tailscale 子网路由、直连依赖的 IPv6、产物中转口径）见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
-
-#### captcha profile 与 keepalive profile 不是同一资源
-
-- **captcha profile**：`personal` 验证码模式使用的共享持久化登录态与常驻标签页，目标是提高 reCAPTCHA 通过率。
-- **keepalive profile**：`<browser_profile_base>/<token_id>` 下每账号独占的 Google/Flow 登录态，目标是刷新并严格验证该 Token 的 OAuth 凭据。
-
-不要让 captcha 服务、XRDP Chrome、setup helper 和 keepalive sidecar 同时占用同一个 keepalive profile。sidecar 通过跨进程 `flock`、Chrome `SingletonLock` 的 PID/cmdline 校验和精确 profile 所有权检查拒绝并发占用。
-
-#### 添加 Token、插件与 CORS
-
-管理后台仍支持从 cookies 文本、Cookie 请求头、DevTools JSON 或裸 ST 中提取 `__Secure-next-auth.session-token`。这些入口会验证真实账号身份，但只添加凭据并不等于已经完成独立 keepalive profile 的服务器入库。
-
-同源管理页面不需要 CORS。跨域 Web 控制台或 Chrome 插件必须在 `[server].cors_allowed_origins` 或环境变量 `FLOW2API_CORS_ALLOWED_ORIGINS` 中配置**精确 Origin**；不支持 `*`，也不能包含路径、查询参数或 fragment。允许的 scheme 为 `http`、`https` 和 `chrome-extension`。例如：
-
-```toml
-[server]
-cors_allowed_origins = [
-  "https://console.example.com",
-  "chrome-extension://abcdefghijklmnop",
-]
-```
-
-环境变量会覆盖 TOML，多个 Origin 用逗号分隔。插件 `/api/plugin/update-token` 继续使用独立 connection token 的 `Authorization: Bearer <token>` 契约；CORS allowlist 只允许浏览器发送请求，不替代认证。普通 `GET /api/tokens` 不返回 ST/AT；敏感凭据只能通过需要管理员认证、带 `Cache-Control: no-store` 的显式导出端点获取。
-
-相关主机配置位于 `config/setting.toml`：
-
-```toml
-[keepalive]
-browser_enabled = true
-browser_interval_seconds = 1200
-browser_initial_delay_seconds = 120
-browser_retired_interval_seconds = 43200
-browser_reconcile_interval_seconds = 15
-browser_max_concurrent_refreshes = 1
-browser_max_concurrent_launches = 1
-browser_retry_base_seconds = 60
-browser_retry_max_seconds = 1800
-browser_human_retry_seconds = 21600
-browser_profile_base = "/opt/flow2api-profiles"
-browser_proxy = "http://127.0.0.1:7890"
-browser_display = ":10"
-browser_settle_seconds = 8.0
-onboarding_display = ":11"
-onboarding_session_ttl_seconds = 1800
-```
-
-`BROWSER_EXECUTABLE_PATH` 选择 Chrome 可执行文件；Discord webhook 仍优先读取 `FLOW2API_ALERT_WEBHOOK_URL`。systemd unit 可选读取 root-owned、权限 `0600` 的 `/etc/flow2api-keepalive.env`，该文件只在服务器本地保存 `FLOW2API_ALERT_WEBHOOK_URL`，不得把真实 webhook 写入仓库或文档。旧 `[token].st_keepalive_enabled` 只在浏览器 supervisor 关闭时运行，启用 browser keepalive 后 sidecar 与 `token_lifecycle` 是账号保活的权威来源。
-
-当 `browser_enabled=false` 时，`--preflight` 会输出 disabled 并以 0 退出，不检查浏览器、display、数据库或 profiles。保活与 setup 传给 Chrome 的代理 URL 禁止内嵌 `user:password@` userinfo，违规配置会在构造浏览器参数前被拒绝且不会回显凭据。preflight 与 setup 的运维输出不显示配置的 profile/browser 绝对路径，canonical path 校验失败也会转换为不含路径的通用错误。read-only patrol 不把历史成功永久视为健康：active 和 retired 分别使用配置的 `browser_interval_seconds` 与 `browser_retired_interval_seconds`；grace 为对应 interval 的一半，并限制在 300–3600 秒，同时检查 `last_keepalive_success_at` 与已逾期的 `next_due_at`。Legacy ID 23 首次迁移按 `--once --token-id 23` → `--preflight` → 启动 systemd sidecar 的顺序建立身份绑定并验收。
-
-## 支持的模型
-
-### 图片生成
+### 图片：Nano Banana 2.1（0 额度）
 
 | 模型名称 | 说明 | 尺寸 |
 |---------|------|------|
@@ -286,76 +154,144 @@ onboarding_session_ttl_seconds = 1800
 | `gemini-3.2-flash-image-square` | 图/文生图 | 方图 |
 | `gemini-3.2-flash-image-four-three` | 图/文生图 | 横屏 4:3 |
 | `gemini-3.2-flash-image-three-four` | 图/文生图 | 竖屏 3:4 |
-| `gemini-3.2-flash-image-landscape-2k` | 图/文生图(2K) | 横屏 |
-| `gemini-3.2-flash-image-portrait-2k` | 图/文生图(2K) | 竖屏 |
-| `gemini-3.2-flash-image-square-2k` | 图/文生图(2K) | 方图 |
-| `gemini-3.2-flash-image-four-three-2k` | 图/文生图(2K) | 横屏 4:3 |
-| `gemini-3.2-flash-image-three-four-2k` | 图/文生图(2K) | 竖屏 3:4 |
-| `gemini-3.2-flash-image-landscape-4k` | 图/文生图(4K) | 横屏 |
-| `gemini-3.2-flash-image-portrait-4k` | 图/文生图(4K) | 竖屏 |
-| `gemini-3.2-flash-image-square-4k` | 图/文生图(4K) | 方图 |
-| `gemini-3.2-flash-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
-| `gemini-3.2-flash-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
+| `gemini-3.2-flash-image-{aspect}-2k` | 图/文生图(2K)，上述 5 种画幅同后缀 | 同上 |
+| `gemini-3.2-flash-image-{aspect}-4k` | 图/文生图(4K)，上述 5 种画幅同后缀 | 同上 |
 
-### Gemini Omni 1.1 Flash (T2V / R2V / I2V / 首尾帧)
+上游枚举 `BELUGA`；产品名 Nano Banana 2.1。2K 档会优先分散路由给 Pro 账号。
 
-Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 family id 为 `abra`。每个时长档位是独立模型（4/6/8/10s 各一）。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。
+### 视频：Gemini Omni 1.1 Flash（上游 family `abra`）
 
-能力矩阵（2026-08-28 上游 projectInitialData 抓包实证）：
+4 种 video_type × 横竖屏 × 4 个时长档（每个时长是独立模型）× `_1080p`/`_4k` 两档 = 64 个，外加 `gemini_omni_edit`。横竖屏共享上游 `model_key`，仅请求体 `aspectRatio` 区分。
 
-- **T2V** 文生视频 / **R2V** 多图参考（最多 7 张）/ **I2V** 首帧图生视频（恰好 1 张）/ **首尾帧**（恰好 2 张，首帧+尾帧，上游 key 为 `omni_flash_i2v_{d}s_first_last`）
-- 分辨率只有两档高清（2026-10 目录收敛，720P 原版与 360P 半价档已下线）：`_1080p` 与 `_4k`，均为"720P 原生 + 上采样"两步链——上游没有原生 1080P/4K 生成，产物分辨率即后缀标称
-- 费用 = 原生 720P 生成费（4s=7 / 6s=10 / 8s=12 / 10s=15 额度，Pro/Ultra 同价）+ 上采样费（1080p=0 额度；4K=50 额度**仅 Ultra 账号**，Pro/Free 提交会被上游拒绝）
+| 任务类型 | 模型名称形态 | 输入图 |
+|---|---|---|
+| 文生视频 T2V | `gemini_omni_t2v_{4,6,8,10}s_{1080p,4k}`（竖屏加 `_portrait`） | 无 |
+| 多图参考 R2V | `gemini_omni_r2v_{4,6,8,10}s_{1080p,4k}`（竖屏加 `_portrait`） | 最多 **7 张** |
+| 首帧图生视频 I2V | `gemini_omni_i2v_{4,6,8,10}s_{1080p,4k}`（竖屏加 `_portrait`） | 恰好 1 张 |
+| 首尾帧 | `gemini_omni_fl_{4,6,8,10}s_{1080p,4k}`（竖屏加 `_portrait`） | 恰好 2 张（首帧+尾帧，按顺序） |
+| 视频延长/编辑 | `gemini_omni_edit` | 1 条源视频引用 |
 
-调用方式与现有模型完全一致 —— OpenAI `chat.completions` 输入或 Gemini 官方格式。首尾帧模型按顺序上传 2 张图片（第 1 张 = 首帧，第 2 张 = 尾帧）。
+**高清档说明**：两档均为「720P 原生生成 + 上采样」两步链，产物分辨率即后缀标称——上游没有原生 1080P/4K 生成。
 
-#### 文生视频 (T2V)
+| 后缀 | 输出 | 费用 | 账号要求 |
+|------|------|------|------|
+| `_1080p` | 1080P | 原生费 + 0 | Pro 及以上 |
+| `_4k` | 4K | 原生费 + 50 | **仅 Ultra** |
 
-| 模型名称 | 时长 | 尺寸 |
-|---------|------|------|
-| `gemini_omni_t2v_4s_{1080p,4k}` / `gemini_omni_t2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
-| `gemini_omni_t2v_6s_{1080p,4k}` / `gemini_omni_t2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
-| `gemini_omni_t2v_8s_{1080p,4k}` / `gemini_omni_t2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
-| `gemini_omni_t2v_10s_{1080p,4k}` / `gemini_omni_t2v_portrait_10s_{1080p,4k}` | 10s | 横/竖屏 |
+原生 720P 生成费：4s=7 / 6s=10 / 8s=12 / 10s=15 额度（Pro/Ultra 同价）。
 
-#### 多图视频 (R2V，最多 7 张参考图)
+### `gemini_omni_edit`（视频延长/编辑）
 
-| 模型名称 | 时长 | 尺寸 |
-|---------|------|------|
-| `gemini_omni_r2v_4s_{1080p,4k}` / `gemini_omni_r2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
-| `gemini_omni_r2v_6s_{1080p,4k}` / `gemini_omni_r2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
-| `gemini_omni_r2v_8s_{1080p,4k}` / `gemini_omni_r2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
-| `gemini_omni_r2v_10s_{1080p,4k}` / `gemini_omni_r2v_portrait_10s_{1080p,4k}` | 10s | 横/竖屏 |
+把一条已生成视频作为输入，附延长/编辑指令，输出固定 10s 720P 新视频（Pro 账号 20 额度/次），可链式延长。源视频引用放在消息里 `{"type": "video_url", "video_url": {"url": "<引用>"}}`，引用支持上游 media id（含 `_upsampled` 后缀）或本服务上次响应里的 `/tmp/` 视频 URL（自动提取 media id 反查）。宽高比/时长自动继承源视频；媒体按账号隔离，跨账号引用上游一律失败。Gemini 格式用 `{"fileData": {"mimeType": "video/mp4", "fileUri": "<引用>"}}`。
 
-#### 首帧图生视频 (I2V，恰好 1 张首帧图)
+> 实测耗时（持久化登录态 + 住宅 IP 代理）：T2V 4s ≈ 45s、T2V 10s ≈ 50s、R2V 4s ≈ 60s、T2V 4s + 1080P 上采样 ≈ 80s。
 
-| 模型名称 | 时长 | 尺寸 |
-|---------|------|------|
-| `gemini_omni_i2v_{4,6,8,10}s_{1080p,4k}` / `gemini_omni_i2v_portrait_{4,6,8,10}s_{1080p,4k}` | 4-10s | 横/竖屏 |
+## API 使用
 
-#### 首尾帧视频 (恰好 2 张图：首帧 + 尾帧)
+所有端点都要求流式（`stream: true` / `:streamGenerateContent`）。以下示例统一用本机生产端口 **18282**，API key 为 `[global].api_key`。
 
-| 模型名称 | 时长 | 尺寸 |
-|---------|------|------|
-| `gemini_omni_fl_{4,6,8,10}s_{1080p,4k}` / `gemini_omni_fl_portrait_{4,6,8,10}s_{1080p,4k}` | 4-10s | 横/竖屏 |
+| 端点 | 说明 |
+|---|---|
+| `POST /v1/chat/completions` | OpenAI 兼容 |
+| `GET /v1/models`（及 `/v1/models/aliases`） | 模型目录 |
+| `POST /models/{model}:generateContent`、`/v1beta/models/{model}:generateContent`（及 `:streamGenerateContent`） | Gemini 官方格式；认证支持 `Authorization: Bearer`、`x-goog-api-key`、`?key=` |
 
-#### 分辨率（模型名必须以二者之一结尾）
+### 文生图（OpenAI 格式）
 
-| 后缀 | 输出 | 说明 |
-|------|------|------|
-| `_1080p` | 1080P | 720P 原生生成后 `veo_3_1_upsampler_1080p` 放大，0 额度，Pro+ |
-| `_4k` | 4K | 720P 原生生成后 `veo_3_1_upsampler_4k` 放大，50 额度，**仅 Ultra** |
+```bash
+curl -X POST "http://localhost:18282/v1/chat/completions" \
+  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3.2-flash-image-landscape",
+    "messages": [{"role": "user", "content": "一只可爱的猫咪在花园里玩耍"}],
+    "stream": true
+  }'
+```
 
-#### 视频延长 / 编辑 (`gemini_omni_edit`，上游 `abra_edit`)
+### 图生图
 
-Omni 1.1 原生视频延长：把一条已生成的视频作为输入，附延长/编辑指令，输出固定 10s 720P 新视频（Pro 账号 20 额度/次，2026-08-29 抓包 + 两次实提交验证）。可链式延长（拿延长产物继续延）。
+```bash
+curl -X POST "http://localhost:18282/v1/chat/completions" \
+  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-3.2-flash-image-landscape",
+    "messages": [{"role": "user", "content": [
+      {"type": "text", "text": "将这张图片变成水彩画风格"},
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,<base64_encoded_image>"}}
+    ]}],
+    "stream": true
+  }'
+```
 
-- 模型名固定 `gemini_omni_edit`，无时长/方向变体（宽高比、帧数自动继承源视频）
-- 源视频引用放在消息里：`{"type": "video_url", "video_url": {"url": "<引用>"}}`，引用支持：
-  1. 上游 media id（如 `ec8e0ee8-03f4-4e75-8c8d-1f3393a7243b`，含 `_upsampled` 后缀的放大媒体也可以）
-  2. 本服务上次生成响应里的视频链接（`/tmp/` 缓存 URL 或 flow-content CDN 签名 URL，自动提取内嵌 media id 反查，可直接链式延长）
-- 宽高比/时长无需指定：服务端自动按源媒体归属路由到对应账号（媒体按账号隔离，跨账号引用上游一律报失败），并轮询源元数据（要求源视频已生成完成）
-- Gemini 格式用 `{"fileData": {"mimeType": "video/mp4", "fileUri": "<引用>"}}`
+### Gemini 官方 generateContent
+
+```bash
+curl -X POST "http://localhost:18282/models/gemini-3.2-flash-image-square:generateContent" \
+  -H "x-goog-api-key: REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "contents": [{"role": "user", "parts": [{"text": "一颗放在木桌上的红苹果，棚拍光线，极简背景"}]}],
+    "generationConfig": {
+      "responseModalities": ["IMAGE"],
+      "imageConfig": {"aspectRatio": "1:1", "imageSize": "1K"}
+    }
+  }'
+```
+
+流式把路径换成 `:streamGenerateContent?alt=sse`。请求体支持 `systemInstruction`、`contents[].parts[].text/inlineData/fileData`。
+
+### 文生视频
+
+```bash
+curl -X POST "http://localhost:18282/v1/chat/completions" \
+  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_t2v_10s_1080p",
+    "messages": [{"role": "user", "content": "一只小猫在草地上追逐蝴蝶，柔和阳光"}],
+    "stream": true
+  }'
+```
+
+### 首尾帧视频（2 张图按顺序：首帧、尾帧）
+
+```bash
+curl -X POST "http://localhost:18282/v1/chat/completions" \
+  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_fl_8s_1080p",
+    "messages": [{"role": "user", "content": [
+      {"type": "image_url", "image_url": {"url": "data:image/png;base64,<首帧>"}},
+      {"type": "image_url", "image_url": {"url": "data:image/png;base64,<尾帧>"}},
+      {"type": "text", "text": "镜头从首帧平滑推进到尾帧，海浪持续拍打沙滩"}
+    ]}],
+    "stream": true
+  }'
+```
+
+### 多图视频（R2V，最多 7 张参考图）
+
+```bash
+curl -X POST "http://localhost:18282/v1/chat/completions" \
+  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini_omni_r2v_portrait_8s_4k",
+    "messages": [{"role": "user", "content": [
+      {"type": "text", "text": "以参考图的人物和场景为基础，生成一段镜头平滑推进的竖屏视频"},
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,<参考图1>"}},
+      {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,<参考图2>"}}
+    ]}],
+    "stream": true
+  }'
+```
+
+服务端自动组装新版视频请求体并映射最新上游模型键；参考图最多传 7 张。
+
+### 视频延长 / 编辑
 
 ```bash
 curl -X POST http://localhost:18282/v1/chat/completions \
@@ -371,327 +307,78 @@ curl -X POST http://localhost:18282/v1/chat/completions \
   }'
 ```
 
-> 实测耗时（持久化登录态 + 住宅 IP 代理）：T2V 4s ≈ 45s、T2V 10s ≈ 50s、R2V 4s ≈ 60s、T2V 4s + 1080P 上采样 ≈ 80s。
+### Web 界面
 
-## API 使用示例（需要使用流式）
+- 管理后台：`http://localhost:18282/manage`（文件为 `static/manage.html`；未登录时访问 `/` 即登录页 `/login`，默认 admin/admin，**首次登录后立即改密**）——Token 管理、系统配置、请求日志
+- 测试页：`http://localhost:18282/test`——按分类浏览模型、上传图片、流式预览生成结果
 
-> 除了下方 `OpenAI-compatible` 示例，服务也支持 Gemini 官方格式：
-> - `POST /v1beta/models/{model}:generateContent`
-> - `POST /models/{model}:generateContent`
-> - `POST /v1beta/models/{model}:streamGenerateContent`
-> - `POST /models/{model}:streamGenerateContent`
->
-> Gemini 官方格式支持以下认证方式：
-> - `Authorization: Bearer <api_key>`
-> - `x-goog-api-key: <api_key>`
-> - `?key=<api_key>`
->
-> Gemini 官方图片请求体已兼容：
-> - `systemInstruction`
-> - `contents[].parts[].text`
-> - `contents[].parts[].inlineData`
-> - `contents[].parts[].fileData.fileUri`
-> - `generationConfig.responseModalities`
-> - `generationConfig.imageConfig.aspectRatio`
-> - `generationConfig.imageConfig.imageSize`
+## 运维
 
-### Gemini 官方 generateContent（文生图）
+### 浏览器保活与账号生命周期
 
-> 已使用真实 Token 实测通过。
-> 如需流式返回，可将路径替换为 `:streamGenerateContent?alt=sse`。
+为什么需要浏览器：Google OAuth 授权寿命约 1 小时，仅靠接口轮换 ST 救不了授权过期（库里 token 没到期、实际调用 401 的 `GRANT_EXPIRED` 状态）。生产保活是「有头 Chrome 刷新 + 严格身份校验 + 原子写回」：
+
+1. sidecar 在 Xvfb `:10` 上用每账号独立 profile（`/opt/flow2api-profiles/<token_id>`）访问 Flow 页与 auth session；
+2. 校验浏览器会话邮箱与 Token 绑定邮箱一致；
+3. 从 profile 的 Chrome cookie 库读取轮换后的 ST，并用会话 AT 调真实 credits 接口读取精确 tier；
+4. `BEGIN IMMEDIATE` 事务原子写回 ST/AT/有效期/credits/tier 与生命周期遥测。
+
+关键设计（详见运维手册 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)）：
+
+- **`token_lifecycle` 独立管理保活**：`keepalive_enabled` 与 `runtime_mode`（`persistent` = 刷新后保留浏览器和 profile lease；`warm` = 到期启动、刷完即关）与业务池启停解耦；sidecar 每 15 秒从数据库 reconcile，改库即生效，不用重启 unit。
+- **周期**：活跃会员 1200 秒；退休会员 43200 秒低频维护登录态。
+- **会员过期**：连续两次 credits 观察为 free → 退休并 `ban_reason=membership_expired` 自动摘池；续费后连续两次 paid 才条件恢复，且不会误清人工禁用/429/连续错误等其他禁用原因。
+- **静默重授权（2026-09 上游迁移的救命路径）**：上游迁移曾致全池 `GRANT_EXPIRED`，此时**不要让用户重登 Google**——用账号 profile 里的 Google cookie 通过 HTTP 重放 next-auth 登录即可自愈，已集成进 keepalive、业务刷新路径与 `tokens.py reauth`。
+- **配额耗尽双信号摘除**：上游报账号级配额耗尽时打时间标记（不动 credits/is_active），冷却窗口内且 credits 未回涨则不路由；月度充值回涨、窗口内成功一次或标记到期都能自愈回池。
+- **诊断口径**：读池子健康看 `last_keepalive_status` + `at_expires`（UTC），不要读 `last_failure_code`（历史残留）；工具 `scripts/keepalive_patrol.py`。
+
+### 账号操作 CLI（`scripts/tokens.py`，JSON 输出，Agent 友好）
 
 ```bash
-curl -X POST "http://localhost:8000/models/gemini-3.2-flash-image:generateContent" \
-  -H "x-goog-api-key: REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "systemInstruction": {
-      "parts": [
-        {
-          "text": "Return an image only."
-        }
-      ]
-    },
-    "contents": [
-      {
-        "role": "user",
-        "parts": [
-          {
-            "text": "一颗放在木桌上的红苹果，棚拍光线，极简背景"
-          }
-        ]
-      }
-    ],
-    "generationConfig": {
-      "responseModalities": ["IMAGE"],
-      "imageConfig": {
-        "aspectRatio": "1:1",
-        "imageSize": "1K"
-      }
-    }
-  }'
+VENV=/opt/Projects/flow2api/.venv/bin/python
+
+$VENV scripts/tokens.py status                          # 全部保活账号健康总览
+$VENV scripts/tokens.py onboard --email new@gmail.com --display :11   # 新账号入库（XRDP 前台登录）
+$VENV scripts/tokens.py onboard --token-id 21 --display :11           # 已有账号重新登录
+$VENV scripts/tokens.py reauth --token-id 21            # 静默重授权（cookie 重放，免登录）
+$VENV scripts/tokens.py enable  --token-id 21           # 加入业务池
+$VENV scripts/tokens.py disable --token-id 21           # 移出业务池（不影响保活）
+$VENV scripts/tokens.py keepalive --token-id 21 on      # 打开保活（persistent 模式）；off 关闭
 ```
 
-### 文生图
+入库/重登录必须在 XRDP 对应的 `--display :11` 上做（sidecar 占用 `:10`，开错显示器会不可见）；CLI 会在登录后完成身份核验、项目池补齐、profile 原子迁移与发布。旧的 Web 端入库状态机已删除，其路由固定返回 `410 Gone`。
 
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3.2-flash-image-landscape",
-    "messages": [
-      {
-        "role": "user",
-        "content": "一只可爱的猫咪在花园里玩耍"
-      }
-    ],
-    "stream": true
-  }'
-```
+### 告警
 
-### 图生图
+Discord webhook 优先读环境变量 `FLOW2API_ALERT_WEBHOOK_URL`（放 `/etc/flow2api-keepalive.env`，权限 0600，不进 git），回落 `[admin].alert_webhook_url`。事件：账号失效需重登、活跃池低于 `alert_pool_low_threshold`（默认 2）、单账号额度耗尽；`flow2api-healthcheck.timer` 每小时巡检，异常即报、00/12 UTC 心跳汇总。
 
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-3.2-flash-image-landscape",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "将这张图片变成水彩画风格"
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64,<base64_encoded_image>"
-            }
-          }
-        ]
-      }
-    ],
-    "stream": true
-  }'
-```
+### Chrome 扩展入口（当前在用）
 
-### 文生视频
+`Flow2API-Token-Updater` 扩展（上游生态，见[致谢](#致谢)）通过 `POST /api/plugin/update-token` 显式提交账号凭据，使用独立 connection token 的 `Authorization: Bearer <token>` 认证；跨域调用需把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 `[server].cors_allowed_origins`（本机生产配置已加）。它不替代每账号的浏览器保活 profile。
 
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_t2v_8s_4k",
-    "messages": [
-      {
-        "role": "user",
-        "content": "一只小猫在草地上追逐蝴蝶"
-      }
-    ],
-    "stream": true
-  }'
-```
+### 远程访问
 
-### 文生视频
-
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_t2v_10s_1080p",
-    "messages": [
-      {
-        "role": "user",
-        "content": "一只小猫在草地上追逐蝴蝶"
-      }
-    ],
-    "stream": true
-  }'
-```
-
-### 首尾帧生成视频
-
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_fl_8s_1080p",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "从第一张图过渡到第二张图"
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64,<首帧base64>"
-            }
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64,<尾帧base64>"
-            }
-          }
-        ]
-      }
-    ],
-    "stream": true
-  }'
-```
-
-### Gemini Omni 1.1 Flash
-
-模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 高清档（`_1080p`/`_4k` 后缀，仅此两档）同步支持。视频延长/编辑用 `gemini_omni_edit`，content 里加 `{"type": "video_url", "video_url": {"url": "<上游 media id 或上次返回的 /tmp/ 视频 URL>"}}`。
-
-```bash
-# T2V 10 秒，横屏
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_t2v_10s_1080p",
-    "messages": [
-      {
-        "role": "user",
-        "content": "一只小猫在草地上追逐蝴蝶，柔和阳光"
-      }
-    ],
-    "stream": true
-  }'
-
-# 首尾帧 8 秒（content 数组按顺序放首帧图、尾帧图）
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_fl_8s_1080p",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {"type": "image_url", "image_url": {"url": "data:image/png;base64,<首帧>"}},
-          {"type": "image_url", "image_url": {"url": "data:image/png;base64,<尾帧>"}},
-          {"type": "text", "text": "镜头从首帧平滑推进到尾帧，海浪持续拍打沙滩"}
-        ]
-      }
-    ],
-    "stream": true
-  }'
-
-# T2V 4 秒 + 1080P 上采样
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_t2v_4s_1080p",
-    "messages": [{"role":"user","content":"a glowing jellyfish in deep ocean"}],
-    "stream": true
-  }'
-```
-
-### 多图生成视频
-
-> `R2V` 会由服务端自动组装新版视频请求体，调用方仍然使用 OpenAI 兼容输入即可。
-> 服务端会将横屏 `R2V` 自动映射到最新的 `*_landscape` 上游模型键。
-> 当前最多传 **3 张参考图**。
-
-```bash
-curl -X POST "http://localhost:8000/v1/chat/completions" \
-  -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini_omni_r2v_portrait_8s_4k",
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          {
-            "type": "text",
-            "text": "以三张参考图的人物和场景为基础，生成一段镜头平滑推进的竖屏视频"
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64/<参考图1base64>"
-            }
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64/<参考图2base64>"
-            }
-          },
-          {
-            "type": "image_url",
-            "image_url": {
-              "url": "data:image/jpeg;base64/<参考图3base64>"
-            }
-          }
-        ]
-      }
-    ],
-    "stream": true
-  }'
-```
-
----
+服务地址恒为 `192.168.124.151:18282`（在家直连；在外经 Tailscale 子网路由，直连依赖 IPv6）。组网细节与产物中转口径见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
 
 ## 开发与测试
 
-代码架构与模块划分见 [`docs/architecture.md`](docs/architecture.md)。
-
-运行测试套件（全离线、锁定项目 `.venv`）：
+- Python 3.11+（Dockerfile 用 `python:3.11-slim`，本机 `.venv` 为 3.13；依赖均为现代锁定版本）。
+- 测试全离线、锁定项目 `.venv`，唯一正确入口：
 
 ```bash
-# 安装开发依赖（pytest / pyflakes 等）
-pip install -r requirements-dev.txt
-
-# 运行全部测试
-bash scripts/test.sh
-
-# 运行单个测试文件
-bash scripts/test.sh tests/characterization/test_poll_video_result.py
+bash scripts/test.sh                              # 全量（748 passed, 1 skipped, 53 subtests）
+bash scripts/test.sh tests/test_keepalive_documentation.py   # 单文件
+REGEN_GOLDEN=1 bash scripts/test.sh tests/characterization/test_poll_video_result.py  # 行为有意变更后重放 golden
 ```
 
-测试以 **golden 特征化（characterization）** 为主，锁定重构前后的行为等价；另有两个架构守卫：
-`test_shared_extractability.py`（保证 `shared/` 不依赖业务模块）与 `test_no_undefined_names.py`
-（pyflakes 扫描，防止抽取模块时漏带 import）。
-
----
-
-## 许可证
-
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
-
----
+- 测试以 **golden 特征化（characterization）** 为主，锁定重构前后行为等价；`REGEN_GOLDEN=1` 重新捕获基线，务必 review diff。
+- 两个架构守卫：`tests/characterization/test_shared_extractability.py`（`shared/` 不依赖业务模块）与 `test_no_undefined_names.py`（pyflakes 扫描防漏带 import）。
+- 修改对外接口、schema、环境变量、命令或目录结构时同步本 README 与 `docs/`。
 
 ## 致谢
 
-- [PearNoDec](https://github.com/PearNoDec) 提供的YesCaptcha打码方案
-- [raomaiping](https://github.com/raomaiping) 提供的无头打码方案
-感谢所有贡献者和使用者的支持！
+本项目派生自 **TheSmallHanCat** 的开源项目 flow2api（MIT 许可证，上游已停止维护）：最初的 Flow 逆向调用、验证码处理框架与 Web 管理界面均来自上游，配套的 Flow2API-Token-Updater Chrome 扩展同样出自上游作者。本项目按 MIT 条款继续使用其代码，上游版权声明完整保留在 [LICENSE](LICENSE) 文件中。
 
----
+## 许可证
 
-## 联系方式
-
-- 提交 Issue：[GitHub Issues](https://github.com/TheSmallHanCat/flow2api/issues)
-
----
-
-**如果这个项目对你有帮助，请给个 Star！**
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=TheSmallHanCat/flow2api&type=date&legend=top-left)](https://www.star-history.com/#TheSmallHanCat/flow2api&type=date&legend=top-left)
+MIT —— 见 [LICENSE](LICENSE)。

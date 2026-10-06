@@ -220,8 +220,6 @@ browser_call_timeout_seconds = 60
 browser_attempt_timeout_seconds = 300
 browser_cycle_timeout_seconds = 1800
 browser_reconcile_timeout_seconds = 120
-onboarding_display = ":11"
-onboarding_session_ttl_seconds = 1800
 ```
 
 `browser_token_ids` 只用于旧部署首次迁移/bootstrap。迁移后每账号 desired state 以 `token_lifecycle` 为准；不要通过长期修改 TOML 列表管理账号。

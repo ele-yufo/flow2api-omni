@@ -330,11 +330,6 @@ class Config(CorsConfigMixin):
         self._config["captcha"]["captcha_method"] = method
 
     @property
-    def browser_launch_background(self) -> bool:
-        """有头浏览器打码是否默认后台启动，避免抢占前台窗口。"""
-        return self._config.get("captcha", {}).get("browser_launch_background", True)
-
-    @property
     def browser_recaptcha_settle_seconds(self) -> float:
         """有头打码在 reload/clr 就绪后的额外等待秒数。"""
         value = self._config.get("captcha", {}).get("browser_recaptcha_settle_seconds", 3.0)
@@ -657,15 +652,6 @@ class Config(CorsConfigMixin):
     @property
     def keepalive_browser_human_retry_min_failures(self) -> int:
         return self._keepalive_int("browser_human_retry_min_failures", 3, 1, 10)
-
-    @property
-    def keepalive_onboarding_display(self) -> str:
-        value = str(self._config.get("keepalive", {}).get("onboarding_display", ":11")).strip()
-        return value or ":11"
-
-    @property
-    def keepalive_onboarding_session_ttl_seconds(self) -> int:
-        return self._keepalive_int("onboarding_session_ttl_seconds", 1800, 300, 7200)
 
     @property
     def keepalive_browser_token_ids(self) -> list:
