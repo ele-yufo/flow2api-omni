@@ -916,7 +916,7 @@ class FlowClient:
             at: Access Token
             project_id: 项目ID
             prompt: 提示词
-            model_name: NARWHAL / GEM_PIX / GEM_PIX_2 / IMAGEN_3_5
+            model_name: BELUGA / GEM_PIX_2
             aspect_ratio: 图片宽高比
             image_inputs: 参考图片列表(图生图时使用)
 

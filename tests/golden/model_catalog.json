@@ -84,88 +84,88 @@
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
-  "gemini-3.1-flash-image-four-three": {
+  "gemini-3.2-flash-image-four-three": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image"
   },
-  "gemini-3.1-flash-image-four-three-2k": {
+  "gemini-3.2-flash-image-four-three-2k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
   },
-  "gemini-3.1-flash-image-four-three-4k": {
+  "gemini-3.2-flash-image-four-three-4k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
-  "gemini-3.1-flash-image-landscape": {
+  "gemini-3.2-flash-image-landscape": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image"
   },
-  "gemini-3.1-flash-image-landscape-2k": {
+  "gemini-3.2-flash-image-landscape-2k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
   },
-  "gemini-3.1-flash-image-landscape-4k": {
+  "gemini-3.2-flash-image-landscape-4k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
-  "gemini-3.1-flash-image-portrait": {
+  "gemini-3.2-flash-image-portrait": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image"
   },
-  "gemini-3.1-flash-image-portrait-2k": {
+  "gemini-3.2-flash-image-portrait-2k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
   },
-  "gemini-3.1-flash-image-portrait-4k": {
+  "gemini-3.2-flash-image-portrait-4k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
-  "gemini-3.1-flash-image-square": {
+  "gemini-3.2-flash-image-square": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image"
   },
-  "gemini-3.1-flash-image-square-2k": {
+  "gemini-3.2-flash-image-square-2k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
   },
-  "gemini-3.1-flash-image-square-4k": {
+  "gemini-3.2-flash-image-square-4k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_SQUARE",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
-  "gemini-3.1-flash-image-three-four": {
+  "gemini-3.2-flash-image-three-four": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image"
   },
-  "gemini-3.1-flash-image-three-four-2k": {
+  "gemini-3.2-flash-image-three-four-2k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_2K"
   },
-  "gemini-3.1-flash-image-three-four-4k": {
+  "gemini-3.2-flash-image-three-four-4k": {
     "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
-    "model_name": "NARWHAL",
+    "model_name": "BELUGA",
     "type": "image",
     "upsample": "UPSAMPLE_IMAGE_RESOLUTION_4K"
   },
@@ -1780,16 +1780,6 @@
     },
     "use_v2_model_config": true,
     "video_type": "t2v"
-  },
-  "imagen-4.0-generate-preview-landscape": {
-    "aspect_ratio": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-    "model_name": "IMAGEN_3_5",
-    "type": "image"
-  },
-  "imagen-4.0-generate-preview-portrait": {
-    "aspect_ratio": "IMAGE_ASPECT_RATIO_PORTRAIT",
-    "model_name": "IMAGEN_3_5",
-    "type": "image"
   },
   "veo_2_0_i2v_landscape": {
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",

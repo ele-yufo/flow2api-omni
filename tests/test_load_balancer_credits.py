@@ -157,11 +157,11 @@ class TierOverflowTests(unittest.IsolatedAsyncioTestCase):
         ]
         lb = await self._make_real_lb(tokens)
         picks = [
-            (await self._pick(lb, "gemini-3.1-flash-image-landscape-2k")).id
+            (await self._pick(lb, "gemini-3.2-flash-image-landscape-2k")).id
             for _ in range(4)
         ]
         self.assertEqual(sorted(picks), [1, 1, 3, 3])
         self.assertEqual(
-            (await self._pick(lb, "gemini-3.1-flash-image-landscape-4k")).id,
+            (await self._pick(lb, "gemini-3.2-flash-image-landscape-4k")).id,
             2,
         )

@@ -60,72 +60,64 @@
     "id": "gemini-3.0-pro-image-three-four-4k"
   },
   {
-    "description": "Image generation - IMAGEN_3_5",
-    "id": "imagen-4.0-generate-preview-landscape"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-landscape"
   },
   {
-    "description": "Image generation - IMAGEN_3_5",
-    "id": "imagen-4.0-generate-preview-portrait"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-portrait"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-landscape"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-square"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-portrait"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-four-three"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-square"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-three-four"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-four-three"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-landscape-2k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-three-four"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-portrait-2k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-landscape-2k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-square-2k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-portrait-2k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-four-three-2k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-square-2k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-three-four-2k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-four-three-2k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-landscape-4k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-three-four-2k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-portrait-4k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-landscape-4k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-square-4k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-portrait-4k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-four-three-4k"
   },
   {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-square-4k"
-  },
-  {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-four-three-4k"
-  },
-  {
-    "description": "Image generation - NARWHAL",
-    "id": "gemini-3.1-flash-image-three-four-4k"
+    "description": "Image generation - BELUGA",
+    "id": "gemini-3.2-flash-image-three-four-4k"
   },
   {
     "description": "Video generation - veo_3_1_t2v_fast_portrait",

@@ -173,10 +173,8 @@ const STATE = { selectedModel: null, modelConfig: null, images: [], generating: 
 <script>
 // Model categories for sidebar
 const MODEL_CATEGORIES = {
-  "Gemini 3.1 Flash 图片": { filter: m => m.startsWith("gemini-3.1-flash-image") },
+  "Gemini 3.2 Flash 图片": { filter: m => m.startsWith("gemini-3.2-flash-image") },
   "Gemini 3.0 Pro 图片": { filter: m => m.startsWith("gemini-3.0-pro-image") },
-  "Gemini 2.5 Flash 图片": { filter: m => m.startsWith("gemini-2.5-flash-image") },
-  "Imagen 4.0 图片": { filter: m => m.startsWith("imagen-4.0") },
   "Veo 3.1 文生视频 (T2V)": { filter: m => m.startsWith("veo_3_1_t2v") && !m.includes("4k") && !m.includes("1080p") },
   "Veo 3.1 图生视频 (I2V)": { filter: m => m.startsWith("veo_3_1_i2v") && !m.includes("4k") && !m.includes("1080p") },
   "Veo 3.1 多图视频 (R2V)": { filter: m => m.startsWith("veo_3_1_r2v") && !m.includes("4k") && !m.includes("1080p") },
@@ -185,10 +183,8 @@ const MODEL_CATEGORIES = {
 };
 
 const FALLBACK_MODELS = {
-  "gemini-3.1-flash-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
+  "gemini-3.2-flash-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
   "gemini-3.0-pro-image": "Image generation (alias) - aspects: landscape, portrait, square, four-three, three-four; sizes: 2k, 4k",
-  "gemini-2.5-flash-image": "Image generation (alias) - aspects: landscape, portrait",
-  "imagen-4.0-generate-preview": "Image generation (alias) - aspects: landscape, portrait",
   "veo_3_1_t2v_fast": "Video generation (alias) - supports landscape/portrait via generationConfig",
   "veo_3_1_t2v_fast_ultra": "Video generation (alias) - supports landscape/portrait via generationConfig",
   "veo_3_1_t2v_fast_ultra_relaxed": "Video generation (alias) - supports landscape/portrait via generationConfig",
@@ -297,7 +293,7 @@ function renderSidebar() {
       item.dataset.model = modelId;
 
       const type = getModelType(modelId);
-      const shortName = modelId.replace("gemini-3.1-flash-image-", "").replace("gemini-3.0-pro-image-", "").replace("gemini-2.5-flash-image-", "").replace("imagen-4.0-generate-preview-", "");
+      const shortName = modelId.replace("gemini-3.2-flash-image-", "").replace("gemini-3.0-pro-image-", "").replace("gemini-2.5-flash-image-", "");
       item.innerHTML = `<span>${shortName}</span><span class="model-tag ${type === 'image' ? 'tag-image' : 'tag-video'}">${type === 'image' ? '图片' : '视频'}</span>`;
       item.onclick = () => selectModel(modelId);
       list.appendChild(item);

@@ -297,23 +297,21 @@ onboarding_session_ttl_seconds = 1800
 | `gemini-3.0-pro-image-square-4k` | 图/文生图(4K) | 方图 |
 | `gemini-3.0-pro-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
 | `gemini-3.0-pro-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
-| `imagen-4.0-generate-preview-landscape` | 图/文生图 | 横屏 |
-| `imagen-4.0-generate-preview-portrait` | 图/文生图 | 竖屏 |
-| `gemini-3.1-flash-image-landscape` | 图/文生图 | 横屏 |
-| `gemini-3.1-flash-image-portrait` | 图/文生图 | 竖屏 |
-| `gemini-3.1-flash-image-square` | 图/文生图 | 方图 |
-| `gemini-3.1-flash-image-four-three` | 图/文生图 | 横屏 4:3 |
-| `gemini-3.1-flash-image-three-four` | 图/文生图 | 竖屏 3:4 |
-| `gemini-3.1-flash-image-landscape-2k` | 图/文生图(2K) | 横屏 |
-| `gemini-3.1-flash-image-portrait-2k` | 图/文生图(2K) | 竖屏 |
-| `gemini-3.1-flash-image-square-2k` | 图/文生图(2K) | 方图 |
-| `gemini-3.1-flash-image-four-three-2k` | 图/文生图(2K) | 横屏 4:3 |
-| `gemini-3.1-flash-image-three-four-2k` | 图/文生图(2K) | 竖屏 3:4 |
-| `gemini-3.1-flash-image-landscape-4k` | 图/文生图(4K) | 横屏 |
-| `gemini-3.1-flash-image-portrait-4k` | 图/文生图(4K) | 竖屏 |
-| `gemini-3.1-flash-image-square-4k` | 图/文生图(4K) | 方图 |
-| `gemini-3.1-flash-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
-| `gemini-3.1-flash-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
+| `gemini-3.2-flash-image-landscape` | 图/文生图 | 横屏 |
+| `gemini-3.2-flash-image-portrait` | 图/文生图 | 竖屏 |
+| `gemini-3.2-flash-image-square` | 图/文生图 | 方图 |
+| `gemini-3.2-flash-image-four-three` | 图/文生图 | 横屏 4:3 |
+| `gemini-3.2-flash-image-three-four` | 图/文生图 | 竖屏 3:4 |
+| `gemini-3.2-flash-image-landscape-2k` | 图/文生图(2K) | 横屏 |
+| `gemini-3.2-flash-image-portrait-2k` | 图/文生图(2K) | 竖屏 |
+| `gemini-3.2-flash-image-square-2k` | 图/文生图(2K) | 方图 |
+| `gemini-3.2-flash-image-four-three-2k` | 图/文生图(2K) | 横屏 4:3 |
+| `gemini-3.2-flash-image-three-four-2k` | 图/文生图(2K) | 竖屏 3:4 |
+| `gemini-3.2-flash-image-landscape-4k` | 图/文生图(4K) | 横屏 |
+| `gemini-3.2-flash-image-portrait-4k` | 图/文生图(4K) | 竖屏 |
+| `gemini-3.2-flash-image-square-4k` | 图/文生图(4K) | 方图 |
+| `gemini-3.2-flash-image-four-three-4k` | 图/文生图(4K) | 横屏 4:3 |
+| `gemini-3.2-flash-image-three-four-4k` | 图/文生图(4K) | 竖屏 3:4 |
 
 ### 视频生成
 
@@ -592,7 +590,7 @@ curl -X POST http://localhost:18282/v1/chat/completions \
 > 如需流式返回，可将路径替换为 `:streamGenerateContent?alt=sse`。
 
 ```bash
-curl -X POST "http://localhost:8000/models/gemini-3.1-flash-image:generateContent" \
+curl -X POST "http://localhost:8000/models/gemini-3.2-flash-image:generateContent" \
   -H "x-goog-api-key: REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -630,7 +628,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.1-flash-image-landscape",
+    "model": "gemini-3.2-flash-image-landscape",
     "messages": [
       {
         "role": "user",
@@ -648,7 +646,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.1-flash-image-landscape",
+    "model": "gemini-3.2-flash-image-landscape",
     "messages": [
       {
         "role": "user",

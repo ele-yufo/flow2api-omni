@@ -28,7 +28,7 @@
   },
   "required": {
     "gemini-3.0-pro-image-square-2k": "PAYGATE_TIER_ONE",
-    "gemini-3.1-flash-image-landscape": "PAYGATE_TIER_NOT_PAID",
+    "gemini-3.2-flash-image-landscape": "PAYGATE_TIER_NOT_PAID",
     "veo_3_1_t2v_fast_1080p": "PAYGATE_TIER_ONE",
     "veo_3_1_t2v_fast_4k": "PAYGATE_TIER_TWO",
     "veo_3_1_t2v_fast_ultra": "PAYGATE_TIER_TWO"
@@ -37,9 +37,9 @@
     "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_NOT_PAID": false,
     "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_ONE": true,
     "gemini-3.0-pro-image-square-2k|PAYGATE_TIER_TWO": true,
-    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_NOT_PAID": true,
-    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_ONE": true,
-    "gemini-3.1-flash-image-landscape|PAYGATE_TIER_TWO": true,
+    "gemini-3.2-flash-image-landscape|PAYGATE_TIER_NOT_PAID": true,
+    "gemini-3.2-flash-image-landscape|PAYGATE_TIER_ONE": true,
+    "gemini-3.2-flash-image-landscape|PAYGATE_TIER_TWO": true,
     "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_NOT_PAID": false,
     "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_ONE": true,
     "veo_3_1_t2v_fast_1080p|PAYGATE_TIER_TWO": true,

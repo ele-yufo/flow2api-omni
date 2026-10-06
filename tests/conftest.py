@@ -36,7 +36,7 @@ def temp_db_path(tmp_path) -> str:
 @pytest.fixture
 def openai_chat_request() -> dict:
     return {
-        "model": "gemini-3.1-flash-image-landscape",
+        "model": "gemini-3.2-flash-image-landscape",
         "messages": [{"role": "user", "content": "a red apple on a wooden table"}],
         "stream": True,
     }

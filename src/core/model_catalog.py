@@ -16,6 +16,13 @@ Per-duration keys exist for t2v/r2v/i2v at 720p and 360p (`*_360p` suffix), plus
 first+last-frame keys `omni_flash_i2v_{d}s_first_last{,_360p}`. 720p→1080P uses
 `veo_3_1_upsampler_1080p` (cost 0), 720p→4K uses `veo_3_1_upsampler_4k` (cost 50,
 SERVICE_TIER_ADVANCED only — Pro/ENTRY get UNAVAILABLE → 403 at submit time).
+
+Image ground truth (2026-10-06, probed via enum-validation fingerprints + live
+submits): Flow's default image family is now `beluga_display` → proto enum
+`BELUGA` (Nano Banana 2.1). `NARWHAL` (gemini-3.1-flash-image) and `IMAGEN_3_5`
+(imagen-4.0) answer 404 NOT_FOUND on every account tier — removed from the
+catalog. BELUGA: 0 credits per image on Pro and Ultra, all 5 aspect ratios
+1K/2K/4K (4K = 5504x3072) plus i2i verified end-to-end (24-43s/image).
 """
 import json
 from pathlib import Path

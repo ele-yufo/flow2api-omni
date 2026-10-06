@@ -31,7 +31,7 @@ def test_resolver_golden_matrix(subtests):
         ),
         (
             "img_assemble_default_aspect",
-            "gemini-3.1-flash-image",
+            "gemini-3.2-flash-image",
             {},
         ),
         (

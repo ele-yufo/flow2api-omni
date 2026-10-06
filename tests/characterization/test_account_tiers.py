@@ -19,7 +19,7 @@ def test_account_tiers_golden():
         "garbage",                  # junk → fallback
     ]
     models = [
-        "gemini-3.1-flash-image-landscape",   # plain → NOT_PAID
+        "gemini-3.2-flash-image-landscape",   # plain → NOT_PAID
         "gemini-3.0-pro-image-square-2k",     # -2k → TIER_ONE
         "veo_3_1_t2v_fast_1080p",             # _1080p → TIER_ONE
         "veo_3_1_t2v_fast_ultra",             # _ultra → TIER_TWO
