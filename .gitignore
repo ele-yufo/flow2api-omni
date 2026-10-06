@@ -49,8 +49,6 @@ logs.txt.*
 .env.local
 
 # Config (optional)
-# config/setting.toml
-
 # Temporary files
 *.tmp
 *.bak
@@ -85,3 +83,18 @@ htmlcov/
 
 # Antigravity CLI 会话产物
 .antigravitycli/
+
+# ── 敏感内容防御性规则 (2026-10 公开化加固) ──
+# 运行时生产配置 (含 API key/admin 凭据, 永不入库)
+config/setting.toml
+config/setting_warp.toml
+# 凭据与密钥材料
+**/*.env
+*.env
+*.pem
+*.key
+*.keystore
+# 会话/凭据导出
+*credentials*
+*secret*
+cookies*.txt
