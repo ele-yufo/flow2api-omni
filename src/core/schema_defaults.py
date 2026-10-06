@@ -1,4 +1,4 @@
-"""Config-table default rows setup (flow2api schema defaults).
+"""Config-table default rows setup (flowproxy schema defaults).
 
 Extracted from Database (0 self; param-driven: operates on the passed db connection).
 Seeds default rows for all 8 single-row config tables on first init. Behavior covered by

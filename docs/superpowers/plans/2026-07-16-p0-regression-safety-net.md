@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- 解释器**必须**是 `/opt/Projects/flow2api/.venv/bin/python`,严禁用系统 python(缺 tomli)。
+- 解释器**必须**是 `/opt/Projects/flowproxy/.venv/bin/python`,严禁用系统 python(缺 tomli)。
 - 测试**严禁**触碰生产库 `data/flow.db`(662MB,live);DB 测试一律用 `tmp_path` 临时库。
 - **严禁**重启生产服务(`:8000` pid 存活)或改动 systemd 单元。
 - **不改变任何运行时行为**;特征测试锁"当前真实行为",现有行为即使有 bug 也先锁,不在 P0 修。
@@ -21,7 +21,7 @@
 
 ## 执行前置(worktree 隔离,一次性)
 
-P0 开始前用 `superpowers:using-git-worktrees` 建独立 worktree(当前在 main、且生产服务从主目录运行,物理隔离防止改动泄漏到 live 服务的静态文件/config)。worktree 内用绝对路径解释器 `/opt/Projects/flow2api/.venv/bin/python`,`src` 从 worktree 的 cwd 导入。本文件所有 `pytest`/`python` 命令均指该解释器。
+P0 开始前用 `superpowers:using-git-worktrees` 建独立 worktree(当前在 main、且生产服务从主目录运行,物理隔离防止改动泄漏到 live 服务的静态文件/config)。worktree 内用绝对路径解释器 `/opt/Projects/flowproxy/.venv/bin/python`,`src` 从 worktree 的 cwd 导入。本文件所有 `pytest`/`python` 命令均指该解释器。
 
 ## 路线说明(P0-P6 分批出计划)
 
@@ -79,7 +79,7 @@ pytest-cov>=5.0
 #!/usr/bin/env bash
 # 唯一正确的测试入口:锁定 .venv 解释器(系统 python 缺 tomli)。
 set -euo pipefail
-VENV_PY="/opt/Projects/flow2api/.venv/bin/python"
+VENV_PY="/opt/Projects/flowproxy/.venv/bin/python"
 cd "$(dirname "$0")/.."
 exec "$VENV_PY" -m pytest "$@"
 ```
@@ -88,7 +88,7 @@ exec "$VENV_PY" -m pytest "$@"
 
 Run:
 ```bash
-/opt/Projects/flow2api/.venv/bin/python -m pip install -r requirements-dev.txt
+/opt/Projects/flowproxy/.venv/bin/python -m pip install -r requirements-dev.txt
 chmod +x scripts/test.sh
 ```
 Expected: pytest-cov 装好,无报错。
@@ -269,7 +269,7 @@ Expected: 3 passed;生成 3 个 golden JSON。
 
 - [ ] **Step 3: 人工核验 golden 合理**
 
-Run: `/opt/Projects/flow2api/.venv/bin/python -c "import json;d=json.load(open('tests/golden/model_catalog.json'));print(len(d),'models;', 'gemini_omni_t2v_4s' in d, 'veo_3_1_t2v_fast_landscape' in d)"`
+Run: `/opt/Projects/flowproxy/.venv/bin/python -c "import json;d=json.load(open('tests/golden/model_catalog.json'));print(len(d),'models;', 'gemini_omni_t2v_4s' in d, 'veo_3_1_t2v_fast_landscape' in d)"`
 Expected: 打印模型数(应达上百个)且两个已知 key 均为 True。若为空或缺 key,说明捕获错误,排查后重捕。
 
 - [ ] **Step 4: 二次运行验证锁生效**
@@ -340,7 +340,7 @@ Expected: passed;生成 `model_resolver_cases.json`。
 
 - [ ] **Step 3: 核验输出合理**
 
-Run: `/opt/Projects/flow2api/.venv/bin/python -c "import json;print(json.load(open('tests/golden/model_resolver_cases.json')))"`
+Run: `/opt/Projects/flowproxy/.venv/bin/python -c "import json;print(json.load(open('tests/golden/model_resolver_cases.json')))"`
 Expected: `unknown_model` 原样返回 `this-model-does-not-exist`;`img_full_key`/`omni_full_key` 原样返回;video/img base 解析成完整 key。若不符,记录实际值(特征测试锁"真实行为",不改代码)。
 
 - [ ] **Step 4: 二次验证 + Commit**
@@ -425,7 +425,7 @@ git commit -m "test(p0): account_tiers golden (locks tier logic)"
 
 Run:
 ```bash
-/opt/Projects/flow2api/.venv/bin/python - <<'PY'
+/opt/Projects/flowproxy/.venv/bin/python - <<'PY'
 import inspect
 from src.core.config import Config
 print("Config.__init__:", inspect.signature(Config.__init__))
@@ -501,7 +501,7 @@ git commit -m "test(p0): config clamp golden (locks P1 Settings refactor)"
 
 Run:
 ```bash
-/opt/Projects/flow2api/.venv/bin/python - <<'PY'
+/opt/Projects/flowproxy/.venv/bin/python - <<'PY'
 from src.core.database import Database
 import inspect
 src = inspect.getsource(Database.__init__)
@@ -521,7 +521,7 @@ from tests.conftest import assert_golden
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     # 保证 app 装配期不落到生产库:把默认 DB 路径导到临时目录。
-    monkeypatch.setenv("FLOW2API_DB_PATH", str(tmp_path / "app.db"))
+    monkeypatch.setenv("FLOWPROXY_DB_PATH", str(tmp_path / "app.db"))
     from fastapi.testclient import TestClient
     from src.main import app
 
@@ -554,11 +554,11 @@ def test_gemini_models_endpoint(client):
 - [ ] **Step 3: 捕获(若 Step 1 判定 TestClient 不可行则走降级方案)**
 
 Run: `REGEN_GOLDEN=1 bash scripts/test.sh tests/characterization/test_protocol_contract.py -v`
-Expected: 2 passed;生成 2 golden。若因 `FLOW2API_DB_PATH` 不被识别而触发生产库守卫失败,说明代码不支持该 env —— 改用 `monkeypatch.setattr` 直接替换 `src.main.db` 或按 Step 1 降级方案;记录实际做法。
+Expected: 2 passed;生成 2 golden。若因 `FLOWPROXY_DB_PATH` 不被识别而触发生产库守卫失败,说明代码不支持该 env —— 改用 `monkeypatch.setattr` 直接替换 `src.main.db` 或按 Step 1 降级方案;记录实际做法。
 
 - [ ] **Step 4: 核验端点真实返回了模型清单**
 
-Run: `/opt/Projects/flow2api/.venv/bin/python -c "import json;print(len(json.load(open('tests/golden/openai_models_endpoint.json'))['ids']))"`
+Run: `/opt/Projects/flowproxy/.venv/bin/python -c "import json;print(len(json.load(open('tests/golden/openai_models_endpoint.json'))['ids']))"`
 Expected: 模型 id 数为上百量级(与 0.3 快照量级一致)。
 
 - [ ] **Step 5: 二次验证 + Commit**

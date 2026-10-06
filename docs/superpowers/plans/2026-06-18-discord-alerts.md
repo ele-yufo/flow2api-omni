@@ -143,7 +143,7 @@ def build_discord_payload(title: str, description: str, fields: FieldsType = Non
         "fields": _normalize_fields(fields),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return {"username": "Flow2API 哨兵", "embeds": [embed]}
+    return {"username": "FlowProxy 哨兵", "embeds": [embed]}
 
 
 class AlertNotifier:
@@ -192,7 +192,7 @@ from src.core.config import config
 
 class ConfigTests(unittest.TestCase):
     def test_env_overrides_toml_for_webhook(self):
-        with _patch.dict(os.environ, {"FLOW2API_ALERT_WEBHOOK_URL": "https://env.example/wh"}):
+        with _patch.dict(os.environ, {"FLOWPROXY_ALERT_WEBHOOK_URL": "https://env.example/wh"}):
             self.assertEqual(config.alert_webhook_url, "https://env.example/wh")
 
     def test_pool_low_threshold_default(self):
@@ -207,7 +207,7 @@ class ConfigTests(unittest.TestCase):
     @property
     def alert_webhook_url(self) -> str:
         # 优先环境变量（密钥不进 git），回退 toml [admin] alert_webhook_url
-        env = os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")
+        env = os.environ.get("FLOWPROXY_ALERT_WEBHOOK_URL")
         if env:
             return env.strip()
         return str(self._config.get("admin", {}).get("alert_webhook_url", "") or "")
@@ -220,7 +220,7 @@ class ConfigTests(unittest.TestCase):
             return 2
 ```
 
-- [ ] **Step 3b: `config/setting.toml` 与 `setting_example.toml`** 的 `[admin]` 段：把 `st_alert_webhook_url = ""` 改名为 `alert_webhook_url = ""`，并新增 `alert_pool_low_threshold = 2`。注释说明 webhook 优先读环境变量 `FLOW2API_ALERT_WEBHOOK_URL`。
+- [ ] **Step 3b: `config/setting.toml` 与 `setting_example.toml`** 的 `[admin]` 段：把 `st_alert_webhook_url = ""` 改名为 `alert_webhook_url = ""`，并新增 `alert_pool_low_threshold = 2`。注释说明 webhook 优先读环境变量 `FLOWPROXY_ALERT_WEBHOOK_URL`。
 
 - [ ] **Step 4: 运行确认通过** —— `.venv/bin/python -m pytest tests/test_alert_notifier.py -v` → PASS（含新 2 条）
 
@@ -414,7 +414,7 @@ git commit -m "feat(alerts): trigger Discord alerts on revoke / pool-low / credi
 
 **Files:** `README.md`, memory `reference_st_self_renewal_model.md`
 
-- [ ] **Step 1:** README 把 `st_alert_webhook_url` 改为 `alert_webhook_url`，补充：env 优先（`FLOW2API_ALERT_WEBHOOK_URL`）、三类 Discord 告警、`alert_pool_low_threshold`。
+- [ ] **Step 1:** README 把 `st_alert_webhook_url` 改为 `alert_webhook_url`，补充：env 优先（`FLOWPROXY_ALERT_WEBHOOK_URL`）、三类 Discord 告警、`alert_pool_low_threshold`。
 - [ ] **Step 2:** 更新 memory `reference_st_self_renewal_model.md` 里 `st_alert_webhook_url` 的提及为 `alert_webhook_url`。
 - [ ] **Step 3: Commit** `git commit -m "docs(alerts): document Discord alerts + alert_webhook_url rename"`
 
@@ -424,7 +424,7 @@ git commit -m "feat(alerts): trigger Discord alerts on revoke / pool-low / credi
 
 > 由编排者（非子代理）执行，涉及真实 webhook 与生产服务环境变量。
 
-- [ ] **Step 1:** 设置运行时环境变量（systemd drop-in 或 EnvironmentFile）`FLOW2API_ALERT_WEBHOOK_URL=<用户提供的 webhook>`；`daemon-reload` + 重启 `flow2api`，确认启动无误。
+- [ ] **Step 1:** 设置运行时环境变量（systemd drop-in 或 EnvironmentFile）`FLOWPROXY_ALERT_WEBHOOK_URL=<用户提供的 webhook>`；`daemon-reload` + 重启 `flowproxy`，确认启动无误。
 - [ ] **Step 2:** 真实投递一条测试告警（直接构造 `AlertNotifier(config.alert_webhook_url).send_alert(...)` 或临时触发），确认 Discord 频道收到。
 - [ ] **Step 3:** 记录结果。
 

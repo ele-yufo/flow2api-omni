@@ -123,7 +123,7 @@ def test_profile_lease_is_nonblocking_across_processes(tmp_path):
 
     with acquire_profile_lease(base_dir, 23) as lease:
         assert lease.profile_path == (base_dir / "23").resolve()
-        assert lease.lock_path.parent == (base_dir / ".flow2api-locks").resolve()
+        assert lease.lock_path.parent == (base_dir / ".flowproxy-locks").resolve()
 
 
 def test_profile_path_lease_supports_safe_service_owned_profile_paths(tmp_path):
@@ -139,7 +139,7 @@ def test_profile_path_lease_supports_safe_service_owned_profile_paths(tmp_path):
         assert lease.profile_path == profile.resolve()
         assert (
             lease.lock_path
-            == (base_dir / ".flow2api-locks" / "onboarding-job-safe-1.lock").resolve()
+            == (base_dir / ".flowproxy-locks" / "onboarding-job-safe-1.lock").resolve()
         )
         with pytest.raises(ProfileLeaseBusyError):
             acquire_profile_path_lease(

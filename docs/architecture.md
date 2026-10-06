@@ -1,4 +1,4 @@
-# Flow2API 架构与模块地图
+# FlowProxy 架构与模块地图
 
 本文档描述当前 `main` 工作树中的运行时分层、数据库生命周期、浏览器保活与服务器入库架构。面向维护者与运维人员；账号入库、部署和故障处理步骤见 [浏览器保活运维手册](operations/browser-keepalive.md)。
 
@@ -7,19 +7,19 @@
 ```text
 src/
 ├── shared/          通用配置、SQLite 引擎、存储、鉴权与基础工具
-├── core/            Flow2API 数据模型、schema、迁移与 repositories
+├── core/            FlowProxy 数据模型、schema、迁移与 repositories
 ├── services/        生成、Flow 客户端、Token、验证码、保活与入库业务逻辑
 ├── api/             FastAPI 路由、管理 API 与协议转换
 └── main.py          应用组合根、lifespan、依赖装配与中间件
 ```
 
-主要依赖方向为 `api → services → core → shared`。`src/shared/` 不反向依赖 Flow2API 业务层，这一边界由 `tests/characterization/test_shared_extractability.py` 守卫。
+主要依赖方向为 `api → services → core → shared`。`src/shared/` 不反向依赖 FlowProxy 业务层，这一边界由 `tests/characterization/test_shared_extractability.py` 守卫。
 
 ## 运行时拓扑
 
 ```text
                          ┌─────────────────────────────┐
-HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     │
+HTTP / 管理后台 ───────▶ │ 主服务 flowproxy.service     │
                          │ FastAPI + TokenManager      │
                          └──────────────┬──────────────┘
                                         │
@@ -34,7 +34,7 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
                                         │ 动态 reconcile
                                         ▼
 ┌───────────────────┐    ┌─────────────────────────────┐
-│ Xvfb :10          │◀───│ flow2api-keepalive.service │
+│ Xvfb :10          │◀───│ flowproxy-keepalive.service │
 │ 保活显示器        │    │ 浏览器 sidecar             │
 └───────────────────┘    └─────────────────────────────┘
 
@@ -45,7 +45,7 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 ```
 
 - **主服务**负责 schema 迁移、业务 API、Token 管理与管理 API。旧 `OnboardingService` 状态机已整体移除（见下文），入库不再由主服务承载。
-- **保活 sidecar**运行 `scripts/keepalive_browser.py --daemon`，读取 `token_lifecycle.keepalive_enabled=1` 的账号，而不是只读取 `tokens.is_active=1`。数据库中的 desired state 改动可在 reconcile 周期内生效，无需重启 sidecar。systemd unit 可选读取 `/etc/flow2api-keepalive.env`；该 root-owned `0600` 文件用于在仓库外注入 `FLOW2API_ALERT_WEBHOOK_URL`，unit 本身不包含 webhook 值。
+- **保活 sidecar**运行 `scripts/keepalive_browser.py --daemon`，读取 `token_lifecycle.keepalive_enabled=1` 的账号，而不是只读取 `tokens.is_active=1`。数据库中的 desired state 改动可在 reconcile 周期内生效，无需重启 sidecar。systemd unit 可选读取 `/etc/flowproxy-keepalive.env`；该 root-owned `0600` 文件用于在仓库外注入 `FLOWPROXY_ALERT_WEBHOOK_URL`，unit 本身不包含 webhook 值。
 - **Xvfb `:10`**是有头保活 Chrome 的运行显示器。保活实现始终以 `headless=False` 启动浏览器。
 - **XRDP `:11`**是可选的人工入库显示器，只在 `scripts/tokens.py onboard` 创建或修复账号 profile 时使用，不是 sidecar 的 systemd 运行依赖。
 - **每账号 profile**位于配置的 `browser_profile_base/<token_id>`。验证码 `personal` 模式使用的 captcha profile/共享标签页属于另一运行域，不能与某个账号的 keepalive profile 混用或并发占用。
@@ -70,7 +70,7 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 
 ## `core/`：schema、模型与 repositories
 
-`core/database.py` 是 Flow2API 数据层组合根，负责建表、增量迁移、配置回灌以及对 repositories 的薄委托。
+`core/database.py` 是 FlowProxy 数据层组合根，负责建表、增量迁移、配置回灌以及对 repositories 的薄委托。
 
 ### 核心表
 
@@ -176,7 +176,7 @@ HTTP / 管理后台 ───────▶ │ 主服务 flow2api.service     
 
 ### profile 与进程所有权
 
-sidecar 不使用 `pkill -f`。每个 profile 先获取 `.flow2api-locks/<token_id>.lock` 的非阻塞 `flock`，再检查 Chrome `SingletonLock`：
+sidecar 不使用 `pkill -f`。每个 profile 先获取 `.flowproxy-locks/<token_id>.lock` 的非阻塞 `flock`，再检查 Chrome `SingletonLock`：
 
 - 精确 PID 的 cmdline 拥有 canonical `--user-data-dir` 时判定 busy；
 - PID 不存在或不再拥有该 profile 时才可判定 stale；
@@ -216,7 +216,7 @@ sidecar 不使用 `pkill -f`。每个 profile 先获取 `.flow2api-locks/<token_
 
 普通 `GET /api/tokens` 仅返回 `has_st` / `has_at` 等状态，不返回原始凭据。
 
-同源管理页面不需要 CORS。跨域 Web 控制台与 Chrome extension 只能使用 `[server].cors_allowed_origins` 或 `FLOW2API_CORS_ALLOWED_ORIGINS` 中的精确 Origin；`*` 被拒绝。插件端点仍使用独立 connection token Bearer 认证，CORS 不构成授权。
+同源管理页面不需要 CORS。跨域 Web 控制台与 Chrome extension 只能使用 `[server].cors_allowed_origins` 或 `FLOWPROXY_CORS_ALLOWED_ORIGINS` 中的精确 Origin；`*` 被拒绝。插件端点仍使用独立 connection token Bearer 认证，CORS 不构成授权。
 
 ## 上游依赖与迁移风险
 
@@ -239,7 +239,7 @@ next-auth 的 AT 自动续期由静默重授权处理（见上）。reCAPTCHA to
 项目统一通过以下入口运行离线测试：
 
 ```bash
-/opt/Projects/flow2api/scripts/test.sh
+/opt/Projects/flowproxy/scripts/test.sh
 ```
 
 测试默认使用临时 SQLite 数据库，不启动真实 Chrome、不访问生产 profile，也不访问真实 Google API。重点守卫包括 shared 可提取性、未定义名称、数据库迁移/事务、原子身份快照、profile/PID 所有权、scheduler/supervisor、入库 API 禁用契约（410）、CORS 与运维脚本契约。

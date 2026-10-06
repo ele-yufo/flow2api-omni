@@ -19,7 +19,7 @@
       "generateContent",
       "streamGenerateContent"
     ],
-    "version": "flow2api"
+    "version": "flowproxy"
   },
   "top_level_keys": [
     "models"

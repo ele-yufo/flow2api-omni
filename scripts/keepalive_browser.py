@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Flow2API database-driven browser keepalive service and operational gate."""
+"""FlowProxy database-driven browser keepalive service and operational gate."""
 
 from __future__ import annotations
 
@@ -382,7 +382,7 @@ def _canonical_positive_int(raw_value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Flow2API browser keepalive supervisor")
+    parser = argparse.ArgumentParser(description="FlowProxy browser keepalive supervisor")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument(
         "--daemon",

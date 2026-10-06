@@ -1,14 +1,14 @@
-# 本文件部署的是本仓库（flow2api-omni）的代码：使用仓库根目录的 Dockerfile
+# 本文件部署的是本仓库（flowproxy）的代码：使用仓库根目录的 Dockerfile
 # 就地构建镜像，不拉取任何外部/上游镜像。备选编排见 docker-compose.headed.yml
 # （容器内有头打码）与 docker-compose.local.yml（同源本地构建，仅镜像名不同）。
 
 services:
-  flow2api:
+  flowproxy:
     build:
       context: .
       dockerfile: Dockerfile
-    image: flow2api:local
-    container_name: flow2api
+    image: flowproxy:local
+    container_name: flowproxy
     ports:
       - "38000:8000"
     volumes:

@@ -1,4 +1,4 @@
-# Flow2API（flow2api-omni）
+# FlowProxy（flowproxy）
 
 <div align="center">
 
@@ -11,7 +11,7 @@
 
 </div>
 
-这是一个**私有独立项目**（`ele-yufo/flow2api-omni`），派生自一个已停止维护的上游开源项目（见文末[致谢](#致谢)），现按自己的节奏演进。单机自用部署在 2080TI 主机上，systemd 常驻，是个人媒体生成管线的生产后端；不提供公共 issue 入口，维护者就是自己（或接手的 agent）。
+这是一个**私有独立项目**（`ele-yufo/flowproxy`），派生自一个已停止维护的上游开源项目（见文末[致谢](#致谢)），现按自己的节奏演进。单机自用部署在 2080TI 主机上，systemd 常驻，是个人媒体生成管线的生产后端；不提供公共 issue 入口，维护者就是自己（或接手的 agent）。
 
 ## 核心特性
 
@@ -40,10 +40,10 @@ src/
 运行时拓扑（生产机的真实形态）：
 
 ```text
-HTTP / 管理后台 ──▶ flow2api.service（FastAPI + TokenManager，:18282）
+HTTP / 管理后台 ──▶ flowproxy.service（FastAPI + TokenManager，:18282）
                         │ SQLite/WAL（data/flow.db：tokens / token_lifecycle / projects）
                         ▼ 动态 reconcile（每 15s 读 desired state）
-Xvfb :10 ◀── flow2api-keepalive.service（有头 Chrome sidecar，逐账号刷会话）
+Xvfb :10 ◀── flowproxy-keepalive.service（有头 Chrome sidecar，逐账号刷会话）
 XRDP :11 ◀── scripts/tokens.py onboard（仅入库/重登录时人工 Google 登录）
 ```
 
@@ -57,16 +57,16 @@ XRDP :11 ◀── scripts/tokens.py onboard（仅入库/重登录时人工 Goog
 
 | Unit / 文件 | 作用 |
 |---|---|
-| `flow2api.service`（宿主 `/etc/systemd/system/`） | 主服务：`.venv/bin/python main.py`，`Restart=always`，`Upholds=flow2api-keepalive.service` |
-| [`flow2api-keepalive.service`](flow2api-keepalive.service)（仓库文件即部署源） | 保活 sidecar：`ExecStartPre` 先 `--preflight` 再 `--daemon`；`Requires=xvfb@10.service`；可选读取 root 0600 的 `/etc/flow2api-keepalive.env`（只放 webhook 密钥） |
-| `flow2api-healthcheck.timer` | 每小时跑 `scripts/keepalive_healthcheck.py` 巡检，异常即报 Discord，00/12 UTC 心跳汇总 |
-| drop-in `config/systemd/flow2api-captcha-cleanup.conf` | 主服务停止时 `ExecStopPost` 运行 `scripts/cleanup_captcha_chrome.py --terminate` 清理打码 Chrome |
+| `flowproxy.service`（宿主 `/etc/systemd/system/`） | 主服务：`.venv/bin/python main.py`，`Restart=always`，`Upholds=flowproxy-keepalive.service` |
+| [`flowproxy-keepalive.service`](flowproxy-keepalive.service)（仓库文件即部署源） | 保活 sidecar：`ExecStartPre` 先 `--preflight` 再 `--daemon`；`Requires=xvfb@10.service`；可选读取 root 0600 的 `/etc/flowproxy-keepalive.env`（只放 webhook 密钥） |
+| `flowproxy-healthcheck.timer` | 每小时跑 `scripts/keepalive_healthcheck.py` 巡检，异常即报 Discord，00/12 UTC 心跳汇总 |
+| drop-in `config/systemd/flowproxy-captcha-cleanup.conf` | 主服务停止时 `ExecStopPost` 运行 `scripts/cleanup_captcha_chrome.py --terminate` 清理打码 Chrome |
 
 ```bash
 # 日常操作
-sudo systemctl restart flow2api.service
-sudo systemctl restart flow2api-keepalive.service
-journalctl -u flow2api.service -f          # 主服务日志；logs.txt 同步落盘在仓库根
+sudo systemctl restart flowproxy.service
+sudo systemctl restart flowproxy-keepalive.service
+journalctl -u flowproxy.service -f          # 主服务日志；logs.txt 同步落盘在仓库根
 ```
 
 首次部署：`python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt`，准备 `config/setting.toml`（见下），装好 Xvfb `:10` 与 XRDP 后依次启用上述 unit。
@@ -95,7 +95,7 @@ admin_password = "admin"
 host = "0.0.0.0"
 port = 18282
 # 跨域 Origin 精确 allowlist（不支持 *），Chrome 扩展入口需要；也可用
-# 环境变量 FLOW2API_CORS_ALLOWED_ORIGINS（逗号分隔）覆盖
+# 环境变量 FLOWPROXY_CORS_ALLOWED_ORIGINS（逗号分隔）覆盖
 cors_allowed_origins = ["chrome-extension://<扩展ID>"]
 
 [call_logic]
@@ -107,7 +107,7 @@ quota_exhausted_cooldown_seconds = 43200   # 配额耗尽标记的摘除窗口�
 [captcha]
 captcha_method = "personal"    # 生产路径：持久化登录态打码；yescaptcha/capmonster/ezcaptcha/capsolver/remote_browser 为休眠备选
 persistent_profile_enabled = true
-persistent_profile_path = "/opt/flow2api-profiles/ultra"
+persistent_profile_path = "/opt/flowproxy-profiles/ultra"
 personal_max_resident_tabs = 5       # 常驻打码标签页上限（每 tab 约 200-300MB）
 personal_min_resident_tabs = 3
 personal_idle_tab_ttl_seconds = 600
@@ -120,23 +120,23 @@ st_browser_refresh_enabled = false   # 旧版共享浏览器刷新（多账号�
 browser_enabled = true
 browser_interval_seconds = 1200      # 活跃会员刷新周期；grant 寿命约 1h，20min 留 3x 余量
 browser_token_ids = "23"             # 仅旧部署首次迁移用；此后以数据库动态管理
-browser_profile_base = "/opt/flow2api-profiles"   # 每账号子目录 = {token_id}
+browser_profile_base = "/opt/flowproxy-profiles"   # 每账号子目录 = {token_id}
 browser_proxy = "http://127.0.0.1:7890"           # 必须与登录时同一出口（住宅 IP）
 browser_display = ":10"
 browser_settle_seconds = 8.0
 # 初始延迟、退休间隔、并发上限、三层超时兜底等其余键走内置缺省，完整清单见 setting_example.toml
 ```
 
-相关环境变量：`FLOW2API_ALERT_WEBHOOK_URL`（Discord 告警 webhook，优先于 `[admin].alert_webhook_url`，密钥只放 `/etc/flow2api-keepalive.env`，不进 git）、`FLOW2API_CORS_ALLOWED_ORIGINS`、`BROWSER_EXECUTABLE_PATH`（Chrome 路径，默认 `/usr/bin/google-chrome-stable`）。
+相关环境变量：`FLOWPROXY_ALERT_WEBHOOK_URL`（Discord 告警 webhook，优先于 `[admin].alert_webhook_url`，密钥只放 `/etc/flowproxy-keepalive.env`，不进 git）、`FLOWPROXY_CORS_ALLOWED_ORIGINS`、`BROWSER_EXECUTABLE_PATH`（Chrome 路径，默认 `/usr/bin/google-chrome-stable`）。
 
 ### personal 打码 profile 的一次性登录
 
 ```bash
-sudo systemctl stop flow2api        # 释放 profile
-google-chrome --user-data-dir=/opt/flow2api-profiles/ultra --profile-directory=Default \
+sudo systemctl stop flowproxy        # 释放 profile
+google-chrome --user-data-dir=/opt/flowproxy-profiles/ultra --profile-directory=Default \
   --proxy-server=http://127.0.0.1:7890
 # 在打开的 Chrome 里登录目标 Google 账号 → 访问 https://flow.google.com/ 确认能进 → 关闭
-sudo systemctl start flow2api
+sudo systemctl start flowproxy
 ```
 
 换账号同流程（停服 → 登出旧号登新号 → 启服）。GUI Chrome 未退出就启服会触发 `SingletonLock` 硬错误。注意这套 captcha profile 与每账号的 keepalive profile 是**两套独立资源**，不要混用。健康度以一次真实生成成功为最终验收（`logs.txt` 中 `Token 获取成功 (长度: NNNN)` 的长度骤降 + `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 是失联信号）。
@@ -318,7 +318,7 @@ curl -X POST http://localhost:18282/v1/chat/completions \
 
 为什么需要浏览器：Google OAuth 授权寿命约 1 小时，仅靠接口轮换 ST 救不了授权过期（库里 token 没到期、实际调用 401 的 `GRANT_EXPIRED` 状态）。生产保活是「有头 Chrome 刷新 + 严格身份校验 + 原子写回」：
 
-1. sidecar 在 Xvfb `:10` 上用每账号独立 profile（`/opt/flow2api-profiles/<token_id>`）访问 Flow 页与 auth session；
+1. sidecar 在 Xvfb `:10` 上用每账号独立 profile（`/opt/flowproxy-profiles/<token_id>`）访问 Flow 页与 auth session；
 2. 校验浏览器会话邮箱与 Token 绑定邮箱一致；
 3. 从 profile 的 Chrome cookie 库读取轮换后的 ST，并用会话 AT 调真实 credits 接口读取精确 tier；
 4. `BEGIN IMMEDIATE` 事务原子写回 ST/AT/有效期/credits/tier 与生命周期遥测。
@@ -335,7 +335,7 @@ curl -X POST http://localhost:18282/v1/chat/completions \
 ### 账号操作 CLI（`scripts/tokens.py`，JSON 输出，Agent 友好）
 
 ```bash
-VENV=/opt/Projects/flow2api/.venv/bin/python
+VENV=/opt/Projects/flowproxy/.venv/bin/python
 
 $VENV scripts/tokens.py status                          # 全部保活账号健康总览
 $VENV scripts/tokens.py onboard --email new@gmail.com --display :11   # 新账号入库（XRDP 前台登录）
@@ -350,11 +350,11 @@ $VENV scripts/tokens.py keepalive --token-id 21 on      # 打开保活（persist
 
 ### 告警
 
-Discord webhook 优先读环境变量 `FLOW2API_ALERT_WEBHOOK_URL`（放 `/etc/flow2api-keepalive.env`，权限 0600，不进 git），回落 `[admin].alert_webhook_url`。事件：账号失效需重登、活跃池低于 `alert_pool_low_threshold`（默认 2）、单账号额度耗尽；`flow2api-healthcheck.timer` 每小时巡检，异常即报、00/12 UTC 心跳汇总。
+Discord webhook 优先读环境变量 `FLOWPROXY_ALERT_WEBHOOK_URL`（放 `/etc/flowproxy-keepalive.env`，权限 0600，不进 git），回落 `[admin].alert_webhook_url`。事件：账号失效需重登、活跃池低于 `alert_pool_low_threshold`（默认 2）、单账号额度耗尽；`flowproxy-healthcheck.timer` 每小时巡检，异常即报、00/12 UTC 心跳汇总。
 
 ### Chrome 扩展入口（当前在用）
 
-`Flow2API-Token-Updater` 扩展（上游生态，见[致谢](#致谢)）通过 `POST /api/plugin/update-token` 显式提交账号凭据，使用独立 connection token 的 `Authorization: Bearer <token>` 认证；跨域调用需把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 `[server].cors_allowed_origins`（本机生产配置已加）。它不替代每账号的浏览器保活 profile。
+`FlowProxy-Token-Updater` 扩展（上游生态，见[致谢](#致谢)）通过 `POST /api/plugin/update-token` 显式提交账号凭据，使用独立 connection token 的 `Authorization: Bearer <token>` 认证；跨域调用需把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 `[server].cors_allowed_origins`（本机生产配置已加）。它不替代每账号的浏览器保活 profile。
 
 ### 远程访问
 
@@ -377,7 +377,7 @@ REGEN_GOLDEN=1 bash scripts/test.sh tests/characterization/test_poll_video_resul
 
 ## 致谢
 
-本项目派生自 **TheSmallHanCat** 的开源项目 flow2api（MIT 许可证，上游已停止维护）：最初的 Flow 逆向调用、验证码处理框架与 Web 管理界面均来自上游，配套的 Flow2API-Token-Updater Chrome 扩展同样出自上游作者。本项目按 MIT 条款继续使用其代码，上游版权声明完整保留在 [LICENSE](LICENSE) 文件中。
+本项目派生自 **TheSmallHanCat** 的开源项目 flowproxy（MIT 许可证，上游已停止维护）：最初的 Flow 逆向调用、验证码处理框架与 Web 管理界面均来自上游，配套的 FlowProxy-Token-Updater Chrome 扩展同样出自上游作者。本项目按 MIT 条款继续使用其代码，上游版权声明完整保留在 [LICENSE](LICENSE) 文件中。
 
 ## 许可证
 

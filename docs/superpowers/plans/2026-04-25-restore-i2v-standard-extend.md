@@ -176,7 +176,7 @@ In the I2V 16s model table, add rows for:
 
 - [ ] **Step 1: Restart the service**
 
-Run: `sudo systemctl restart flow2api.service && sleep 3 && systemctl is-active flow2api.service`
+Run: `sudo systemctl restart flowproxy.service && sleep 3 && systemctl is-active flowproxy.service`
 Expected: `active`
 
 - [ ] **Step 2: Test base I2V standard model resolution**

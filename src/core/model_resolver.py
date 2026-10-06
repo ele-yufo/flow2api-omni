@@ -2,7 +2,7 @@
 
 When upstream services (e.g. New API) send requests with a generic model name
 along with generationConfig containing aspectRatio / imageSize, this module
-resolves them to the specific internal model name used by flow2api.
+resolves them to the specific internal model name used by flowproxy.
 
 Example:
     model = "gemini-3.2-flash-image"
@@ -82,7 +82,7 @@ DEFAULT_ASPECT = "landscape"
 OPENAI_IMAGE_SIZE_RE = re.compile(r"^(?P<w>\d{2,5})\s*[xX]\s*(?P<h>\d{2,5})$")
 
 # OpenAI 常见 quality → imageSize 映射
-# - 这里的 imageSize 是 flow2api 的“放大档位”，并不等价于 OpenAI 的像素尺寸；
+# - 这里的 imageSize 是 flowproxy 的“放大档位”，并不等价于 OpenAI 的像素尺寸；
 #   但可用作“画质/清晰度”的近似映射。
 OPENAI_QUALITY_MAP = {
     "low": None,
@@ -93,7 +93,7 @@ OPENAI_QUALITY_MAP = {
     "ultra": "4k",
 }
 
-# 用于把 OpenAI size（如 1024x1792）映射到最接近的 flow2api aspect 选项
+# 用于把 OpenAI size（如 1024x1792）映射到最接近的 flowproxy aspect 选项
 ASPECT_RATIO_FLOAT_MAP = {
     "landscape": 16 / 9,
     "portrait": 9 / 16,

@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 SESSION_COOKIE_NAME = "__Secure-next-auth.session-token"
 SESSION_COOKIE_DOMAIN = "labs.google"
 MIN_SESSION_TOKEN_LENGTH = 100
-_SERVICE_LOCK_DIRECTORY = ".flow2api-locks"
+_SERVICE_LOCK_DIRECTORY = ".flowproxy-locks"
 _SINGLETON_ARTIFACTS = ("SingletonCookie", "SingletonSocket", "SingletonLock")
 _TOKEN_ID_PATTERN = re.compile(r"[1-9][0-9]*\Z")
 _LEASE_KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")

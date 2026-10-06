@@ -12,7 +12,7 @@
    看 is_active 仍报全部存活)。
 
 每小时运行但只在出问题时投递 Discord(critical=死号或 UNHEALTHY,
-warning=PROBE_ERROR 退避中)。全绿心跳汇总由 FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS
+warning=PROBE_ERROR 退避中)。全绿心跳汇总由 FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS
 控制,2026-09-06 起默认关闭(长线验证稳定,双日心跳已成噪音);要恢复"证明巡检
 自身活着"的定时汇报,把该环境变量设成 `0,12` 即可。--force-report 强制立即
 投递当前状态(运维验收/手动查状态用),不受心跳开关影响。
@@ -24,7 +24,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 
-sys.path.insert(0, "/opt/Projects/flow2api")
+sys.path.insert(0, "/opt/Projects/flowproxy")
 
 from scripts.keepalive_patrol import (  # noqa: E402
     build_cadence_policy,
@@ -34,7 +34,7 @@ from scripts.keepalive_patrol import (  # noqa: E402
 from src.services.alert_notifier import AlertNotifier  # noqa: E402
 from src.core.config import config  # noqa: E402
 
-DB = "/opt/Projects/flow2api/data/flow.db"
+DB = "/opt/Projects/flowproxy/data/flow.db"
 
 
 def _heartbeat_hours(raw: str | None = None) -> frozenset[int]:
@@ -45,12 +45,12 @@ def _heartbeat_hours(raw: str | None = None) -> frozenset[int]:
     """
 
     if raw is None:
-        raw = os.getenv("FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS", "")
+        raw = os.getenv("FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS", "")
     try:
         hours = frozenset(int(part) for part in raw.replace(" ", "").split(",") if part)
     except ValueError:
         print(
-            f"[healthcheck] 忽略无法解析的 FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS={raw!r}，"
+            f"[healthcheck] 忽略无法解析的 FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS={raw!r}，"
             "按心跳关闭处理",
             file=sys.stderr,
         )

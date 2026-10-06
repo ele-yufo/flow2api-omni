@@ -1,4 +1,4 @@
-"""Token manager for Flow2API with AT auto-refresh"""
+"""Token manager for FlowProxy with AT auto-refresh"""
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

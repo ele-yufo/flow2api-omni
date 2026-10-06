@@ -1,7 +1,7 @@
 """Architectural fitness guard: src/shared/ MUST stay extractable.
 
 shared/ 是一套可整体搬走的通用核心,
-不得依赖任何 flow2api 业务模块(src.core / src.services / src.api)。
+不得依赖任何 flowproxy 业务模块(src.core / src.services / src.api)。
 
 本测试是可执行契约——任何后续重构若让 shared 反向依赖业务层,这里立刻红。
 既做静态 import 扫描(捕获"写下但未执行的" import),也做运行时导入泄漏检查

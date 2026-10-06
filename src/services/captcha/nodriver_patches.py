@@ -56,7 +56,7 @@ def _finalize_nodriver_send_task(connection, transaction, tx_id: int, task: asyn
 
 def _patch_nodriver_connection_instance(connection_instance):
     """在连接实例级别收口 websocket.send 的后台异常。"""
-    if not connection_instance or getattr(connection_instance, "_flow2api_send_patched", False):
+    if not connection_instance or getattr(connection_instance, "_flowproxy_send_patched", False):
         return
 
     try:
@@ -84,7 +84,7 @@ def _patch_nodriver_connection_instance(connection_instance):
         return await transaction
 
     connection_instance.send = types.MethodType(patched_send, connection_instance)
-    connection_instance._flow2api_send_patched = True
+    connection_instance._flowproxy_send_patched = True
 
 
 def _patch_nodriver_browser_instance(browser_instance):
@@ -96,7 +96,7 @@ def _patch_nodriver_browser_instance(browser_instance):
     for target in list(getattr(browser_instance, "targets", []) or []):
         _patch_nodriver_connection_instance(target)
 
-    if getattr(browser_instance, "_flow2api_update_targets_patched", False):
+    if getattr(browser_instance, "_flowproxy_update_targets_patched", False):
         return
 
     original_update_targets = browser_instance.update_targets
@@ -125,7 +125,7 @@ def _patch_nodriver_browser_instance(browser_instance):
         return result
 
     browser_instance.update_targets = types.MethodType(patched_update_targets, browser_instance)
-    browser_instance._flow2api_update_targets_patched = True
+    browser_instance._flowproxy_update_targets_patched = True
 
 
 def _patch_nodriver_runtime(browser_instance=None):

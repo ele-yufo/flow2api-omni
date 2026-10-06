@@ -16,7 +16,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).parents[1]
 GATE_PATH = PROJECT_ROOT / "scripts" / "keepalive_gate_test.py"
 PATROL_PATH = PROJECT_ROOT / "scripts" / "keepalive_patrol.py"
-SERVICE_PATH = PROJECT_ROOT / "flow2api-keepalive.service"
+SERVICE_PATH = PROJECT_ROOT / "flowproxy-keepalive.service"
 NOW = datetime(2026, 7, 19, 10, 25, tzinfo=timezone.utc)
 
 
@@ -513,8 +513,8 @@ def test_systemd_unit_has_safe_runtime_dependencies_and_shutdown():
     source = SERVICE_PATH.read_text(encoding="utf-8")
 
     assert "Wants=network-online.target" in source
-    assert "After=network-online.target xvfb@10.service flow2api.service" in source
-    assert "Requires=xvfb@10.service flow2api.service" in source
+    assert "After=network-online.target xvfb@10.service flowproxy.service" in source
+    assert "Requires=xvfb@10.service flowproxy.service" in source
     assert "ExecStartPre=" in source and "--preflight" in source
     assert "ExecStart=" in source and "--daemon" in source
     assert "Restart=always" in source
@@ -525,6 +525,6 @@ def test_systemd_unit_has_safe_runtime_dependencies_and_shutdown():
     assert "Environment=DBUS_SESSION_BUS_ADDRESS=" in source
     assert "Environment=XDG_RUNTIME_DIR=" in source
     assert "Environment=BROWSER_EXECUTABLE_PATH=" in source
-    assert "EnvironmentFile=-/etc/flow2api-keepalive.env" in source
-    assert "FLOW2API_ALERT_WEBHOOK_URL" not in source
+    assert "EnvironmentFile=-/etc/flowproxy-keepalive.env" in source
+    assert "FLOWPROXY_ALERT_WEBHOOK_URL" not in source
     assert "xrdp" not in source.casefold()

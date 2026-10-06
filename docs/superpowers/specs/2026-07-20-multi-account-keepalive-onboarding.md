@@ -1,7 +1,7 @@
 # 多账号保活入库隧道 — 设计文档 (v2)
 
 > 日期：2026-07-20
-> 仓库：`/opt/Projects/flow2api`
+> 仓库：`/opt/Projects/flowproxy`
 > 目标：让用户能把新/旧 Google-Flow 账号安全入库成 persistent 浏览器保活，绕开已知的 onboarding 状态机灾难。
 > 相关：`docs/browser-account-lifecycle-handoff-2026-07-20.md`（交接文档，记录之前失败）、`KEEPALIVE_TASK.md`（原始根因）。
 > v2 变更：经一轮严格设计评审修订 5 个 BLOCKER（publisher 原子性、新号 NOT NULL、XRDP 串窗口、复用 setup_profile、facade 方法真实性）+ 5 个 HIGH。
@@ -42,7 +42,7 @@
 
 | 项 | 状态 |
 |---|---|
-| `flow2api.service` / `flow2api-keepalive.service` / `xvfb@10.service` | 全 active |
+| `flowproxy.service` / `flowproxy-keepalive.service` / `xvfb@10.service` | 全 active |
 | DB integrity | ok |
 | Token 23 (Ruby) | persistent, keepalive_enabled=1, 每 20 分钟 success |
 | Token 21 | persistent, keepalive_enabled=**0**, 有过一次 success（与交接文档不符，统一走新路径重验证）|
@@ -181,7 +181,7 @@
 ## 6. 入库隧道流程
 
 ### 6.0 通用前置（所有 onboard）
-1. **acquire 全局 onboard display lease**（`flock` on `<base>/.flow2api-locks/onboarding-global.lock`）。同一时刻只允许一个 onboard 进程，彻底防 7.3 串窗口。获取不到 → 报 `onboard_busy`，Agent 排队。
+1. **acquire 全局 onboard display lease**（`flock` on `<base>/.flowproxy-locks/onboarding-global.lock`）。同一时刻只允许一个 onboard 进程，彻底防 7.3 串窗口。获取不到 → 报 `onboard_busy`，Agent 排队。
 2. 校验 display 格式（`:N` 或 `:N.M`）。
 3. 校验代理 URL（若有）无 embedded userinfo（复用现有 credential-free 校验）。
 
@@ -578,7 +578,7 @@ async def publish_verified_account(self, *, token_id, snapshot, runtime_mode,
 2. 备份：DB + 受影响 profile + admin.py + **新源码快照**（`.wm_dev/backups/onboard-tunnel-<ts>/`，评审 7.10 补）。
 3. 落地新文件（tokens.py、onboard.py、token_lifecycle_repository.py 改动、setup_keepalive_profile.py 改动）。
 4. 改 admin.py：onboarding 路由返回 410（保留 lifecycle 路由）。
-5. 重启 `flow2api.service`（加载 admin.py + repository 改动）。**不重启 keepalive sidecar**（新隧道不碰 keepalive package；sidecar 用的 repository 读方法不受 publish 新增方法影响）。
+5. 重启 `flowproxy.service`（加载 admin.py + repository 改动）。**不重启 keepalive sidecar**（新隧道不碰 keepalive package；sidecar 用的 repository 读方法不受 publish 新增方法影响）。
 6. 验证：Token 23 仍每 20 分钟 success；`tokens status` 可读。
 
 ### 11.2 回滚

@@ -97,7 +97,7 @@ def _build_gemini_model_resource(model_id: str, description: str) -> Dict[str, A
         "name": f"models/{model_id}",
         "displayName": model_id,
         "description": description,
-        "version": "flow2api",
+        "version": "flowproxy",
         "inputTokenLimit": 0,
         "outputTokenLimit": 0,
         "supportedGenerationMethods": [
@@ -619,7 +619,7 @@ async def list_models(api_key: str = Depends(verify_api_key_flexible)):
         {
             "id": model["id"],
             "object": "model",
-            "owned_by": "flow2api",
+            "owned_by": "flowproxy",
             "description": model["description"],
         }
         for model in _get_openai_model_catalog()
@@ -638,7 +638,7 @@ async def list_model_aliases(api_key: str = Depends(verify_api_key_flexible)):
             {
                 "id": alias_id,
                 "object": "model",
-                "owned_by": "flow2api",
+                "owned_by": "flowproxy",
                 "description": description,
                 "is_alias": True,
             }

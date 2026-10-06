@@ -354,16 +354,16 @@ class PersistentProfileTests(unittest.TestCase):
 
     def test_enabled_uses_configured_path(self):
         config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
-        config._config["captcha"]["persistent_profile_path"] = "/tmp/flow2api-test-profile"
+        config._config["captcha"]["persistent_profile_path"] = "/tmp/flowproxy-test-profile"
         service = self._new_service()
-        self.assertEqual(service.user_data_dir, "/tmp/flow2api-test-profile")
+        self.assertEqual(service.user_data_dir, "/tmp/flowproxy-test-profile")
         self.assertTrue(service._persistent_profile_enabled)
 
     def test_singleton_lock_present_raises(self):
         """profile 被 GUI Chrome 占用时启动应直接失败，而不是 nodriver 神秘 hang。"""
         import os
         import tempfile
-        with tempfile.TemporaryDirectory(prefix="flow2api-profile-test-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="flowproxy-profile-test-") as tmp:
             singleton = os.path.join(tmp, "SingletonLock")
             with open(singleton, "w") as f:
                 f.write("dummy")
@@ -376,7 +376,7 @@ class PersistentProfileTests(unittest.TestCase):
     def test_missing_cookies_does_not_raise(self):
         """空 profile 不应抛错，只 warning — 让 nodriver 自己初始化（等同匿名）。"""
         import tempfile
-        with tempfile.TemporaryDirectory(prefix="flow2api-profile-test-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="flowproxy-profile-test-") as tmp:
             config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
             config._config["captcha"]["persistent_profile_path"] = tmp
             service = self._new_service()
@@ -385,7 +385,7 @@ class PersistentProfileTests(unittest.TestCase):
     def test_nonexistent_path_does_not_raise(self):
         """目录不存在时只 warning 引导用户去 GUI 登录，不阻塞启动。"""
         config._config.setdefault("captcha", {})["persistent_profile_enabled"] = True
-        config._config["captcha"]["persistent_profile_path"] = "/tmp/flow2api-not-exist-12345"
+        config._config["captcha"]["persistent_profile_path"] = "/tmp/flowproxy-not-exist-12345"
         service = self._new_service()
         service._validate_persistent_profile()
 

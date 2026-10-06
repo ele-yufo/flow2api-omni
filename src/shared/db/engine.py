@@ -1,6 +1,6 @@
 """Generic async SQLite engine — connection, write-serialization, schema probes.
 
-App-agnostic plumbing extracted from flow2api's Database. Holds NO business schema;
+App-agnostic plumbing extracted from flowproxy's Database. Holds NO business schema;
 subclasses (e.g. Database) add tables/CRUD. Safe to reuse across apps.
 """
 import asyncio

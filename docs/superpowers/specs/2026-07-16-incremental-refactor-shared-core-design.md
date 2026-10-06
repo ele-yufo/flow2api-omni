@@ -9,7 +9,7 @@
 
 ## 1. 背景与动机
 
-flow2api 是一个把 Google Flow/Veo 视频生成逆向封装成 OpenAI/Gemini 兼容 API 的
+flowproxy 是一个把 Google Flow/Veo 视频生成逆向封装成 OpenAI/Gemini 兼容 API 的
 FastAPI 服务，开发早期未遵循软件工程最佳实践，已出现屎山化风险。
 
 ### 1.1 屎山诊断（体检结论）
@@ -44,13 +44,13 @@ Pro(TIER_ONE) 720p 视频调用一次，失败回退原 URL。
 
 - **一期(本 spec)**：按最佳实践渐进式重构，保证代码质量与可扩展性，并为二期铺路。
 - **二期(未来)**：把去水印做成 SaaS，同时提供 **Web 端**与 **API** 两种入口，作为**独立
-  新服务**部署。能力范围只做 Veo/Flow 水印(不做通用视频去水印)。后续可能把 flow2api
+  新服务**部署。能力范围只做 Veo/Flow 水印(不做通用视频去水印)。后续可能把 flowproxy
   整体 SaaS 化。
 
 ### 1.3 已确认的关键决策
 
 1. **重构策略**：渐进式，先抽公共地基（非全量重写，非仅聚焦去水印链路）。
-2. **SaaS 边界**：去水印 SaaS 是独立新服务（非 flow2api 内模块，非 monorepo 分应用）。
+2. **SaaS 边界**：去水印 SaaS 是独立新服务（非 flowproxy 内模块，非 monorepo 分应用）。
 3. **落地形态**：方案 A —— 仓内分层 + **可提取的 shared core**。二期新服务把 core 当本地
    pip 包 / git submodule 依赖复用。
 4. **能力范围**：去水印只做 Veo/Flow 固定位置 sparkle 水印。
@@ -62,8 +62,8 @@ Pro(TIER_ONE) 720p 视频调用一次，失败回退原 URL。
   生成、ele-yufo 博客生图、公众号管线），必须向后兼容。
 - **不改变现有运行时行为**：重构只改结构不改行为；现有行为即使有 bug 也先用特征测试锁住，
   行为变更走单独变更，不混进重构。
-- **两个旁挂常驻进程不在本次重构范围**：`flow2api-keepalive.service`(nodriver 保活)、
-  `dewatermark/flow2api-dewatermark.service`(ProPainter GPU)保持独立部署。
+- **两个旁挂常驻进程不在本次重构范围**：`flowproxy-keepalive.service`(nodriver 保活)、
+  `dewatermark/flowproxy-dewatermark.service`(ProPainter GPU)保持独立部署。
 
 ## 2. 目标架构
 
@@ -80,7 +80,7 @@ src/
     tasks/      异步任务编排范式（状态机 + 进度）
     gpu/        dewatermark 客户端泛化（二期去水印 SaaS 直接调）
     telemetry/  logger + 脱敏
-  flow2api/                  # 应用层，只依赖 shared 的接口
+  flowproxy/                  # 应用层，只依赖 shared 的接口
     api/        routes（OpenAI/Gemini 双协议） + admin（拆分）
     catalog/    模型目录数据化（MODEL_CONFIG → 数据文件 + ModelCatalog 加载器）
     generation/ generation_handler 拆分（编排 / 轮询 / 拼接延长 / SSE / 日志）
@@ -91,7 +91,7 @@ src/
 
 ### 2.1 "可提取"的两条物理判据
 
-1. **`shared/` 内部不 import 任何 `flow2api/` 业务模块**——这是可提取的编译期判据。
+1. **`shared/` 内部不 import 任何 `flowproxy/` 业务模块**——这是可提取的编译期判据。
 2. **`shared/` 各模块可纯离线单测**（不依赖 Flow 逆向、不依赖真实网络/浏览器）——这是
    可提取的运行期判据。
 
@@ -115,7 +115,7 @@ src/
 ### 3.1 阶段间的可交付性
 
 - 每个 P 都是**独立可发版**的：任何阶段可停下来发布，不留半成品。
-- **二期去水印 SaaS 做完 P0→P3 就能开工**（地基干净、可复用）；P4-P6 是 flow2api 内部
+- **二期去水印 SaaS 做完 P0→P3 就能开工**（地基干净、可复用）；P4-P6 是 flowproxy 内部
   质量改进，不阻塞二期。
 - 每个 PR 只动一个 P 的一部分，测试绿才合，保持可回滚粒度。
 
@@ -132,7 +132,7 @@ src/
 | `shared/auth` | 外部用户鉴权(user/plan/quota) | **只预留挂载点接口，不实现**，二期填肉 |
 | `shared/config` | 多租户 per-tenant 配置 | Provider 支持 per-tenant 覆盖 |
 
-**唯一不复用**：flow2api 的打码(P6)——去水印不碰 Google，不需要 captcha。这也是 P6 放最后
+**唯一不复用**：flowproxy 的打码(P6)——去水印不碰 Google，不需要 captcha。这也是 P6 放最后
 不影响二期的原因。
 
 ## 5. 测试与验证策略（渐进重构的命门）

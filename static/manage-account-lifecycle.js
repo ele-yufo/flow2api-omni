@@ -326,7 +326,7 @@ async function exportTokenCredentials(tokenId) {
             .replace(/[^A-Za-z0-9@._-]+/g, "_")
             .slice(0, 80);
         link.href = objectUrl;
-        link.download = `flow2api-${safeEmail}-credentials.json`;
+        link.download = `flowproxy-${safeEmail}-credentials.json`;
         link.rel = "noopener";
         document.body.appendChild(link);
         link.click();

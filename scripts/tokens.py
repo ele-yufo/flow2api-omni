@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tokens CLI — an Agent's tool for managing flow2api keepalive accounts.
+"""tokens CLI — an Agent's tool for managing flowproxy keepalive accounts.
 
 Design constraints (see docs/superpowers/specs for the full spec):
 - JSON-only output. Nothing human-readable is ever printed; every line is one
@@ -78,7 +78,7 @@ def emit_error(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="tokens", description="Flow2API token keepalive management (Agent CLI, JSON-only output)"
+        prog="tokens", description="FlowProxy token keepalive management (Agent CLI, JSON-only output)"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -1,6 +1,6 @@
 # 浏览器保活运维手册
 
-本文档用于运维 Flow2API 的数据库驱动浏览器保活、服务器 XRDP 账号入库、已有账号重新登录、健康检查、部署与回滚。
+本文档用于运维 FlowProxy 的数据库驱动浏览器保活、服务器 XRDP 账号入库、已有账号重新登录、健康检查、部署与回滚。
 
 > **[DEPRECATED] 2026-07-20**：本文档中标注 `[DEPRECATED]` 的小节（§3.4、§7.3、
 > §7.4）描述的是旧 `OnboardingService` 状态机（2810 行）+ 对应 admin HTTP
@@ -29,10 +29,10 @@
 
 | 组件 | 默认位置/显示器 | 责任 |
 |---|---|---|
-| 主服务 `flow2api.service` | 应用 HTTP 端口 | FastAPI、迁移、Token 管理、管理 API |
-| 保活 sidecar `flow2api-keepalive.service` | Xvfb `:10` | 动态读取 `token_lifecycle`，运行 headed Chrome 刷新账号 |
-| SQLite | `/opt/Projects/flow2api/data/flow.db` | `tokens`、`token_lifecycle`、`onboarding_jobs`、projects |
-| keepalive profiles | `/opt/flow2api-profiles/<token_id>` | 每账号 Google/Flow 登录态 |
+| 主服务 `flowproxy.service` | 应用 HTTP 端口 | FastAPI、迁移、Token 管理、管理 API |
+| 保活 sidecar `flowproxy-keepalive.service` | Xvfb `:10` | 动态读取 `token_lifecycle`，运行 headed Chrome 刷新账号 |
+| SQLite | `/opt/Projects/flowproxy/data/flow.db` | `tokens`、`token_lifecycle`、`onboarding_jobs`、projects |
+| keepalive profiles | `/opt/flowproxy-profiles/<token_id>` | 每账号 Google/Flow 登录态 |
 | XRDP | 默认 `:11`，可配置 | 操作员进行 Google 登录；只在入库/重登录时需要 |
 | onboarding 临时 profile | `<profile_base>/.onboarding/<job-id>` | 受管登录任务的私有临时目录 |
 | profile 归档 | `<profile_base>/.archive/<token_id>/<job-id>` | `archive_and_replace` 保留的旧 profile |
@@ -161,7 +161,7 @@ Token ID 会产生稳定 stagger，避免所有账号在同一秒启动。成功
 
 两个关键语义：**attempt 预算从拿到全局信号量之后才起算**，全池同时到期时排队等待不消耗预算，慢 attempt 不会误杀后排账号；**同步阻塞调用（cookie 解密读取、profile lease/prepare 的文件锁与文件 IO）一律 `asyncio.to_thread` 卸载并限时**——asyncio 超时管不住事件循环线程上的同步阻塞，卸载后 wedge 只泄漏一个 worker 线程，调度循环存活。四层预算需保持 `call < attempt < cycle`，配置时不要倒置。
 
-巡检告警闭环（2026-08-21 事故后修复）：`flow2api-healthcheck.timer` 每小时触发 `scripts/keepalive_healthcheck.py`，双层判定——业务层（`is_active`/ban）+ 保活层（复用 `keepalive_patrol.py` 的 cadence 新鲜度分类）。只在出问题时投递 Discord（死号或 UNHEALTHY → critical；PROBE_ERROR 退避中 → warning），全绿心跳汇总（曾经的 00:07/12:07 UTC 各一次）自 2026-09-06 起默认关闭——长线运行稳定后它只剩噪音；需要恢复时给 service 加环境变量 `FLOW2API_HEALTHCHECK_HEARTBEAT_HOURS=0,12` 即可。全绿时巡检静默，出问题才响。保活 daemon 静默僵死（is_active 不变但刷新停止）从此 1 小时内可见；事故前该巡检 12h 一次且只看 `is_active`，曾在 2 个账号 AT 过期时误报 `active=7 dead=0`。运维验收可用 `--force-report` 强制立即投递当前状态。
+巡检告警闭环（2026-08-21 事故后修复）：`flowproxy-healthcheck.timer` 每小时触发 `scripts/keepalive_healthcheck.py`，双层判定——业务层（`is_active`/ban）+ 保活层（复用 `keepalive_patrol.py` 的 cadence 新鲜度分类）。只在出问题时投递 Discord（死号或 UNHEALTHY → critical；PROBE_ERROR 退避中 → warning），全绿心跳汇总（曾经的 00:07/12:07 UTC 各一次）自 2026-09-06 起默认关闭——长线运行稳定后它只剩噪音；需要恢复时给 service 加环境变量 `FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS=0,12` 即可。全绿时巡检静默，出问题才响。保活 daemon 静默僵死（is_active 不变但刷新停止）从此 1 小时内可见；事故前该巡检 12h 一次且只看 `is_active`，曾在 2 个账号 AT 过期时误报 `active=7 dead=0`。运维验收可用 `--force-report` 强制立即投递当前状态。
 
 **human_action 失败宽限（2026-08-22 引入）**：human_action 类失败（`session_rejected`/`cookie_missing`/`identity_mismatch`/`profile_missing`/`grant_expired`）不再是"一次即 6h"。当日账号 21 被 Google 瞬时会话拒绝一次就直接挂进 6h 人工退避，期间 AT 过期——实际登录态活着，手动重试一次即恢复。自此 human_action 失败前 `browser_human_retry_min_failures - 1` 次（默认 2 次：60s/120s）按普通指数退避重试，连续失败达阈值（默认第 3 次）才进 `browser_human_retry_seconds` 的人工退避。瞬时拒绝通常在 1-2 次内自愈，真正需要人工的连续失败升级行为不变；首次失败照样立即产生告警事件，可见性不受影响。
 
@@ -181,7 +181,7 @@ sidecar 每次 reconcile 查询 `token_lifecycle.keepalive_enabled=1`：
 
 ### 5.1 软件依赖
 
-- Python 项目虚拟环境：`/opt/Projects/flow2api/.venv`
+- Python 项目虚拟环境：`/opt/Projects/flowproxy/.venv`
 - `nodriver==0.48.1`
 - `browser-cookie3==0.20.1`
 - Google Chrome Stable，默认 `/usr/bin/google-chrome-stable`
@@ -193,7 +193,7 @@ sidecar 每次 reconcile 查询 `token_lifecycle.keepalive_enabled=1`：
 安装项目依赖：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/pip install -r /opt/Projects/flow2api/requirements.txt
+/opt/Projects/flowproxy/.venv/bin/pip install -r /opt/Projects/flowproxy/requirements.txt
 ```
 
 ### 5.2 `[keepalive]` 配置
@@ -212,7 +212,7 @@ browser_retry_base_seconds = 60
 browser_retry_max_seconds = 1800
 browser_human_retry_seconds = 21600
 browser_human_retry_min_failures = 3
-browser_profile_base = "/opt/flow2api-profiles"
+browser_profile_base = "/opt/flowproxy-profiles"
 browser_proxy = "http://127.0.0.1:7890"
 browser_display = ":10"
 browser_settle_seconds = 8.0
@@ -234,22 +234,22 @@ browser_reconcile_timeout_seconds = 120
 | `DISPLAY` | setup helper 使用调用者可见 display；systemd sidecar 固定为 `:10` |
 | `DBUS_SESSION_BUS_ADDRESS` | cookie 解密所需用户 keyring bus |
 | `XDG_RUNTIME_DIR` | 对应服务用户 runtime 目录 |
-| `FLOW2API_ALERT_WEBHOOK_URL` | Discord 告警 webhook，优先于 TOML |
-| `FLOW2API_CORS_ALLOWED_ORIGINS` | 精确 CORS Origin 列表，逗号分隔；存在时覆盖 TOML |
+| `FLOWPROXY_ALERT_WEBHOOK_URL` | Discord 告警 webhook，优先于 TOML |
+| `FLOWPROXY_CORS_ALLOWED_ORIGINS` | 精确 CORS Origin 列表，逗号分隔；存在时覆盖 TOML |
 
 ### 5.4 可选 systemd webhook 环境文件
 
-tracked unit 使用 `EnvironmentFile=-/etc/flow2api-keepalive.env`。前缀 `-` 表示该文件不存在时仍可启动；需要 sidecar Discord 告警时，才在服务器本地创建它：
+tracked unit 使用 `EnvironmentFile=-/etc/flowproxy-keepalive.env`。前缀 `-` 表示该文件不存在时仍可启动；需要 sidecar Discord 告警时，才在服务器本地创建它：
 
 ```bash
-sudo install -m 0600 -o root -g root /dev/null /etc/flow2api-keepalive.env
-sudoedit /etc/flow2api-keepalive.env
+sudo install -m 0600 -o root -g root /dev/null /etc/flowproxy-keepalive.env
+sudoedit /etc/flowproxy-keepalive.env
 ```
 
 文件格式如下，文档和仓库中只保留空值示意，不写入任何真实 webhook：
 
 ```dotenv
-FLOW2API_ALERT_WEBHOOK_URL=
+FLOWPROXY_ALERT_WEBHOOK_URL=
 ```
 
 由管理员在服务器上的 `sudoedit` 会话中填写真实值，保存后确认 owner 为 `root:root`、mode 为 `0600`，再重启 sidecar。不要用包含真实 URL 的命令行、shell history、工单或版本控制文件生成它。
@@ -269,10 +269,10 @@ FLOW2API_ALERT_WEBHOOK_URL=
 先从浏览器 DevTools 的请求 `Origin` header 读取真实值，再写入 `[server].cors_allowed_origins`，或设置：
 
 ```bash
-export FLOW2API_CORS_ALLOWED_ORIGINS="$ACTUAL_WEB_ORIGIN,$ACTUAL_CHROME_EXTENSION_ORIGIN"
+export FLOWPROXY_CORS_ALLOWED_ORIGINS="$ACTUAL_WEB_ORIGIN,$ACTUAL_CHROME_EXTENSION_ORIGIN"
 ```
 
-`FLOW2API_CORS_ALLOWED_ORIGINS` 会覆盖 TOML，不是追加。修改后重启主服务，因为 CORS middleware 在应用创建时装配。
+`FLOWPROXY_CORS_ALLOWED_ORIGINS` 会覆盖 TOML，不是追加。修改后重启主服务，因为 CORS middleware 在应用创建时装配。
 
 插件继续使用 `/api/plugin/update-token` 的 connection token：
 
@@ -353,7 +353,7 @@ CREATE_RESPONSE="$(curl --fail-with-body -sS -X POST \
   -H 'Content-Type: application/json' \
   -d "{\"target_token_id\":$TOKEN_ID,\"conflict_policy\":\"reject\",\"requested_business_enabled\":false,\"requested_keepalive_enabled\":true,\"requested_runtime_mode\":\"warm\"}" \
   "$BASE_URL/api/onboarding/jobs")"
-JOB_ID="$(printf '%s' "$CREATE_RESPONSE" | /opt/Projects/flow2api/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["job"]["job_id"])')"
+JOB_ID="$(printf '%s' "$CREATE_RESPONSE" | /opt/Projects/flowproxy/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin)["job"]["job_id"])')"
 ```
 
 对新账号创建任务时，使用不含 `target_token_id` 的 JSON：
@@ -463,7 +463,7 @@ curl --fail-with-body -sS -X POST \
 Agent 代表用户执行：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python scripts/tokens.py onboard --email xxx@gmail.com --display :11
+/opt/Projects/flowproxy/.venv/bin/python scripts/tokens.py onboard --email xxx@gmail.com --display :11
 ```
 
 分阶段输出 JSON（每阶段一行到 stdout）：
@@ -490,7 +490,7 @@ cookie、校验身份、发布账号，不需要用户做任何其他操作。
 #### 7.5.2 旧号重启用 / 重登录
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python scripts/tokens.py onboard --token-id 21 --display :11
+/opt/Projects/flowproxy/.venv/bin/python scripts/tokens.py onboard --token-id 21 --display :11
 ```
 
 先只读验证该 Token 自己的 canonical profile（`<profile_base>/21`）：如果
@@ -571,8 +571,8 @@ scripts/tokens.py reauth --token-id 21 --dry-run
 ### 8.1 preflight
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py --preflight
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py --preflight
 ```
 
 当 `[keepalive].browser_enabled=false` 时，preflight 立即输出 `browser keepalive is disabled` 并以 0 退出，不导入浏览器依赖、不检查 Chrome/X display、不查询 lifecycle 数据库，也不访问 profiles。启用时，它检查 Python 依赖、Chrome executable、X display、profile base、lifecycle DB，以及所有 enabled profile 的 ready/binding、`Default/Cookies` 文件和 service lease。它不读取 ST 内容，也不调用 Google。preflight 和 setup 的终端输出不会显示配置的 profile base 或 browser executable 绝对路径；canonical path 校验失败会报告不含候选路径的通用 mapping/validation 错误。
@@ -582,16 +582,16 @@ scripts/tokens.py reauth --token-id 21 --dry-run
 验证一个 Token：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py \
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py \
   --once --token-id "$TOKEN_ID"
 ```
 
 验证全部 keepalive-enabled Token：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py --once
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py --once
 ```
 
 `--once` 忽略 persisted due time，运行与 daemon 相同的真实 headed refresh 与原子写库路径；任一目标失败时命令返回非零。
@@ -599,8 +599,8 @@ scripts/tokens.py reauth --token-id 21 --dry-run
 兼容 gate wrapper：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_gate_test.py \
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_gate_test.py \
   --token-id "$TOKEN_ID"
 ```
 
@@ -609,8 +609,8 @@ wrapper 只委托生产 `--once --token-id` 路径，不包含独立浏览器、
 ### 8.3 daemon 前台运行
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py --daemon
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py --daemon
 ```
 
 不提供 mode 参数时也默认为 daemon。生产环境使用 systemd，不要同时手工启动第二个 daemon。
@@ -623,13 +623,13 @@ setup 用于**已有且身份已知的 Token**进行兼容性人工登录或修�
 
 ```bash
 DISPLAY="$XRDP_DISPLAY" \
-  /opt/Projects/flow2api/scripts/setup_keepalive_profile.sh "$TOKEN_ID"
+  /opt/Projects/flowproxy/scripts/setup_keepalive_profile.sh "$TOKEN_ID"
 ```
 
 也可以把 display 作为第二个位置参数显式传入：
 
 ```bash
-/opt/Projects/flow2api/scripts/setup_keepalive_profile.sh \
+/opt/Projects/flowproxy/scripts/setup_keepalive_profile.sh \
   "$TOKEN_ID" "$XRDP_DISPLAY"
 ```
 
@@ -638,16 +638,16 @@ setup 不会删除 SingletonLock、不杀进程、不后台化 Chrome。检测�
 ### 8.5 read-only patrol
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_patrol.py
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_patrol.py
 ```
 
 对非默认数据库做只读检查：
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_patrol.py \
-  --db "$FLOW2API_DB_PATH"
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_patrol.py \
+  --db "$FLOWPROXY_DB_PATH"
 ```
 
 patrol 以 SQLite read-only mode 读取 `keepalive_enabled=1` 的 lifecycle telemetry，包括业务已禁用和 retired 账号；它不调用 Google、不修改数据库、不维护第二套告警状态。
@@ -676,63 +676,63 @@ profile 为空或 Google 主会话已失效的号只能走 §7.5.2 的浏览器�
 
 ## 9. systemd 与日志
 
-主服务的持久化打码 Chrome 可能被 Chrome 移入用户 app scope；若主进程在停止超时后被强杀，浏览器仍会持有 `SingletonLock`，阻止新进程启动打码。将仓库中的 `config/systemd/flow2api-captcha-cleanup.conf` 安装为主服务 drop-in：停机后只检查配置的 captcha profile、锁所属 PID 和 nodriver 启动参数，确认所有权后结束残留浏览器。它不删除 profile 数据，也不碰业务账号保活 profile。
+主服务的持久化打码 Chrome 可能被 Chrome 移入用户 app scope；若主进程在停止超时后被强杀，浏览器仍会持有 `SingletonLock`，阻止新进程启动打码。将仓库中的 `config/systemd/flowproxy-captcha-cleanup.conf` 安装为主服务 drop-in：停机后只检查配置的 captcha profile、锁所属 PID 和 nodriver 启动参数，确认所有权后结束残留浏览器。它不删除 profile 数据，也不碰业务账号保活 profile。
 
 ```bash
 sudo install -m 0644 \
-  /opt/Projects/flow2api/config/systemd/flow2api-captcha-cleanup.conf \
-  /etc/systemd/system/flow2api.service.d/captcha-cleanup.conf
+  /opt/Projects/flowproxy/config/systemd/flowproxy-captcha-cleanup.conf \
+  /etc/systemd/system/flowproxy.service.d/captcha-cleanup.conf
 sudo systemctl daemon-reload
-python /opt/Projects/flow2api/scripts/cleanup_captcha_chrome.py  # 只读检查当前锁状态
+python /opt/Projects/flowproxy/scripts/cleanup_captcha_chrome.py  # 只读检查当前锁状态
 ```
 
 安装或更新 unit：
 
 ```bash
 sudo install -m 0644 \
-  /opt/Projects/flow2api/flow2api-keepalive.service \
-  /etc/systemd/system/flow2api-keepalive.service
+  /opt/Projects/flowproxy/flowproxy-keepalive.service \
+  /etc/systemd/system/flowproxy-keepalive.service
 sudo systemctl daemon-reload
-sudo systemctl enable flow2api-keepalive.service
-sudo systemctl restart flow2api-keepalive.service
+sudo systemctl enable flowproxy-keepalive.service
+sudo systemctl restart flowproxy-keepalive.service
 ```
 
 查看状态和日志：
 
 ```bash
-sudo systemctl status flow2api-keepalive.service --no-pager
-sudo journalctl -u flow2api-keepalive.service -n 200 --no-pager
-sudo journalctl -u flow2api-keepalive.service -f
+sudo systemctl status flowproxy-keepalive.service --no-pager
+sudo journalctl -u flowproxy-keepalive.service -n 200 --no-pager
+sudo journalctl -u flowproxy-keepalive.service -f
 ```
 
 同时查看主服务和 Xvfb：
 
 ```bash
-sudo systemctl status flow2api.service xvfb@10.service --no-pager
-sudo journalctl -u flow2api.service -n 200 --no-pager
+sudo systemctl status flowproxy.service xvfb@10.service --no-pager
+sudo journalctl -u flowproxy.service -n 200 --no-pager
 sudo journalctl -u xvfb@10.service -n 100 --no-pager
 ```
 
-验收日志必须出现 `headless=False`。unit 使用可选 `EnvironmentFile=-/etc/flow2api-keepalive.env`、`ExecStartPre --preflight`、显式 `--daemon`、`Restart=on-failure`、`UMask=0077` 与 `SIGTERM`。每个 runner 在收到停止请求后取消活动任务并以 20 秒边界排空浏览器/profile 资源；unit 的 `TimeoutStopSec=45s` 为整个 supervisor 留出更大的退出窗口。不要把 XRDP 加入 unit 的 `Requires=`。
+验收日志必须出现 `headless=False`。unit 使用可选 `EnvironmentFile=-/etc/flowproxy-keepalive.env`、`ExecStartPre --preflight`、显式 `--daemon`、`Restart=on-failure`、`UMask=0077` 与 `SIGTERM`。每个 runner 在收到停止请求后取消活动任务并以 20 秒边界排空浏览器/profile 资源；unit 的 `TimeoutStopSec=45s` 为整个 supervisor 留出更大的退出窗口。不要把 XRDP 加入 unit 的 `Requires=`。
 
 ## 10. 权限与机密管理
 
 推荐检查：
 
 ```bash
-sudo chown -R yufo:yufo /opt/flow2api-profiles
-sudo chmod 0700 /opt/flow2api-profiles
-sudo chmod 0600 /opt/Projects/flow2api/config/setting.toml
-sudo chmod 0600 /opt/Projects/flow2api/data/flow.db
+sudo chown -R yufo:yufo /opt/flowproxy-profiles
+sudo chmod 0700 /opt/flowproxy-profiles
+sudo chmod 0600 /opt/Projects/flowproxy/config/setting.toml
+sudo chmod 0600 /opt/Projects/flowproxy/data/flow.db
 ```
 
 还需确认：
 
-- 每账号 profile、`.onboarding`、`.archive` 和 `.flow2api-locks` 只对服务用户开放；服务创建目录使用 `0700`、lock 使用 `0600`。
+- 每账号 profile、`.onboarding`、`.archive` 和 `.flowproxy-locks` 只对服务用户开放；服务创建目录使用 `0700`、lock 使用 `0600`。
 - 不把 ST、AT、cookie、admin token、plugin connection token、webhook URL、profile 路径或完整 process cmdline 发到日志/工单。
 - onboarding API response 不含 PID、start ticks、命令或路径；不要绕过 API 直接编辑 `onboarding_jobs`。
 - XRDP 只绑定受控网络并使用强认证；非 provisioning 时限制访问或停止 XRDP。
-- sidecar webhook 只放在 root-owned `0600` 的 `/etc/flow2api-keepalive.env`；`FLOW2API_CORS_ALLOWED_ORIGINS` 和其他服务机密也通过受保护的部署环境管理，任何真实值都不写入仓库或文档。
+- sidecar webhook 只放在 root-owned `0600` 的 `/etc/flowproxy-keepalive.env`；`FLOWPROXY_CORS_ALLOWED_ORIGINS` 和其他服务机密也通过受保护的部署环境管理，任何真实值都不写入仓库或文档。
 - 数据库备份、profile 归档和旧 unit 同样按敏感数据处理。
 
 ## 11. 维护窗口部署与验收
@@ -741,22 +741,22 @@ sudo chmod 0600 /opt/Projects/flow2api/data/flow.db
 
 ```bash
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP_DIR="/opt/flow2api-backups/keepalive-$TIMESTAMP"
+BACKUP_DIR="/opt/flowproxy-backups/keepalive-$TIMESTAMP"
 sudo install -d -m 0700 -o yufo -g yufo "$BACKUP_DIR"
-sqlite3 /opt/Projects/flow2api/data/flow.db ".backup '$BACKUP_DIR/flow.db'"
-install -m 0600 /opt/Projects/flow2api/config/setting.toml "$BACKUP_DIR/setting.toml"
-if [ -f /etc/systemd/system/flow2api-keepalive.service ]; then
-  install -m 0600 /etc/systemd/system/flow2api-keepalive.service "$BACKUP_DIR/flow2api-keepalive.service"
+sqlite3 /opt/Projects/flowproxy/data/flow.db ".backup '$BACKUP_DIR/flow.db'"
+install -m 0600 /opt/Projects/flowproxy/config/setting.toml "$BACKUP_DIR/setting.toml"
+if [ -f /etc/systemd/system/flowproxy-keepalive.service ]; then
+  install -m 0600 /etc/systemd/system/flowproxy-keepalive.service "$BACKUP_DIR/flowproxy-keepalive.service"
 fi
-if [ -f /etc/flow2api-keepalive.env ]; then
-  sudo install -m 0600 -o root -g root /etc/flow2api-keepalive.env "$BACKUP_DIR/flow2api-keepalive.env"
+if [ -f /etc/flowproxy-keepalive.env ]; then
+  sudo install -m 0600 -o root -g root /etc/flowproxy-keepalive.env "$BACKUP_DIR/flowproxy-keepalive.env"
 fi
 ```
 
 记录不含凭据的基线：
 
 ```bash
-sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
+sqlite3 -header -column /opt/Projects/flowproxy/data/flow.db \
   "SELECT id,email,is_active,ban_reason,credits,user_paygate_tier,last_used_at,use_count FROM tokens ORDER BY id;"
 ```
 
@@ -765,9 +765,9 @@ sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
 ### 11.2 停止与确认 profile 释放
 
 ```bash
-sudo systemctl stop flow2api-keepalive.service
-sudo systemctl stop flow2api.service
-pgrep -af -- '--user-data-dir=/opt/flow2api-profiles/' || true
+sudo systemctl stop flowproxy-keepalive.service
+sudo systemctl stop flowproxy.service
+pgrep -af -- '--user-data-dir=/opt/flowproxy-profiles/' || true
 ```
 
 如果仍有进程，先确认 PID、start time 与完整 `--user-data-dir` 所有权；不要用模糊 kill。关闭正确的 GUI/XRDP Chrome 后再次确认。
@@ -775,17 +775,17 @@ pgrep -af -- '--user-data-dir=/opt/flow2api-profiles/' || true
 ### 11.3 安装依赖并运行迁移
 
 ```bash
-/opt/Projects/flow2api/.venv/bin/pip install -r /opt/Projects/flow2api/requirements.txt
-sudo systemctl start flow2api.service
-sudo journalctl -u flow2api.service -n 200 --no-pager
+/opt/Projects/flowproxy/.venv/bin/pip install -r /opt/Projects/flowproxy/requirements.txt
+sudo systemctl start flowproxy.service
+sudo journalctl -u flowproxy.service -n 200 --no-pager
 ```
 
 验收 schema 和一对一 lifecycle：
 
 ```bash
-sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
+sqlite3 -header -column /opt/Projects/flowproxy/data/flow.db \
   "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('token_lifecycle','onboarding_jobs') ORDER BY name;"
-sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
+sqlite3 -header -column /opt/Projects/flowproxy/data/flow.db \
   "SELECT (SELECT COUNT(*) FROM tokens) AS tokens, (SELECT COUNT(*) FROM token_lifecycle) AS lifecycle_rows;"
 ```
 
@@ -797,13 +797,13 @@ sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
 
 ```bash
 sudo systemctl start xvfb@10.service
-sqlite3 -header -column /opt/Projects/flow2api/data/flow.db \
+sqlite3 -header -column /opt/Projects/flowproxy/data/flow.db \
   "SELECT t.id,t.email,l.verified_email,l.profile_state,l.runtime_mode,l.keepalive_enabled FROM tokens AS t JOIN token_lifecycle AS l ON l.token_id=t.id WHERE t.id=23;"
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py \
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py \
   --once --token-id 23
-/opt/Projects/flow2api/.venv/bin/python \
-  /opt/Projects/flow2api/scripts/keepalive_browser.py --preflight
+/opt/Projects/flowproxy/.venv/bin/python \
+  /opt/Projects/flowproxy/scripts/keepalive_browser.py --preflight
 ```
 
 one-shot 仍会把浏览器观察邮箱与 `tokens.email` 比对，并在完整原子快照成功后建立或刷新 `verified_email`。preflight 随后只做无凭据的运行时/profile 检查；两步都成功后才进入下一节安装或启动 unit。
@@ -823,11 +823,11 @@ one-shot 仍会把浏览器观察邮箱与 `tokens.email` 比对，并在完整�
 
 ```bash
 sudo install -m 0644 \
-  /opt/Projects/flow2api/flow2api-keepalive.service \
-  /etc/systemd/system/flow2api-keepalive.service
+  /opt/Projects/flowproxy/flowproxy-keepalive.service \
+  /etc/systemd/system/flowproxy-keepalive.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now flow2api-keepalive.service
-sudo journalctl -u flow2api-keepalive.service -f
+sudo systemctl enable --now flowproxy-keepalive.service
+sudo journalctl -u flowproxy-keepalive.service -f
 ```
 
 至少观察一次 ID 23 scheduled success，并确认周期仍为 1200 秒级相位、resident browser 使用 `:10`、没有第二个 process/profile owner。
@@ -856,10 +856,10 @@ sudo journalctl -u flow2api-keepalive.service -f
 
 ID 23 是已验证的 headed/browser-cookie SQLite 兼容样本。部署期间：
 
-- 保留 `/opt/flow2api-profiles/23` 与原本 Google 主登录态；
+- 保留 `/opt/flowproxy-profiles/23` 与原本 Google 主登录态；
 - legacy backfill 后保持 `persistent`、`ready`、`keepalive_enabled=1`，但需按上一节检查并建立 `verified_email`；
 - 使用 active 1200 秒成功 cadence；默认初次未调度 due time 是 120 秒基础延迟加 stable stagger，ID 23 在默认 1200 秒 interval 下的 stagger 为 759 秒，因此首次自动 due 为启动后 879 秒；
-- legacy 首次验证固定为 `--once --token-id 23` → `--preflight` → 启动 `flow2api-keepalive.service`，one-shot 先建立身份绑定；
+- legacy 首次验证固定为 `--once --token-id 23` → `--preflight` → 启动 `flowproxy-keepalive.service`，one-shot 先建立身份绑定；
 - 必须从日志确认 `headless=False`；
 - 在非 ID 23 pilot 完成前不要对该 profile 使用 `archive_and_replace`；
 - 不要让 captcha profile、setup、XRDP 或第二个 daemon 占用 profile 23；
@@ -871,9 +871,9 @@ ID 23 兼容性来自数据库 bootstrap 和相同生产刷新路径，不应通
 
 发生身份错配、凭据写错号、profile owner 异常、迁移失败或业务池异常时：
 
-1. 停止 `flow2api-keepalive.service`，再停止主服务。
+1. 停止 `flowproxy-keepalive.service`，再停止主服务。
 2. 确认没有 Chrome 占用待恢复 profile。
-3. 恢复上一版本代码和 `/etc/systemd/system/flow2api-keepalive.service`；如该版本使用可选 webhook 环境文件，同时恢复 root-owned `0600` 的 `/etc/flow2api-keepalive.env`，然后执行 `systemctl daemon-reload`。
+3. 恢复上一版本代码和 `/etc/systemd/system/flowproxy-keepalive.service`；如该版本使用可选 webhook 环境文件，同时恢复 root-owned `0600` 的 `/etc/flowproxy-keepalive.env`，然后执行 `systemctl daemon-reload`。
 4. 若 Token/lifecycle 状态发生错误，恢复维护窗口 SQLite backup；若只是不认识新增表，旧代码通常可忽略 additive tables。
 5. 按需恢复 `setting.toml`。
 6. 若 onboarding 使用 `archive_and_replace`，把当前目标 profile 移到隔离目录，再将 `.archive/<token_id>/<job-id>` 原子 rename 回 `<profile_base>/<token_id>`。不要覆盖已存在目录。
@@ -883,7 +883,7 @@ ID 23 兼容性来自数据库 bootstrap 和相同生产刷新路径，不应通
 示例 profile 回滚前必须设置真实值并人工确认路径：
 
 ```bash
-PROFILE_BASE="/opt/flow2api-profiles"
+PROFILE_BASE="/opt/flowproxy-profiles"
 TOKEN_ID="${TOKEN_ID:?set TOKEN_ID}"
 JOB_ID="${JOB_ID:?set JOB_ID}"
 CURRENT="$PROFILE_BASE/$TOKEN_ID"

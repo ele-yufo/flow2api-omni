@@ -1,4 +1,4 @@
-"""Data models for Flow2API"""
+"""Data models for FlowProxy"""
 
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Union, Any, Literal
@@ -12,7 +12,7 @@ from .token_states import (
 
 
 class Token(BaseModel):
-    """Token model for Flow2API"""
+    """Token model for FlowProxy"""
 
     id: Optional[int] = None
 
@@ -414,7 +414,7 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
-    # Flow2API specific parameters
+    # FlowProxy specific parameters
     image: Optional[str] = None  # Base64 encoded image (deprecated, use messages)
     video: Optional[str] = None  # Base64 encoded video (deprecated)
     # Gemini extension parameters (from extra_body or top-level)

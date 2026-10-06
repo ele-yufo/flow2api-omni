@@ -40,7 +40,7 @@ def test_example_config_documents_complete_keepalive_host_policy():
         "browser_retry_max_seconds": 1800,
         "browser_human_retry_seconds": 21600,
         "browser_human_retry_min_failures": 3,
-        "browser_profile_base": "/opt/flow2api-profiles",
+        "browser_profile_base": "/opt/flowproxy-profiles",
         "browser_proxy": "http://127.0.0.1:7890",
         "browser_display": ":10",
         "browser_settle_seconds": 8.0,

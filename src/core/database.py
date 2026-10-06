@@ -1,4 +1,4 @@
-"""Database storage layer for Flow2API"""
+"""Database storage layer for FlowProxy"""
 import aiosqlite
 import json
 from datetime import datetime
@@ -19,10 +19,10 @@ from .token_states import AccountLifecycleState
 
 
 class Database(SqliteEngine):
-    """SQLite database manager (flow2api schema on top of the shared SqliteEngine).
+    """SQLite database manager (flowproxy schema on top of the shared SqliteEngine).
 
     Connection/lock/pragma/schema-probe plumbing lives in SqliteEngine; this class
-    owns the flow2api tables, migrations, and CRUD.
+    owns the flowproxy tables, migrations, and CRUD.
     """
 
     def __init__(self, db_path: str = None):
@@ -511,7 +511,7 @@ class Database(SqliteEngine):
         async with self._connect(write=True) as db:
             await db.execute("PRAGMA journal_mode = WAL")
             await db.execute("PRAGMA synchronous = NORMAL")
-            # Tokens table (Flow2API版本)
+            # Tokens table (FlowProxy版本)
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS tokens (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

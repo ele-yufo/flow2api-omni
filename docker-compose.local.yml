@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  flow2api:
+  flowproxy:
     build:
       context: .
       dockerfile: Dockerfile
-    image: flow2api:local
-    container_name: flow2api
+    image: flowproxy:local
+    container_name: flowproxy
     ports:
       - "38000:8000"
     volumes:

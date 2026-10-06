@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     print("=" * 60)
-    print("Flow2API Starting...")
+    print("FlowProxy Starting...")
     print("=" * 60)
 
     # Get config from setting.toml
@@ -166,7 +166,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    print("Flow2API Shutting down...")
+    print("FlowProxy Shutting down...")
     # Stop file cache cleanup task
     await generation_handler.file_cache.stop_cleanup_task()
     # Stop auto-unban task
@@ -222,7 +222,7 @@ def add_configured_cors(application: FastAPI, allowed_origins: list[str]) -> Non
 
 # Create FastAPI app
 app = FastAPI(
-    title="Flow2API",
+    title="FlowProxy",
     description="OpenAI-compatible API for Google VideoFX (Veo)",
     version="1.0.0",
     lifespan=lifespan
@@ -253,7 +253,7 @@ async def index():
     login_file = static_path / "login.html"
     if login_file.exists():
         return FileResponse(str(login_file))
-    return HTMLResponse(content="<h1>Flow2API</h1><p>Frontend not found</p>", status_code=404)
+    return HTMLResponse(content="<h1>FlowProxy</h1><p>Frontend not found</p>", status_code=404)
 
 
 @app.get("/login", response_class=HTMLResponse)

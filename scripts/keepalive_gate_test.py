@@ -37,7 +37,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 def _load_production_entrypoint() -> Callable[[list[str]], int]:
     spec = importlib.util.spec_from_file_location(
-        "flow2api_keepalive_browser_entrypoint",
+        "flowproxy_keepalive_browser_entrypoint",
         PRODUCTION_ENTRYPOINT,
     )
     if spec is None or spec.loader is None:

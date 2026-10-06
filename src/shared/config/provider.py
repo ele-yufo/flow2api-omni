@@ -1,4 +1,4 @@
-"""Configuration management for Flow2API"""
+"""Configuration management for FlowProxy"""
 import os
 import tomli
 from pathlib import Path
@@ -60,7 +60,7 @@ class Config(CorsConfigMixin):
         """Set admin username from database"""
         self._admin_username = username
 
-    # Flow2API specific properties
+    # FlowProxy specific properties
     @property
     def flow_labs_base_url(self) -> str:
         """Google Labs base URL for project management"""
@@ -355,12 +355,12 @@ class Config(CorsConfigMixin):
     def captcha_persistent_profile_path(self) -> str:
         """持久化 profile 的 user-data-dir 路径。
 
-        必须是 flow2api 进程有读写权限的固定目录。该目录会被 nodriver 和
+        必须是 flowproxy 进程有读写权限的固定目录。该目录会被 nodriver 和
         GUI Chrome 共享（不可同时打开）。
         """
         return str(
             self._config.get("captcha", {}).get(
-                "persistent_profile_path", "/opt/flow2api-profiles/ultra"
+                "persistent_profile_path", "/opt/flowproxy-profiles/ultra"
             )
         ).strip()
 
@@ -572,7 +572,7 @@ class Config(CorsConfigMixin):
         # 默认 False：多账号池下浏览器只登录一个号，用它刷新会把别的号 ST 写错
         return bool(self._config.get("token", {}).get("st_browser_refresh_enabled", False))
 
-    # ========== 浏览器保活器（独立进程 flow2api-keepalive.service）==========
+    # ========== 浏览器保活器（独立进程 flowproxy-keepalive.service）==========
     def _keepalive_int(
         self,
         key: str,
@@ -661,7 +661,7 @@ class Config(CorsConfigMixin):
 
     @property
     def keepalive_browser_profile_base(self) -> str:
-        return str(self._config.get("keepalive", {}).get("browser_profile_base", "/opt/flow2api-profiles")).strip()
+        return str(self._config.get("keepalive", {}).get("browser_profile_base", "/opt/flowproxy-profiles")).strip()
 
     @property
     def keepalive_browser_proxy(self) -> str:
@@ -704,7 +704,7 @@ class Config(CorsConfigMixin):
     @property
     def alert_webhook_url(self) -> str:
         # 优先环境变量（密钥不进 git），回退 toml [admin] alert_webhook_url
-        env = os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")
+        env = os.environ.get("FLOWPROXY_ALERT_WEBHOOK_URL")
         if env:
             return env.strip()
         return str(self._config.get("admin", {}).get("alert_webhook_url", "") or "")

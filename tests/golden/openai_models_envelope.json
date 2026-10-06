@@ -10,7 +10,7 @@
   "sample_first_no_desc": {
     "id": "gemini-3.2-flash-image-landscape",
     "object": "model",
-    "owned_by": "flow2api"
+    "owned_by": "flowproxy"
   },
   "top_level_keys": [
     "data",

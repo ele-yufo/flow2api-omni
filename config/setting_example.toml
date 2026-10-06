@@ -26,7 +26,7 @@ max_poll_attempts = 200
 host = "0.0.0.0"
 port = 8000
 # 同源管理页面无需配置。跨域控制台或 Chrome 扩展需填写浏览器实际 Origin；禁止 "*"。
-# 也可用 FLOW2API_CORS_ALLOWED_ORIGINS 逗号分隔覆盖，例如 chrome-extension://<扩展ID>。
+# 也可用 FLOWPROXY_CORS_ALLOWED_ORIGINS 逗号分隔覆盖，例如 chrome-extension://<扩展ID>。
 cors_allowed_origins = []
 
 [debug]
@@ -55,7 +55,7 @@ min_credits_to_select = 20
 
 [admin]
 error_ban_threshold = 3
-# Discord 运维告警 webhook URL。优先读环境变量 FLOW2API_ALERT_WEBHOOK_URL（密钥不进 git），留空则只记日志
+# Discord 运维告警 webhook URL。优先读环境变量 FLOWPROXY_ALERT_WEBHOOK_URL（密钥不进 git），留空则只记日志
 alert_webhook_url = ""
 # 可用账号池低水位阈值：活跃账号数 <= 此值时触发 Discord 告警
 alert_pool_low_threshold = 2
@@ -103,7 +103,7 @@ browser_human_retry_seconds = 21600
 # human_action 类失败（登录被拒/cookie 丢失等）先按普通指数退避重试，连续失败达此次数
 # 才进 browser_human_retry_seconds 的人工退避。瞬时拒绝通常 1-2 次内自愈。
 browser_human_retry_min_failures = 3
-browser_profile_base = "/opt/flow2api-profiles"
+browser_profile_base = "/opt/flowproxy-profiles"
 browser_proxy = "http://127.0.0.1:7890"
 browser_display = ":10"
 browser_settle_seconds = 8.0

@@ -41,7 +41,7 @@ def build_discord_payload(title: str, description: str, fields: FieldsType = Non
         "fields": _normalize_fields(fields),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    return {"username": "Flow2API 哨兵", "embeds": [embed]}
+    return {"username": "FlowProxy 哨兵", "embeds": [embed]}
 
 
 class AlertNotifier:

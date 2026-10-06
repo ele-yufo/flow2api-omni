@@ -1,12 +1,12 @@
 version: '3.8'
 
 services:
-  flow2api-headed:
+  flowproxy-headed:
     build:
       context: .
       dockerfile: Dockerfile.headed
-    image: flow2api:headed
-    container_name: flow2api-headed
+    image: flowproxy:headed
+    container_name: flowproxy-headed
     ports:
       - "8000:8000"
     volumes:

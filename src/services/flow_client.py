@@ -68,7 +68,7 @@ class FlowClient:
         self._captcha_cooldown = CaptchaCooldownTracker()
 
         # 发车策略改为“请求到就发”：
-        # 不在 flow2api 本地对提交做批次整形或排队，避免把同批请求打成阶梯。
+        # 不在 flowproxy 本地对提交做批次整形或排队，避免把同批请求打成阶梯。
 
     def _generate_user_agent(self, account_id: str = None) -> str:
         """委托 HeaderBuilder(见 flow.http_headers)。"""
@@ -735,7 +735,7 @@ class FlowClient:
         # 优先尝试新版上传接口: /v1/flow/uploadImage
         # 若失败则自动回退到旧接口,保证兼容
         ext = "png" if "png" in mime_type else "jpg"
-        upload_file_name = f"flow2api_upload_{int(time.time() * 1000)}.{ext}"
+        upload_file_name = f"flowproxy_upload_{int(time.time() * 1000)}.{ext}"
         new_url = f"{self.api_base_url}/flow/uploadImage"
         normalized_project_id = str(project_id or "").strip()
         new_client_context = {

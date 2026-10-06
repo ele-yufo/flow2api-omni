@@ -8,7 +8,7 @@ is_managed_captcha_chrome = cleanup.is_managed_captcha_chrome
 
 
 def test_cleanup_only_targets_managed_chrome_for_exact_profile():
-    profile = Path("/opt/flow2api-profiles/ultra")
+    profile = Path("/opt/flowproxy-profiles/ultra")
     managed = ProcessSnapshot(
         pid=123, start_ticks=456,
         cmdline=(
@@ -22,7 +22,7 @@ def test_cleanup_only_targets_managed_chrome_for_exact_profile():
     assert is_managed_captcha_chrome(
         ProcessSnapshot(123, 456, (" ".join(managed.cmdline),)), profile
     )
-    assert not is_managed_captcha_chrome(managed, Path("/opt/flow2api-profiles/21"))
+    assert not is_managed_captcha_chrome(managed, Path("/opt/flowproxy-profiles/21"))
     assert not is_managed_captcha_chrome(
         ProcessSnapshot(123, 456, ("/opt/google/chrome/chrome", f"--user-data-dir={profile}")),
         profile,
@@ -30,7 +30,7 @@ def test_cleanup_only_targets_managed_chrome_for_exact_profile():
 
 
 def test_stop_only_signals_same_live_lock_owner(monkeypatch):
-    profile = Path("/opt/flow2api-profiles/ultra")
+    profile = Path("/opt/flowproxy-profiles/ultra")
     owner = ProcessSnapshot(
         123, 456,
         (f"/opt/google/chrome/chrome --remote-allow-origins=* "
@@ -58,7 +58,7 @@ def test_stop_only_signals_same_live_lock_owner(monkeypatch):
 
 
 def test_stop_refuses_changed_lock(monkeypatch):
-    profile = Path("/opt/flow2api-profiles/ultra")
+    profile = Path("/opt/flowproxy-profiles/ultra")
     owner = ProcessSnapshot(
         123, 456,
         ("/opt/google/chrome/chrome", "--remote-allow-origins=*",

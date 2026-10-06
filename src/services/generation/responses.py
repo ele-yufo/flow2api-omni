@@ -17,7 +17,7 @@ def create_stream_chunk(
         "id": f"chatcmpl-{int(time.time())}",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
-        "model": "flow2api",
+        "model": "flowproxy",
         "choices": [{
             "index": 0,
             "delta": {},
@@ -63,7 +63,7 @@ def create_completion_response(
         "id": f"chatcmpl-{int(time.time())}",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": "flow2api",
+        "model": "flowproxy",
         "choices": [{
             "index": 0,
             "message": {

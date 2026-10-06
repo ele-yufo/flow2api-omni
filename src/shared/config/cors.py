@@ -13,7 +13,7 @@ class CorsConfigMixin:
     @property
     def server_cors_allowed_origins(self) -> list[str]:
         """Return normalized explicit web/extension origins for browser API calls."""
-        environment_value = os.environ.get("FLOW2API_CORS_ALLOWED_ORIGINS")
+        environment_value = os.environ.get("FLOWPROXY_CORS_ALLOWED_ORIGINS")
         raw_origins = (
             environment_value.split(",")
             if environment_value is not None

@@ -1267,7 +1267,7 @@ async def get_token_refresh_config(token: str = Depends(verify_admin_token)):
     return {
         "success": True,
         "config": {
-            "at_auto_refresh_enabled": True  # Flow2API默认启用AT自动刷新
+            "at_auto_refresh_enabled": True  # FlowProxy默认启用AT自动刷新
         }
     }
 
@@ -1276,10 +1276,10 @@ async def get_token_refresh_config(token: str = Depends(verify_admin_token)):
 async def update_token_refresh_enabled(
     token: str = Depends(verify_admin_token)
 ):
-    """Update AT auto refresh enabled (Flow2API固定启用,此接口仅用于前端兼容)"""
+    """Update AT auto refresh enabled (FlowProxy固定启用,此接口仅用于前端兼容)"""
     return {
         "success": True,
-        "message": "Flow2API的AT自动刷新默认启用且无法关闭"
+        "message": "FlowProxy的AT自动刷新默认启用且无法关闭"
     }
 
 

@@ -94,7 +94,7 @@ class OnboardError(Exception):
 def acquire_onboard_global_lease(base_dir: Union[Path, str]) -> ProfileLease:
     """Acquire the global onboarding lease.
 
-    flocks ``<base_dir>/.flow2api-locks/onboarding-global.lock`` so two onboards
+    flocks ``<base_dir>/.flowproxy-locks/onboarding-global.lock`` so two onboards
     cannot open Chrome on the same XRDP display at the same time (spec §6.0/§7.3
     cross-talk guard). ``base_dir`` is used both as the flock root and as the
     validated profile path: the lock is per-display, not per-token, so it lives

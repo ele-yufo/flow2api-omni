@@ -67,7 +67,7 @@ def test_enabled_profile_preflight_checks_binding_cookie_db_and_lease(tmp_path):
     )
 
     assert module.validate_enabled_profile(target, profile_base) == []
-    assert (profile_base / ".flow2api-locks" / "7.lock").stat().st_mode & 0o777 == 0o600
+    assert (profile_base / ".flowproxy-locks" / "7.lock").stat().st_mode & 0o777 == 0o600
 
     cookies.unlink()
     failures = module.validate_enabled_profile(target, profile_base)
@@ -242,7 +242,7 @@ def test_preflight_external_lock_directory_error_is_sanitized(
     cookies.write_bytes(b"offline")
     external_lock_directory = tmp_path / "external-customer-locks"
     external_lock_directory.mkdir()
-    (profile_base / ".flow2api-locks").symlink_to(
+    (profile_base / ".flowproxy-locks").symlink_to(
         external_lock_directory,
         target_is_directory=True,
     )

@@ -363,7 +363,7 @@ class BrowserCaptchaService:
         if os.path.exists(singleton_lock):
             raise RuntimeError(
                 f"持久化 profile 被另一个 Chrome 进程占用 (SingletonLock={singleton_lock})。"
-                f" 通常是 GUI Chrome 没退出。请先关闭对应 GUI 窗口再重启 flow2api。"
+                f" 通常是 GUI Chrome 没退出。请先关闭对应 GUI 窗口再重启 flowproxy。"
             )
 
         if not os.path.isdir(profile_path):

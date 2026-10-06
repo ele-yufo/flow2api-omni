@@ -1,4 +1,4 @@
-"""Generation handler for Flow2API"""
+"""Generation handler for FlowProxy"""
 import asyncio
 import re
 

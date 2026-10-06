@@ -17,7 +17,7 @@ if [ -z "${BROWSER_EXECUTABLE_PATH:-}" ] || [ ! -x "${BROWSER_EXECUTABLE_PATH:-}
     fi
 fi
 
-echo "[entrypoint] starting flow2api (headless browser mode)"
+echo "[entrypoint] starting flowproxy (headless browser mode)"
 if [ -n "${BROWSER_EXECUTABLE_PATH:-}" ] && [ -x "${BROWSER_EXECUTABLE_PATH}" ]; then
     echo "[entrypoint] browser executable: ${BROWSER_EXECUTABLE_PATH}"
     "${BROWSER_EXECUTABLE_PATH}" --version || true

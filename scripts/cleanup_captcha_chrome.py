@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Stop a managed captcha Chrome left outside flow2api.service's cgroup.
+"""Stop a managed captcha Chrome left outside flowproxy.service's cgroup.
 
 Chrome launches in a user app scope, so systemd cannot kill it after the API
-process exceeds TimeoutStopSec. Run only from flow2api.service ExecStopPost.
+process exceeds TimeoutStopSec. Run only from flowproxy.service ExecStopPost.
 """
 
 from __future__ import annotations

@@ -19,7 +19,7 @@ def test_keepalive_host_config_baseline():
             "browser_enabled": True,
             "browser_interval_seconds": "1200",
             "browser_token_ids": "23, 22,invalid",
-            "browser_profile_base": "/opt/flow2api-profiles",
+            "browser_profile_base": "/opt/flowproxy-profiles",
             "browser_proxy": "http://127.0.0.1:7890",
             "browser_display": ":10",
             "browser_settle_seconds": "8",
@@ -29,7 +29,7 @@ def test_keepalive_host_config_baseline():
     assert cfg.keepalive_browser_enabled is True
     assert cfg.keepalive_browser_interval_seconds == 1200
     assert cfg.keepalive_browser_token_ids == [23, 22]
-    assert cfg.keepalive_browser_profile_base == "/opt/flow2api-profiles"
+    assert cfg.keepalive_browser_profile_base == "/opt/flowproxy-profiles"
     assert cfg.keepalive_browser_proxy == "http://127.0.0.1:7890"
     assert cfg.keepalive_browser_display == ":10"
     assert cfg.keepalive_browser_settle_seconds == 8.0

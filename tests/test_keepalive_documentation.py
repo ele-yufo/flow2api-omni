@@ -59,7 +59,7 @@ def test_browser_keepalive_runbook_covers_required_operations_and_security():
         "ST_REVOKED",
         "GRANT_EXPIRED",
         "429_rate_limit",
-        "FLOW2API_CORS_ALLOWED_ORIGINS",
+        "FLOWPROXY_CORS_ALLOWED_ORIGINS",
         "BROWSER_EXECUTABLE_PATH",
         "回滚",
     ):

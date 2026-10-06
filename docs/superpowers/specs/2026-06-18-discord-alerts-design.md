@@ -22,7 +22,7 @@ token_manager(决定事件 + 去重)  ──>  AlertNotifier(Discord embed 格�
 - `build_discord_payload(title, description, fields, severity) -> dict`：**纯函数**，产出 Discord webhook body（一个 embed），可独立单测。
   - `fields`: `list[tuple[name, value, inline]]` 或 `list[dict]`。
   - `severity` ∈ {`critical`, `warning`}，映射 embed `color`：critical=红(15158332)、warning=橙(15105570)。
-  - 含 `username`（"Flow2API 哨兵"）、`timestamp`（ISO8601，由调用方传入或函数内 `datetime.now(timezone.utc)`）。
+  - 含 `username`（"FlowProxy 哨兵"）、`timestamp`（ISO8601，由调用方传入或函数内 `datetime.now(timezone.utc)`）。
 - `class AlertNotifier`：
   - `__init__(self, webhook_url: str)`
   - `async send_alert(self, title, description, fields=None, severity="warning") -> bool`：尽力投递。
@@ -47,8 +47,8 @@ token_manager(决定事件 + 去重)  ──>  AlertNotifier(Discord embed 格�
 
 均在 `[admin]` 段（`config/setting.toml` + `setting_example.toml` + `config.py` property）：
 
-- `alert_webhook_url`：**优先读环境变量 `FLOW2API_ALERT_WEBHOOK_URL`**，其次读 toml `[admin] alert_webhook_url`，默认空。
-  - 实现：`config.py` 顶部 `import os`；property 先 `os.environ.get("FLOW2API_ALERT_WEBHOOK_URL")`，回退 toml。
+- `alert_webhook_url`：**优先读环境变量 `FLOWPROXY_ALERT_WEBHOOK_URL`**，其次读 toml `[admin] alert_webhook_url`，默认空。
+  - 实现：`config.py` 顶部 `import os`；property 先 `os.environ.get("FLOWPROXY_ALERT_WEBHOOK_URL")`，回退 toml。
   - 把今天刚加的 `st_alert_webhook_url` **重命名为 `alert_webhook_url`**（语义已通用化）；同步更新 `setting.toml`/`setting_example.toml`/README/memory `reference_st_self_renewal_model`。
 - `alert_pool_low_threshold`：默认 `2`。活跃账号数 ≤ 此值时触发"池告急"。
 
@@ -79,7 +79,7 @@ token_manager(决定事件 + 去重)  ──>  AlertNotifier(Discord embed 格�
 
 ## 8. 部署（密钥落地，不进 git）
 
-webhook URL 通过环境变量提供给运行中的 systemd 服务（`flow2api.service`）：用 systemd drop-in（`/etc/systemd/system/flow2api.service.d/override.conf` 设 `Environment=FLOW2API_ALERT_WEBHOOK_URL=...`）或 `EnvironmentFile`。需要 sudo 写 `/etc`；若无权限则交给用户执行一条命令。受跟踪文件中只保留 `alert_webhook_url = ""`（无密钥）。
+webhook URL 通过环境变量提供给运行中的 systemd 服务（`flowproxy.service`）：用 systemd drop-in（`/etc/systemd/system/flowproxy.service.d/override.conf` 设 `Environment=FLOWPROXY_ALERT_WEBHOOK_URL=...`）或 `EnvironmentFile`。需要 sudo 写 `/etc`；若无权限则交给用户执行一条命令。受跟踪文件中只保留 `alert_webhook_url = ""`（无密钥）。
 
 ## 9. 明确不做（YAGNI）
 

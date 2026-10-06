@@ -100,7 +100,7 @@ def test_cors_allowed_origins_are_explicit_normalized_and_environment_overridabl
     ]
 
     monkeypatch.setenv(
-        "FLOW2API_CORS_ALLOWED_ORIGINS",
+        "FLOWPROXY_CORS_ALLOWED_ORIGINS",
         "https://console.example.com, chrome-extension://extensionid ",
     )
     assert configured.server_cors_allowed_origins == [
@@ -114,7 +114,7 @@ def test_cors_allowed_origins_are_explicit_normalized_and_environment_overridabl
     ["*", "https://admin.example.com/manage", "admin.example.com"],
 )
 def test_cors_allowed_origins_reject_unsafe_or_non_origin_values(monkeypatch, origin):
-    monkeypatch.delenv("FLOW2API_CORS_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("FLOWPROXY_CORS_ALLOWED_ORIGINS", raising=False)
     configured = _config_with({"server": {"cors_allowed_origins": [origin]}})
 
     with pytest.raises(ValueError, match="CORS origin"):

@@ -1,4 +1,4 @@
-"""Flow2API - Main Entry Point"""
+"""FlowProxy - Main Entry Point"""
 from src.main import app
 import uvicorn
 

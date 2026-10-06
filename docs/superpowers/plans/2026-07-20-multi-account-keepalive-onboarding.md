@@ -167,7 +167,7 @@ def test_publish_never_returns_credentials(tmp_path):
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_publish_verified_account.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_publish_verified_account.py -v`
 Expected: FAIL（`ImportError: cannot import name 'PublishError'` 或 `make_database_with_token` 不存在）
 
 - [ ] **Step 3: 写测试 helper（DB fixture）**
@@ -307,13 +307,13 @@ class PublishError(Exception):
 
 - [ ] **Step 5: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_publish_verified_account.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_publish_verified_account.py -v`
 Expected: PASS（6 passed）。若 `make_database_with_token` 的 `db.add_token` 等签名不匹配，按 `tests/test_verified_account_snapshot.py` 现有 fixture 修正 helper。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add src/core/repositories/token_lifecycle_repository.py tests/test_publish_verified_account.py tests/helpers/db_fixtures.py
 git commit -m "feat(keepalive): add publish_verified_account (reuse apply_verified_snapshot + desired-state txn)
 
@@ -439,7 +439,7 @@ def test_launch_uses_build_browser_command_with_explicit_default(tmp_path, monke
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_onboard_flow.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_onboard_flow.py -v`
 Expected: FAIL（`ImportError: No module named src.services.tokens.onboard`）
 
 - [ ] **Step 3: 实现 onboard.py 核心（lease / launch / 超时 / 进程组 / 验证）**
@@ -489,7 +489,7 @@ class OnboardError(Exception):
 
 
 def acquire_onboard_global_lease(base_dir: Path):
-    """全局 onboard display lease：同一时刻只允许一个 onboard。flock on <base>/.flow2api-locks/onboarding-global.lock。"""
+    """全局 onboard display lease：同一时刻只允许一个 onboard。flock on <base>/.flowproxy-locks/onboarding-global.lock。"""
     try:
         return acquire_profile_path_lease(base_dir, base_dir, ONBOARD_GLOBAL_LOCK_NAME)
     except ProfileLeaseBusyError as error:
@@ -569,13 +569,13 @@ async def verify_profile(
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_onboard_flow.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_onboard_flow.py -v`
 Expected: PASS（3 passed）。若 `acquire_profile_path_lease` 签名不匹配（它是 `(base_dir, profile_base, lease_key)` 三参），核对 `src/services/keepalive/profile.py:212-261` 调整。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add src/services/tokens/onboard.py tests/test_onboard_flow.py
 git commit -m "feat(keepalive): onboard.py core (global lease, chrome launch+timeout, verify)
 
@@ -696,7 +696,7 @@ def _raise(exc):
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_onboard_flow.py -k onboard_new -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_onboard_flow.py -k onboard_new -v`
 Expected: FAIL（`onboard_new` 未定义）
 
 - [ ] **Step 3: 实现新号/旧号编排（追加到 onboard.py）**
@@ -832,13 +832,13 @@ async def onboard_existing(*, token_id, runtime, display, db, flow_client, pool_
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_onboard_flow.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_onboard_flow.py -v`
 Expected: PASS（全部）。新号/旧号 mock 流程跑通。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add src/services/tokens/onboard.py tests/test_onboard_flow.py
 git commit -m "feat(keepalive): onboard_new/onboard_existing flow (temp profile+rename, readonly validate)
 
@@ -873,8 +873,8 @@ TOKENS_PY = "scripts/tokens.py"
 def _run(argv):
     return subprocess.run(
         [sys.executable, TOKENS_PY] + argv,
-        capture_output=True, text=True, cwd="/opt/Projects/flow2api",
-        env={"PATH": "/opt/Projects/flow2api/.venv/bin:/usr/bin"})
+        capture_output=True, text=True, cwd="/opt/Projects/flowproxy",
+        env={"PATH": "/opt/Projects/flowproxy/.venv/bin:/usr/bin"})
 
 
 def test_no_args_prints_usage_and_exits_2():
@@ -906,7 +906,7 @@ def test_exit_code_constants():
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -v`
 Expected: FAIL（`scripts/tokens.py` 不存在）
 
 - [ ] **Step 3: 实现 CLI 框架**
@@ -949,7 +949,7 @@ def emit_error(code: str, message: str, detail: dict | None = None, exit_code: E
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="tokens", description="Flow2API token keepalive management (Agent CLI)")
+    parser = argparse.ArgumentParser(prog="tokens", description="FlowProxy token keepalive management (Agent CLI)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_status = sub.add_parser("status", help="show all tokens health")
@@ -1024,13 +1024,13 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -v`
 Expected: PASS（框架 + 退出码常量）。`no_args`/`unknown_subcommand` 返回 2（argparse 默认）。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add scripts/tokens.py tests/test_tokens_cli.py
 git commit -m "feat(keepalive): tokens.py CLI framework (subcommands, JSON output, exit codes)
 
@@ -1092,7 +1092,7 @@ def _ns(**kw):
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -k "disable or enable or keepalive" -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -k "disable or enable or keepalive" -v`
 Expected: FAIL（`NotImplementedError`）
 
 - [ ] **Step 3: 实现 4 个子命令（替换 Task 4 的 `_cmd_*` stub）**
@@ -1163,13 +1163,13 @@ async def _cmd_keepalive(args, db) -> int:
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -v`
 Expected: PASS（全部）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add scripts/tokens.py tests/test_tokens_cli.py
 git commit -m "feat(keepalive): tokens CLI status/enable/disable/keepalive subcommands
 
@@ -1237,7 +1237,7 @@ _VALIDATION_CODES = {"profile_missing", "cookie_missing", "session_body", "sessi
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -k onboard -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -k onboard -v`
 Expected: FAIL（`_cmd_onboard` 还是 stub）
 
 - [ ] **Step 3: 实现 `_cmd_onboard` + `_dispatch`**
@@ -1319,13 +1319,13 @@ def main(argv: list[str] | None = None) -> int:
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_tokens_cli.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_tokens_cli.py -v`
 Expected: PASS（全部 onboard + 框架）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add scripts/tokens.py tests/test_tokens_cli.py
 git commit -m "feat(keepalive): tokens CLI onboard subcommand (phased JSON, error code mapping)
 
@@ -1376,7 +1376,7 @@ def test_lifecycle_put_still_works(admin_client):
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_admin_onboarding_disabled.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_admin_onboarding_disabled.py -v`
 Expected: FAIL（路由仍返回原行为，非 410）
 
 - [ ] **Step 3: 改 onboarding 路由 handler 返回 410**
@@ -1395,7 +1395,7 @@ raise HTTPException(status_code=410, detail={
 
 - [ ] **Step 4: 跑测试 + 全量 onboarding 测试调整**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/pytest tests/test_admin_onboarding_disabled.py -v`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/pytest tests/test_admin_onboarding_disabled.py -v`
 Expected: PASS（3 个 410 + lifecycle 通过）
 
 检查是否有现有 onboarding 测试（如 `tests/test_keepalive_*` 或 onboarding 专属测试）断言原行为 → 这些测试要么删除（onboarding 已废弃），要么改为断言 410。逐一调整直到 `scripts/test.sh` 全绿。
@@ -1403,7 +1403,7 @@ Expected: PASS（3 个 410 + lifecycle 通过）
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add src/api/admin.py tests/
 git commit -m "chore(keepalive): disable onboarding admin API (410 Gone), use tokens CLI onboard
 
@@ -1420,7 +1420,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 - [ ] **Step 1: 全量测试回归**
 
-Run: `cd /opt/Projects/flow2api && scripts/test.sh`
+Run: `cd /opt/Projects/flowproxy && scripts/test.sh`
 Expected: 全绿（交接文档说上次 649 passed + 54 subtests，本次新增 publisher/onboard/cli 测试，应更多）。任何失败逐个修复。
 
 > 重点检查：现有 `tests/test_verified_account_snapshot.py`（apply_verified_snapshot 测试）仍绿（publisher 复用它，没改它）；`tests/test_keepalive_*` 不受影响（没碰 keepalive package）。
@@ -1437,14 +1437,14 @@ onboarding 状态机（2810 行）已废弃，admin API 返回 410。新入库/�
 ### 新号入库
 Agent 执行：
 \`\`\`bash
-/opt/Projects/flow2api/.venv/bin/python scripts/tokens.py onboard --email xxx@gmail.com --display :11
+/opt/Projects/flowproxy/.venv/bin/python scripts/tokens.py onboard --email xxx@gmail.com --display :11
 \`\`\`
 分阶段输出 JSON：awaiting_login → validating → published/failed。
 用户在 XRDP :11 登录 Google+Flow，看到主界面后关闭 Chrome。
 
 ### 旧号重启用 / 重登录
 \`\`\`bash
-/opt/Projects/flow2api/.venv/bin/python scripts/tokens.py onboard --token-id 21 --display :11
+/opt/Projects/flowproxy/.venv/bin/python scripts/tokens.py onboard --token-id 21 --display :11
 \`\`\`
 profile 活着则免登录（只读验证）秒发布；失效则引导重登录。
 
@@ -1470,13 +1470,13 @@ scripts/tokens.py keepalive --token-id N on   # 开保活
 
 - [ ] **Step 3: preflight 自检**
 
-Run: `cd /opt/Projects/flow2api && .venv/bin/python scripts/keepalive_browser.py --preflight`
+Run: `cd /opt/Projects/flowproxy && .venv/bin/python scripts/keepalive_browser.py --preflight`
 Expected: 通过（确认 keepalive 配置/profile/Chrome 都健康，部署前基线 OK）。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /opt/Projects/flow2api
+cd /opt/Projects/flowproxy
 git add docs/operations/browser-keepalive.md
 git commit -m "docs(keepalive): simplified onboarding tunnel + deprecate onboarding state machine
 
@@ -1487,9 +1487,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ## 附录 A: 部署（维护窗口，手动，非 TDD）
 
-1. **备份**：`/opt/Projects/flow2api/.wm_dev/backups/onboard-tunnel-<ts>/` 含 DB + 受影响 profile + admin.py + 新源码 tarball。
+1. **备份**：`/opt/Projects/flowproxy/.wm_dev/backups/onboard-tunnel-<ts>/` 含 DB + 受影响 profile + admin.py + 新源码 tarball。
 2. **落地**：新文件（tokens.py/onboard.py）+ 修改（token_lifecycle_repository.py/admin.py）已在 Task 1-7 commit。`git pull` 或 rsync 到生产路径。
-3. **重启主服务**：`sudo systemctl restart flow2api.service`（加载 admin.py + repository 改动）。
+3. **重启主服务**：`sudo systemctl restart flowproxy.service`（加载 admin.py + repository 改动）。
 4. **不重启 keepalive sidecar**（新隧道不碰 keepalive package）。
 5. **验证 Token 23 不受影响**：观察 `token_lifecycle.next_due_at` 继续推进 + `last_keepalive_success_at` 更新。
 6. **`tokens status` 可读**：`scripts/tokens.py status` 输出 JSON。

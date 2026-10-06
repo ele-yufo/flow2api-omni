@@ -113,7 +113,7 @@ def test_setup_holds_service_lease_runs_foreground_then_verifies_identity(tmp_pa
 
     def launcher(command, *, env, check, stdout, stderr):
         profile = profile_base / "17"
-        lease_path = profile_base / ".flow2api-locks" / "17.lock"
+        lease_path = profile_base / ".flowproxy-locks" / "17.lock"
         events.append("launch")
         launched.update(
             command=command,
@@ -406,7 +406,7 @@ def test_setup_cli_external_lock_directory_error_is_sanitized(
     profile_base.mkdir()
     external_lock_directory = tmp_path / "external-customer-locks"
     external_lock_directory.mkdir()
-    (profile_base / ".flow2api-locks").symlink_to(
+    (profile_base / ".flowproxy-locks").symlink_to(
         external_lock_directory,
         target_is_directory=True,
     )

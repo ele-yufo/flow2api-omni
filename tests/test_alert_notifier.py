@@ -85,7 +85,7 @@ from src.core.config import config
 
 class ConfigTests(unittest.TestCase):
     def test_env_overrides_toml_for_webhook(self):
-        with _patch.dict(os.environ, {"FLOW2API_ALERT_WEBHOOK_URL": "https://env.example/wh"}):
+        with _patch.dict(os.environ, {"FLOWPROXY_ALERT_WEBHOOK_URL": "https://env.example/wh"}):
             self.assertEqual(config.alert_webhook_url, "https://env.example/wh")
 
     def test_pool_low_threshold_default(self):

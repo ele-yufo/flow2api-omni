@@ -1,4 +1,4 @@
-"""Load balancing module for Flow2API"""
+"""Load balancing module for FlowProxy"""
 import asyncio
 import random
 from datetime import datetime, timezone
