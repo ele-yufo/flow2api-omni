@@ -174,12 +174,10 @@ const STATE = { selectedModel: null, modelConfig: null, images: [], generating: 
 // Model categories for sidebar
 const MODEL_CATEGORIES = {
   "Gemini 3.2 Flash 图片 (Nano Banana 2.1)": { filter: m => m.startsWith("gemini-3.2-flash-image") },
-  "Gemini Omni T2V": { filter: m => m.startsWith("gemini_omni_t2v") && !m.includes("4k") && !m.includes("1080p") && !m.includes("360p") },
-  "Gemini Omni R2V": { filter: m => m.startsWith("gemini_omni_r2v") && !m.includes("4k") && !m.includes("1080p") && !m.includes("360p") },
-  "Gemini Omni I2V/首尾帧": { filter: m => m.startsWith("gemini_omni_i2v") || m.startsWith("gemini_omni_fl") },
+  "Omni T2V": { filter: m => m.startsWith("gemini_omni_t2v") },
+  "Omni R2V": { filter: m => m.startsWith("gemini_omni_r2v") },
+  "Omni I2V/首尾帧": { filter: m => m.startsWith("gemini_omni_i2v") || m.startsWith("gemini_omni_fl") },
   "Omni 延长/编辑": { filter: m => m.startsWith("gemini_omni_edit") },
-  "Omni 360P 半价档": { filter: m => m.includes("360p") },
-  "视频放大 (Upsample)": { filter: m => m.includes("4k") || m.includes("1080p") },
 };
 
 const FALLBACK_MODELS = {

@@ -305,8 +305,8 @@ Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 fa
 能力矩阵（2026-08-28 上游 projectInitialData 抓包实证）：
 
 - **T2V** 文生视频 / **R2V** 多图参考（最多 7 张）/ **I2V** 首帧图生视频（恰好 1 张）/ **首尾帧**（恰好 2 张，首帧+尾帧，上游 key 为 `omni_flash_i2v_{d}s_first_last`）
-- 分辨率变体后缀：无后缀 = 720P 原版；`_1080p` = 720P→1080P 上采样（`veo_3_1_upsampler_1080p`，0 额度）；`_4k` = 720P→4K 上采样（`veo_3_1_upsampler_4k`，**仅 Ultra 账号可用，50 额度**，Pro/Free 提交会被上游拒绝）；`_360p` = 原生 360P 生成（额度约为 720P 的一半，适合低成本迭代）
-- 费用（Pro/Ultra 同价，720P）：4s=7 / 6s=10 / 8s=12 / 10s=15 额度；360P：4/5/6/7 额度
+- 分辨率只有两档高清（2026-10 目录收敛，720P 原版与 360P 半价档已下线）：`_1080p` 与 `_4k`，均为"720P 原生 + 上采样"两步链——上游没有原生 1080P/4K 生成，产物分辨率即后缀标称
+- 费用 = 原生 720P 生成费（4s=7 / 6s=10 / 8s=12 / 10s=15 额度，Pro/Ultra 同价）+ 上采样费（1080p=0 额度；4K=50 额度**仅 Ultra 账号**，Pro/Free 提交会被上游拒绝）
 
 调用方式与现有模型完全一致 —— OpenAI `chat.completions` 输入或 Gemini 官方格式。首尾帧模型按顺序上传 2 张图片（第 1 张 = 首帧，第 2 张 = 尾帧）。
 
@@ -314,39 +314,38 @@ Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 fa
 
 | 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
-| `gemini_omni_t2v_4s` / `gemini_omni_t2v_portrait_4s` | 4s | 横/竖屏 |
-| `gemini_omni_t2v_6s` / `gemini_omni_t2v_portrait_6s` | 6s | 横/竖屏 |
-| `gemini_omni_t2v_8s` / `gemini_omni_t2v_portrait_8s` | 8s | 横/竖屏 |
+| `gemini_omni_t2v_4s_{1080p,4k}` / `gemini_omni_t2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
+| `gemini_omni_t2v_6s_{1080p,4k}` / `gemini_omni_t2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
+| `gemini_omni_t2v_8s_{1080p,4k}` / `gemini_omni_t2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
 | `gemini_omni_t2v_10s` / `gemini_omni_t2v_portrait_10s` | 10s | 横/竖屏 |
 
 #### 多图视频 (R2V，最多 7 张参考图)
 
 | 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
-| `gemini_omni_r2v_4s` / `gemini_omni_r2v_portrait_4s` | 4s | 横/竖屏 |
-| `gemini_omni_r2v_6s` / `gemini_omni_r2v_portrait_6s` | 6s | 横/竖屏 |
-| `gemini_omni_r2v_8s` / `gemini_omni_r2v_portrait_8s` | 8s | 横/竖屏 |
+| `gemini_omni_r2v_4s_{1080p,4k}` / `gemini_omni_r2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
+| `gemini_omni_r2v_6s_{1080p,4k}` / `gemini_omni_r2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
+| `gemini_omni_r2v_8s_{1080p,4k}` / `gemini_omni_r2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
 | `gemini_omni_r2v_10s` / `gemini_omni_r2v_portrait_10s` | 10s | 横/竖屏 |
 
 #### 首帧图生视频 (I2V，恰好 1 张首帧图)
 
 | 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
-| `gemini_omni_i2v_{4,6,8,10}s` / `gemini_omni_i2v_portrait_{4,6,8,10}s` | 4-10s | 横/竖屏 |
+| `gemini_omni_i2v_{4,6,8,10}s_{1080p,4k}` / `gemini_omni_i2v_portrait_{4,6,8,10}s_{1080p,4k}` | 4-10s | 横/竖屏 |
 
 #### 首尾帧视频 (恰好 2 张图：首帧 + 尾帧)
 
 | 模型名称 | 时长 | 尺寸 |
 |---------|------|------|
-| `gemini_omni_fl_{4,6,8,10}s` / `gemini_omni_fl_portrait_{4,6,8,10}s` | 4-10s | 横/竖屏 |
+| `gemini_omni_fl_{4,6,8,10}s_{1080p,4k}` / `gemini_omni_fl_portrait_{4,6,8,10}s_{1080p,4k}` | 4-10s | 横/竖屏 |
 
-#### 分辨率变体（在上面任一基础名后加后缀）
+#### 分辨率（模型名必须以二者之一结尾）
 
 | 后缀 | 输出 | 说明 |
 |------|------|------|
-| `_1080p` | 原版时长 + 1080P | 复用 Veo 3.1 upsampler，0 额度，Pro+ |
-| `_4k` | 原版时长 + 4K | `veo_3_1_upsampler_4k`，50 额度，**仅 Ultra** |
-| `_360p` | 原生 360P | 低价迭代，不上采样 |
+| `_1080p` | 1080P | 720P 原生生成后 `veo_3_1_upsampler_1080p` 放大，0 额度，Pro+ |
+| `_4k` | 4K | 720P 原生生成后 `veo_3_1_upsampler_4k` 放大，50 额度，**仅 Ultra** |
 
 #### 视频延长 / 编辑 (`gemini_omni_edit`，上游 `abra_edit`)
 
@@ -488,7 +487,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_t2v_8s",
+    "model": "gemini_omni_t2v_8s_4k",
     "messages": [
       {
         "role": "user",
@@ -506,7 +505,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_t2v_10s",
+    "model": "gemini_omni_t2v_10s_1080p",
     "messages": [
       {
         "role": "user",
@@ -524,7 +523,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_fl_8s",
+    "model": "gemini_omni_fl_8s_1080p",
     "messages": [
       {
         "role": "user",
@@ -562,7 +561,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_t2v_10s",
+    "model": "gemini_omni_t2v_10s_1080p",
     "messages": [
       {
         "role": "user",
@@ -577,7 +576,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_fl_8s",
+    "model": "gemini_omni_fl_8s_1080p",
     "messages": [
       {
         "role": "user",
@@ -613,7 +612,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   -H "Authorization: Bearer REDACTED_SAMPLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini_omni_r2v_portrait_8s",
+    "model": "gemini_omni_r2v_portrait_8s_4k",
     "messages": [
       {
         "role": "user",

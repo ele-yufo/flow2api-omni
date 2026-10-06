@@ -39,8 +39,10 @@ def _load_base_entries() -> Dict[str, Dict[str, Any]]:
 
 
 # ========== Gemini Omni Flash (abra) 模型注册工厂 ==========
-# 128 个 entry = 4 video_type × 2 orientation × 4 duration × 4 分辨率变体
-# (720p 原版 / 1080p 上采样 / 4K 上采样 / 360p 原生)
+# 64 个 entry = 4 video_type × 2 orientation × 4 duration × 2 分辨率变体
+# (1080p 上采样 / 4K 上采样)。720p 原版与 360p 半价档 2026-10 目录收敛时
+# 按拍板下线——上游原生只有 720P，两档高清内部仍是"720P 原生 + upsample"
+# 两步链（1080p upsample 0 额度，4K 50 额度仅 Ultra），产物即高清。
 _OMNI_DURATIONS = (4, 6, 8, 10)
 _OMNI_UPSAMPLE_1080P = {
     "resolution": "VIDEO_RESOLUTION_1080P",
@@ -62,9 +64,9 @@ _OMNI_VIDEO_TYPES = {
     "fl": ("omni_flash_i2v_{d}s_first_last", 2, 2),
 }
 
-# 分辨率变体后缀 -> 行为；720p 原版无后缀。
-# "_360p" 是原生 360p 生成（model_key 加 _360p），不参与上采样链。
-_OMNI_RESOLUTION_VARIANTS = ("", "_1080p", "_4k", "_360p")
+# 分辨率变体后缀 -> 行为。全部走上采样链：内部先 720P 原生生成为 media，
+# 再用 upsampler 放大到目标分辨率（上游没有原生 1080P/4K 生成）。
+_OMNI_RESOLUTION_VARIANTS = ("_1080p", "_4k")
 
 
 def _build_gemini_omni_entries() -> Dict[str, Dict[str, Any]]:
@@ -79,8 +81,6 @@ def _build_gemini_omni_entries() -> Dict[str, Dict[str, Any]]:
                 for variant in _OMNI_RESOLUTION_VARIANTS:
                     key = f"gemini_omni_{video_type}{orientation_suffix}_{duration}s{variant}"
                     model_key = key_template.format(d=duration)
-                    if variant == "_360p":
-                        model_key += "_360p"
                     entry: Dict[str, Any] = {
                         "type": "video",
                         "video_type": "i2v" if video_type in ("i2v", "fl") else video_type,

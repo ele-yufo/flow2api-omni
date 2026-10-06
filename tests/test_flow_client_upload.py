@@ -410,7 +410,8 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
 
     def test_omni_entries_registered(self):
         omni = [k for k in self.cfg if k.startswith("gemini_omni_")]
-        self.assertEqual(len(omni), 129, f"expected 129 entries, found {len(omni)}: {omni}")
+        # 64 变体 (1080p/4K) + edit = 65；720p 原版与 360p 已下线
+        self.assertEqual(len(omni), 65, f"expected 65 entries, found {len(omni)}: {omni}")
 
     def test_edit_entry_registered(self):
         """gemini_omni_edit: abra_edit，edit 分支，禁 ultra 升级，输出 720P。"""
@@ -463,11 +464,8 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
         for duration in ("4s", "6s", "8s", "10s"):
             for kind, key_tpl in expected_keys.items():
                 upstream = key_tpl.format(d=duration[:-1])
-                for tail in ("", "_1080p", "_4k", "_360p"):
-                    if tail == "_360p":
-                        upstream_key = upstream + "_360p"
-                    else:
-                        upstream_key = upstream
+                for tail in ("_1080p", "_4k"):
+                    upstream_key = upstream
                     for orientation, aspect in (
                         ("", "VIDEO_ASPECT_RATIO_LANDSCAPE"),
                         ("_portrait", "VIDEO_ASPECT_RATIO_PORTRAIT"),

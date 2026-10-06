@@ -96,17 +96,6 @@
     "use_v2_model_config": true,
     "video_type": "edit"
   },
-  "gemini_omni_fl_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_10s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -119,17 +108,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_10s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -148,17 +126,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_4s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -171,17 +138,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_4s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -200,17 +156,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_6s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -223,17 +168,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_6s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -252,17 +186,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_8s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -275,17 +198,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_8s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -304,17 +216,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_portrait_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_10s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_portrait_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -327,17 +228,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_portrait_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_10s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -356,17 +246,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_portrait_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_4s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_portrait_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -379,17 +258,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_portrait_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_4s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -408,17 +276,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_portrait_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_6s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_portrait_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -431,17 +288,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_portrait_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_6s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -460,17 +306,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_fl_portrait_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_8s_first_last",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_fl_portrait_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -483,17 +318,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_fl_portrait_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 2,
-    "min_images": 2,
-    "model_key": "omni_flash_i2v_8s_first_last_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -512,17 +336,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_10s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -535,17 +348,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_10s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -564,17 +366,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_4s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -587,17 +378,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_4s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -616,17 +396,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_6s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -639,17 +408,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_6s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -668,17 +426,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_8s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -691,17 +438,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_8s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -720,17 +456,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_portrait_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_10s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_portrait_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -743,17 +468,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_portrait_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_10s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -772,17 +486,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_portrait_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_4s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_portrait_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -795,17 +498,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_portrait_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_4s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -824,17 +516,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_portrait_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_6s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_portrait_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -847,17 +528,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_portrait_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_6s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -876,17 +546,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_i2v_portrait_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_8s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
   "gemini_omni_i2v_portrait_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -899,17 +558,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "i2v"
-  },
-  "gemini_omni_i2v_portrait_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 1,
-    "min_images": 1,
-    "model_key": "abra_i2v_8s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
@@ -928,17 +576,6 @@
     "use_v2_model_config": true,
     "video_type": "i2v"
   },
-  "gemini_omni_r2v_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_10s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -951,17 +588,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_10s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -980,17 +606,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_4s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1003,17 +618,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_4s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1032,17 +636,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_6s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1055,17 +648,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_6s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1084,17 +666,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_8s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1107,17 +678,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_8s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1136,17 +696,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_portrait_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_10s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_portrait_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1159,17 +708,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_portrait_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_10s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1188,17 +726,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_portrait_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_4s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_portrait_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1211,17 +738,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_portrait_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_4s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1240,17 +756,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_portrait_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_6s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_portrait_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1263,17 +768,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_portrait_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_6s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1292,17 +786,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_r2v_portrait_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_8s",
-    "supports_images": true,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
   "gemini_omni_r2v_portrait_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1315,17 +798,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "r2v"
-  },
-  "gemini_omni_r2v_portrait_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "max_images": 7,
-    "min_images": 0,
-    "model_key": "abra_r2v_8s_360p",
-    "supports_images": true,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
@@ -1344,15 +816,6 @@
     "use_v2_model_config": true,
     "video_type": "r2v"
   },
-  "gemini_omni_t2v_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_10s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1363,15 +826,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_10s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1388,15 +842,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_4s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1407,15 +852,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_4s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1432,15 +868,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_6s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1451,15 +878,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_6s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1476,15 +894,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_8s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
@@ -1495,15 +904,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_LANDSCAPE",
-    "model_key": "abra_t2v_8s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1520,15 +920,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_portrait_10s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_10s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_portrait_10s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1539,15 +930,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_portrait_10s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_10s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1564,15 +946,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_portrait_4s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_4s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_portrait_4s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1583,15 +956,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_portrait_4s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_4s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1608,15 +972,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_portrait_6s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_6s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_portrait_6s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1627,15 +982,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_portrait_6s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_6s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
@@ -1652,15 +998,6 @@
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
-  "gemini_omni_t2v_portrait_8s": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_8s",
-    "supports_images": false,
-    "type": "video",
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
   "gemini_omni_t2v_portrait_8s_1080p": {
     "allow_tier_upgrade": false,
     "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
@@ -1671,15 +1008,6 @@
       "model_key": "veo_3_1_upsampler_1080p",
       "resolution": "VIDEO_RESOLUTION_1080P"
     },
-    "use_v2_model_config": true,
-    "video_type": "t2v"
-  },
-  "gemini_omni_t2v_portrait_8s_360p": {
-    "allow_tier_upgrade": false,
-    "aspect_ratio": "VIDEO_ASPECT_RATIO_PORTRAIT",
-    "model_key": "abra_t2v_8s_360p",
-    "supports_images": false,
-    "type": "video",
     "use_v2_model_config": true,
     "video_type": "t2v"
   },
