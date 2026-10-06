@@ -1,4 +1,4 @@
-# FlowProxy（flowproxy）
+# FlowProxy
 
 <div align="center">
 
@@ -7,22 +7,30 @@
 [![FastAPI](https://img.shields.io/badge/fastapi-supported-green.svg)](https://fastapi.tiangolo.com/)
 [![Tests](https://img.shields.io/badge/tests-748%20passed-brightgreen.svg)](#开发与测试)
 
-**把 Google Flow（flow.google.com）的图片 / 视频生成封装为 OpenAI 兼容 + Gemini 官方格式的本地 API 服务**
+**Google Flow（flow.google.com）媒体生成的反向代理 —— OpenAI 兼容 + Gemini 官方格式的本地 API**
 
 </div>
 
-这是一个**私有独立项目**（`ele-yufo/flowproxy`），派生自一个已停止维护的上游开源项目（见文末[致谢](#致谢)），现按自己的节奏演进。单机自用部署在 2080TI 主机上，systemd 常驻，是个人媒体生成管线的生产后端；不提供公共 issue 入口，维护者就是自己（或接手的 agent）。
+**FlowProxy** 把 Google Flow 的图片 / 视频生成封装为本地 HTTP API（生产端口 **18282**）：图片族 `gemini-3.2-flash-image`（Nano Banana 2.1，0 额度），视频族 `gemini_omni_*`（Gemini Omni 1.1 Flash，T2V / R2V / 首尾帧 / 视频延长）。项目名遵循 X-proxy 反向代理项目的命名惯例（2026-10 由旧名更名而来，历史见文末[致谢](#致谢)）。
 
-## 核心特性
+它是一个**私有单操作者项目的生产后端**，不是公共服务：私有仓库 `ele-yufo/flowproxy`，生产部署只有一套（2080TI 主机，systemd 常驻，`/opt/Projects/flowproxy`），为个人媒体生成管线供水。维护者就是自己（或接手的 agent），无公共 issue 入口；读者默认是未来的你，重点写给「要日常运维这套服务的人」。
 
-- **图片生成**：Nano Banana 2.1（模型族 `gemini-3.2-flash-image`）5 种画幅 × 1K/2K/4K 三档，0 额度消耗
-- **视频生成**：Gemini Omni 1.1 Flash（模型族 `gemini_omni_*`，上游 family `abra`）T2V / R2V（最多 7 张参考图）/ 首帧 I2V / 首尾帧 × 4 个时长档（4/6/8/10s）× 横竖屏 × 1080P/4K 两档高清，另加 `gemini_omni_edit` 原生视频延长/编辑（可链式）
-- **OpenAI 与 Gemini 双协议**：`/v1/chat/completions` 与 `/models/{model}:generateContent` / `:streamGenerateContent`（支持 `systemInstruction`、`inlineData`、`fileData`、`imageConfig` 等），均需流式
-- **多账号池**：credits 感知负载均衡（低额度账号自动退出轮询）、按模型资格路由（Ult > Pro > Free；`_4k` 仅 Ultra；2K 图片分散给 Pro）、配额耗尽双信号摘除与自愈
-- **浏览器验证式账号保活**：每账号独立持久化 Chrome profile，有头浏览器刷新会话并严格校验身份后原子写回数据库；`token_lifecycle` 表管理 `persistent` / `warm` 两种生命周期与会员状态
-- **持久化登录态打码**：`personal` 验证码模式复用固定 profile 的登录态 cookie 提交 reCAPTCHA，拒绝率从匿名态 30%+ 降到个位数
-- **运维告警**：账号需重登 / 池低水位 / 额度耗尽推送 Discord webhook（带去重），另有每小时保活巡检 timer
-- **Web 管理界面**与内置模型测试页
+## 速查表
+
+日常最常用的 10 条（CLI 均在 `/opt/Projects/flowproxy` 下执行）：
+
+| 场景 | 命令 / 地址 |
+|---|---|
+| 服务状态 | `systemctl status flowproxy.service flowproxy-keepalive.service` |
+| 重启主服务 / 保活 | `sudo systemctl restart flowproxy.service`（keepalive 同理） |
+| 跟踪日志 | `journalctl -u flowproxy.service -f`（同步落盘仓库根 `logs.txt`） |
+| 账号池健康 | `.venv/bin/python scripts/tokens.py status`（JSON，永不打凭据） |
+| 池子诊断 | `.venv/bin/python scripts/keepalive_patrol.py` |
+| 模型目录 | `curl -s -H "Authorization: Bearer REDACTED_SAMPLE_KEY" http://localhost:18282/v1/models` |
+| 管理后台 | `http://localhost:18282/manage`（默认 admin/admin，部署后立即改密） |
+| 模型测试页 | `http://localhost:18282/test` |
+| 服务地址（全场景） | `192.168.124.151:18282`（在家直连；在外经 Tailscale 子网路由） |
+| 保活运维手册 | [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md) |
 
 ## 架构
 
@@ -49,18 +57,20 @@ XRDP :11 ◀── scripts/tokens.py onboard（仅入库/重登录时人工 Goog
 
 数据库是账号状态的唯一权威：业务池启停（`tokens.is_active` / `ban_reason`）与保活 desired state（`token_lifecycle`）解耦。完整分层、事务与生命周期设计见 [`docs/architecture.md`](docs/architecture.md)。
 
-## 部署
+## 日常运维
 
-### systemd（生产方式，本机实际运行形态）
+### systemd 单元一览
 
-服务跑在仓库内的 `.venv` 上，端口由 `config/setting.toml` 的 `[server].port` 决定（当前 **18282**）。四个 unit / drop-in：
-
-| Unit / 文件 | 作用 |
+| Unit / 文件（宿主 `/etc/systemd/system/`） | 作用 |
 |---|---|
-| `flowproxy.service`（宿主 `/etc/systemd/system/`） | 主服务：`.venv/bin/python main.py`，`Restart=always`，`Upholds=flowproxy-keepalive.service` |
-| [`flowproxy-keepalive.service`](flowproxy-keepalive.service)（仓库文件即部署源） | 保活 sidecar：`ExecStartPre` 先 `--preflight` 再 `--daemon`；`Requires=xvfb@10.service`；可选读取 root 0600 的 `/etc/flowproxy-keepalive.env`（只放 webhook 密钥） |
-| `flowproxy-healthcheck.timer` | 每小时跑 `scripts/keepalive_healthcheck.py` 巡检，异常即报 Discord，00/12 UTC 心跳汇总 |
-| drop-in `config/systemd/flowproxy-captcha-cleanup.conf` | 主服务停止时 `ExecStopPost` 运行 `scripts/cleanup_captcha_chrome.py --terminate` 清理打码 Chrome |
+| `flowproxy.service` | 主服务：`.venv/bin/python main.py`，`Restart=always`，`Upholds=flowproxy-keepalive.service` |
+| `flowproxy.service.d/alert-webhook.conf` | 注入 `FLOWPROXY_ALERT_WEBHOOK_URL`（Discord 告警 webhook，不进 git） |
+| `flowproxy.service.d/browser-keyring.conf` | 注入 `DBUS_SESSION_BUS_ADDRESS` / `XDG_RUNTIME_DIR`（有头 Chrome 解 keyring 用） |
+| `flowproxy.service.d/captcha-cleanup.conf` | 主服务停止时 `ExecStopPost` 运行 `scripts/cleanup_captcha_chrome.py --terminate` 清理打码 Chrome（仓库源文件 `config/systemd/flowproxy-captcha-cleanup.conf`） |
+| [`flowproxy-keepalive.service`](flowproxy-keepalive.service)（仓库文件即部署源，与宿主一致） | 保活 sidecar：`ExecStartPre` 先 `--preflight` 再 `--daemon`；`Requires=xvfb@10.service`；可选读取 root 0600 的 `/etc/flowproxy-keepalive.env`（只放 webhook 密钥）；`Restart=always`（干净退出也拉起——曾因 status=0 不触发 on-failure 静默死过数小时） |
+| `flowproxy-healthcheck.timer` + `.service` | 每小时（每小时 :07 UTC，`Persistent=true`）跑 `scripts/keepalive_healthcheck.py` 巡检 |
+| `flowproxy-post-reboot-check.service` | 重启后一次性自检（组网/服务/IPv6/GPU，机器专属，脚本在 `.wm_dev/`） |
+| `xvfb@.service`（实例 `xvfb@10.service`） | 虚拟显示器模板；`xvfb@10` 即保活 sidecar 的 `:10` |
 
 ```bash
 # 日常操作
@@ -69,7 +79,71 @@ sudo systemctl restart flowproxy-keepalive.service
 journalctl -u flowproxy.service -f          # 主服务日志；logs.txt 同步落盘在仓库根
 ```
 
-首次部署：`python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt`，准备 `config/setting.toml`（见下），装好 Xvfb `:10` 与 XRDP 后依次启用上述 unit。
+### 自动巡检与健康告警
+
+- `flowproxy-healthcheck.timer` 每小时跑一次巡检：账号失联、保活僵死等异常**即时推送 Discord**；默认全绿不响（静默即健康），需要全绿心跳时设 `FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS`（如 `"0,12"`，UTC 时刻）。
+- Discord webhook 优先读环境变量 `FLOWPROXY_ALERT_WEBHOOK_URL`（本机放 alert-webhook drop-in，root 0600，不进 git），回落 `[admin].alert_webhook_url`。
+- 告警事件：账号失效需重登、活跃池低于 `alert_pool_low_threshold`（默认 2）、单账号额度耗尽。
+- 池子健康的手动诊断口径：读 `last_keepalive_status` + `at_expires`（UTC），不要读 `last_failure_code`（历史残留）；工具 `scripts/keepalive_patrol.py`。
+
+### 账号操作 CLI（`scripts/tokens.py`，JSON 输出，Agent 友好）
+
+```bash
+VENV=/opt/Projects/flowproxy/.venv/bin/python
+
+$VENV scripts/tokens.py status                          # 全部保活账号健康总览
+$VENV scripts/tokens.py onboard --email new@gmail.com --display :11   # 新账号入库（XRDP 前台登录）
+$VENV scripts/tokens.py onboard --token-id 21 --display :11           # 已有账号重新登录
+$VENV scripts/tokens.py reauth --token-id 21            # 静默重授权（cookie 重放，免登录）
+$VENV scripts/tokens.py enable  --token-id 21           # 加入业务池
+$VENV scripts/tokens.py disable --token-id 21           # 移出业务池（不影响保活）
+$VENV scripts/tokens.py keepalive --token-id 21 on      # 打开保活（persistent 模式）；off 关闭
+```
+
+入库/重登录必须在 XRDP 对应的 `--display :11` 上做（sidecar 占用 `:10`，开错显示器会不可见）；CLI 会在登录后完成身份核验、项目池补齐、profile 原子迁移与发布。旧的 Web 端入库状态机已删除，其路由固定返回 `410 Gone`。
+
+## 浏览器保活与账号生命周期
+
+为什么需要浏览器：Google OAuth 授权寿命约 1 小时，仅靠接口轮换 ST 救不了授权过期（库里 token 没到期、实际调用 401 的 `GRANT_EXPIRED` 状态）。生产保活是「有头 Chrome 刷新 + 严格身份校验 + 原子写回」：
+
+1. sidecar 在 Xvfb `:10` 上用每账号独立 profile（`/opt/flowproxy-profiles/<token_id>`）访问 Flow 页与 auth session；
+2. 校验浏览器会话邮箱与 Token 绑定邮箱一致；
+3. 从 profile 的 Chrome cookie 库读取轮换后的 ST，并用会话 AT 调真实 credits 接口读取精确 tier；
+4. `BEGIN IMMEDIATE` 事务原子写回 ST/AT/有效期/credits/tier 与生命周期遥测。
+
+关键设计（详见运维手册 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)）：
+
+- **`token_lifecycle` 独立管理保活**：`keepalive_enabled` 与 `runtime_mode`（`persistent` = 刷新后保留浏览器和 profile lease；`warm` = 到期启动、刷完即关）与业务池启停解耦；sidecar 每 15 秒从数据库 reconcile，改库即生效，不用重启 unit。
+- **周期**：活跃会员 1200 秒；退休会员 43200 秒低频维护登录态。
+- **会员过期**：连续两次 credits 观察为 free → 退休并 `ban_reason=membership_expired` 自动摘池；续费后连续两次 paid 才条件恢复，且不会误清人工禁用/429/连续错误等其他禁用原因。
+- **静默重授权（2026-09 上游迁移的救命路径）**：上游迁移曾致全池 `GRANT_EXPIRED`，此时**不要让用户重登 Google**——用账号 profile 里的 Google cookie 通过 HTTP 重放 next-auth 登录即可自愈，已集成进 keepalive、业务刷新路径与 `tokens.py reauth`。
+- **配额耗尽双信号摘除**：上游报账号级配额耗尽时打时间标记（不动 credits/is_active），冷却窗口内且 credits 未回涨则不路由；月度充值回涨、窗口内成功一次或标记到期都能自愈回池。
+
+### Chrome 扩展入口（当前在用）
+
+上游配套的 Token-Updater Chrome 扩展（上游原名见[致谢](#致谢)）通过 `POST /api/plugin/update-token` 显式提交账号凭据，使用独立 connection token 的 `Authorization: Bearer <token>` 认证；跨域调用需把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 `[server].cors_allowed_origins`（本机生产配置已加）。它不替代每账号的浏览器保活 profile。
+
+### 远程访问
+
+服务地址恒为 `192.168.124.151:18282`（在家直连；在外经 Tailscale 子网路由，直连依赖 IPv6）。组网细节与产物中转口径见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
+
+## 部署
+
+### systemd（生产方式，本机实际运行形态）
+
+服务跑在仓库内的 `.venv` 上，端口由 `config/setting.toml` 的 `[server].port` 决定（当前 **18282**）。首次部署：
+
+```bash
+cd /opt/Projects/flowproxy
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# 准备 config/setting.toml（见下），装好 Xvfb（xvfb@10.service）与 XRDP
+sudo cp flowproxy-keepalive.service /etc/systemd/system/
+sudo systemctl enable --now xvfb@10.service flowproxy.service
+sudo systemctl enable flowproxy-keepalive.service flowproxy-healthcheck.timer
+sudo mkdir -p /etc/systemd/system/flowproxy.service.d
+sudo cp config/systemd/flowproxy-captcha-cleanup.conf /etc/systemd/system/flowproxy.service.d/
+sudo systemctl daemon-reload && sudo systemctl restart flowproxy.service
+```
 
 ### Docker（备选）
 
@@ -127,7 +201,7 @@ browser_settle_seconds = 8.0
 # 初始延迟、退休间隔、并发上限、三层超时兜底等其余键走内置缺省，完整清单见 setting_example.toml
 ```
 
-相关环境变量：`FLOWPROXY_ALERT_WEBHOOK_URL`（Discord 告警 webhook，优先于 `[admin].alert_webhook_url`，密钥只放 `/etc/flowproxy-keepalive.env`，不进 git）、`FLOWPROXY_CORS_ALLOWED_ORIGINS`、`BROWSER_EXECUTABLE_PATH`（Chrome 路径，默认 `/usr/bin/google-chrome-stable`）。
+相关环境变量：`FLOWPROXY_ALERT_WEBHOOK_URL`（Discord 告警 webhook，优先于 `[admin].alert_webhook_url`）、`FLOWPROXY_CORS_ALLOWED_ORIGINS`、`FLOWPROXY_HEALTHCHECK_HEARTBEAT_HOURS`、`BROWSER_EXECUTABLE_PATH`（Chrome 路径，默认 `/usr/bin/google-chrome-stable`）。密钥类只放 `/etc/flowproxy-keepalive.env` 或 systemd drop-in，不进 git。
 
 ### personal 打码 profile 的一次性登录
 
@@ -155,7 +229,7 @@ sudo systemctl start flowproxy
 | `gemini-3.2-flash-image-four-three` | 图/文生图 | 横屏 4:3 |
 | `gemini-3.2-flash-image-three-four` | 图/文生图 | 竖屏 3:4 |
 | `gemini-3.2-flash-image-{aspect}-2k` | 图/文生图(2K)，上述 5 种画幅同后缀 | 同上 |
-| `gemini-3.2-flash-image-{aspect}-4k` | 图/文生图(4K)，上述 5 种画幅同后缀 | 同上 |
+| `gemini-3.2-flash-image-{aspect}-4k` | 图/文生图(4K，5504×3072)，上述 5 种画幅同后缀 | 同上 |
 
 上游枚举 `BELUGA`；产品名 Nano Banana 2.1。2K 档会优先分散路由给 Pro 账号。
 
@@ -195,6 +269,10 @@ sudo systemctl start flowproxy
 | `POST /v1/chat/completions` | OpenAI 兼容 |
 | `GET /v1/models`（及 `/v1/models/aliases`） | 模型目录 |
 | `POST /models/{model}:generateContent`、`/v1beta/models/{model}:generateContent`（及 `:streamGenerateContent`） | Gemini 官方格式；认证支持 `Authorization: Bearer`、`x-goog-api-key`、`?key=` |
+
+### 调用方
+
+各机器上的 Agent 通过共享 Skill **`flowproxy`** 调用本服务（t2i / i2i / t2v / r2v / i2v / edit 自动路由到正确模型），日常生成优先走 Skill 而不是手写 curl；Skill 源在 `~/.agents/skills/flowproxy/`，跨机由 skills 体系分发。直接 HTTP 调用按下面示例。
 
 ### 文生图（OpenAI 格式）
 
@@ -312,54 +390,6 @@ curl -X POST http://localhost:18282/v1/chat/completions \
 - 管理后台：`http://localhost:18282/manage`（文件为 `static/manage.html`；未登录时访问 `/` 即登录页 `/login`，默认 admin/admin，**首次登录后立即改密**）——Token 管理、系统配置、请求日志
 - 测试页：`http://localhost:18282/test`——按分类浏览模型、上传图片、流式预览生成结果
 
-## 运维
-
-### 浏览器保活与账号生命周期
-
-为什么需要浏览器：Google OAuth 授权寿命约 1 小时，仅靠接口轮换 ST 救不了授权过期（库里 token 没到期、实际调用 401 的 `GRANT_EXPIRED` 状态）。生产保活是「有头 Chrome 刷新 + 严格身份校验 + 原子写回」：
-
-1. sidecar 在 Xvfb `:10` 上用每账号独立 profile（`/opt/flowproxy-profiles/<token_id>`）访问 Flow 页与 auth session；
-2. 校验浏览器会话邮箱与 Token 绑定邮箱一致；
-3. 从 profile 的 Chrome cookie 库读取轮换后的 ST，并用会话 AT 调真实 credits 接口读取精确 tier；
-4. `BEGIN IMMEDIATE` 事务原子写回 ST/AT/有效期/credits/tier 与生命周期遥测。
-
-关键设计（详见运维手册 [`docs/operations/browser-keepalive.md`](docs/operations/browser-keepalive.md)）：
-
-- **`token_lifecycle` 独立管理保活**：`keepalive_enabled` 与 `runtime_mode`（`persistent` = 刷新后保留浏览器和 profile lease；`warm` = 到期启动、刷完即关）与业务池启停解耦；sidecar 每 15 秒从数据库 reconcile，改库即生效，不用重启 unit。
-- **周期**：活跃会员 1200 秒；退休会员 43200 秒低频维护登录态。
-- **会员过期**：连续两次 credits 观察为 free → 退休并 `ban_reason=membership_expired` 自动摘池；续费后连续两次 paid 才条件恢复，且不会误清人工禁用/429/连续错误等其他禁用原因。
-- **静默重授权（2026-09 上游迁移的救命路径）**：上游迁移曾致全池 `GRANT_EXPIRED`，此时**不要让用户重登 Google**——用账号 profile 里的 Google cookie 通过 HTTP 重放 next-auth 登录即可自愈，已集成进 keepalive、业务刷新路径与 `tokens.py reauth`。
-- **配额耗尽双信号摘除**：上游报账号级配额耗尽时打时间标记（不动 credits/is_active），冷却窗口内且 credits 未回涨则不路由；月度充值回涨、窗口内成功一次或标记到期都能自愈回池。
-- **诊断口径**：读池子健康看 `last_keepalive_status` + `at_expires`（UTC），不要读 `last_failure_code`（历史残留）；工具 `scripts/keepalive_patrol.py`。
-
-### 账号操作 CLI（`scripts/tokens.py`，JSON 输出，Agent 友好）
-
-```bash
-VENV=/opt/Projects/flowproxy/.venv/bin/python
-
-$VENV scripts/tokens.py status                          # 全部保活账号健康总览
-$VENV scripts/tokens.py onboard --email new@gmail.com --display :11   # 新账号入库（XRDP 前台登录）
-$VENV scripts/tokens.py onboard --token-id 21 --display :11           # 已有账号重新登录
-$VENV scripts/tokens.py reauth --token-id 21            # 静默重授权（cookie 重放，免登录）
-$VENV scripts/tokens.py enable  --token-id 21           # 加入业务池
-$VENV scripts/tokens.py disable --token-id 21           # 移出业务池（不影响保活）
-$VENV scripts/tokens.py keepalive --token-id 21 on      # 打开保活（persistent 模式）；off 关闭
-```
-
-入库/重登录必须在 XRDP 对应的 `--display :11` 上做（sidecar 占用 `:10`，开错显示器会不可见）；CLI 会在登录后完成身份核验、项目池补齐、profile 原子迁移与发布。旧的 Web 端入库状态机已删除，其路由固定返回 `410 Gone`。
-
-### 告警
-
-Discord webhook 优先读环境变量 `FLOWPROXY_ALERT_WEBHOOK_URL`（放 `/etc/flowproxy-keepalive.env`，权限 0600，不进 git），回落 `[admin].alert_webhook_url`。事件：账号失效需重登、活跃池低于 `alert_pool_low_threshold`（默认 2）、单账号额度耗尽；`flowproxy-healthcheck.timer` 每小时巡检，异常即报、00/12 UTC 心跳汇总。
-
-### Chrome 扩展入口（当前在用）
-
-`FlowProxy-Token-Updater` 扩展（上游生态，见[致谢](#致谢)）通过 `POST /api/plugin/update-token` 显式提交账号凭据，使用独立 connection token 的 `Authorization: Bearer <token>` 认证；跨域调用需把扩展的精确 `chrome-extension://<扩展ID>` Origin 加入 `[server].cors_allowed_origins`（本机生产配置已加）。它不替代每账号的浏览器保活 profile。
-
-### 远程访问
-
-服务地址恒为 `192.168.124.151:18282`（在家直连；在外经 Tailscale 子网路由，直连依赖 IPv6）。组网细节与产物中转口径见 [`docs/operations/remote-access.md`](docs/operations/remote-access.md)。
-
 ## 开发与测试
 
 - Python 3.11+（Dockerfile 用 `python:3.11-slim`，本机 `.venv` 为 3.13；依赖均为现代锁定版本）。
@@ -377,7 +407,7 @@ REGEN_GOLDEN=1 bash scripts/test.sh tests/characterization/test_poll_video_resul
 
 ## 致谢
 
-本项目派生自 **TheSmallHanCat** 的开源项目 flowproxy（MIT 许可证，上游已停止维护）：最初的 Flow 逆向调用、验证码处理框架与 Web 管理界面均来自上游，配套的 FlowProxy-Token-Updater Chrome 扩展同样出自上游作者。本项目按 MIT 条款继续使用其代码，上游版权声明完整保留在 [LICENSE](LICENSE) 文件中。
+本项目前身为私有仓库 `flow2api-omni`，2026-10 更名为 FlowProxy（沿用 X-proxy 反向代理命名惯例）。它派生自 **TheSmallHanCat** 的开源项目 **flow2api**（MIT 许可证，上游已停止维护）：最初的 Flow 逆向调用、验证码处理框架与 Web 管理界面均来自上游，配套的 Token-Updater Chrome 扩展（上游原名 Flow2API-Token-Updater）同样出自上游作者。本项目按 MIT 条款继续使用其代码，上游版权声明完整保留在 [LICENSE](LICENSE) 文件中。
 
 ## 许可证
 
