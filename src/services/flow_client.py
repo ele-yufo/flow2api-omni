@@ -20,19 +20,16 @@ from .captcha.cooldown import CaptchaCooldownTracker
 from .flow.transport import (
     build_remote_browser_http_timeout,
     validate_remote_browser_response,
-    stdlib_json_http_request,
     sync_json_http_request,
     sync_json_request_via_urllib,
 )
 from .flow.errors import get_retry_reason, is_captcha_rejection_reason, is_retryable_network_error, is_timeout_error, should_fallback_to_urllib
 from .flow.response_parsers import extract_google_error_reason, extract_project_id_from_payload, extract_rotated_st_from_set_cookie, parse_json_response_text
-from ..shared.storage.media_types import convert_to_jpeg, detect_image_mime_type
+from ..shared.storage.media_types import detect_image_mime_type
 from .flow.request_builders import (
     build_image_request,
     build_image_upsample_request,
-    build_video_concatenation_request,
     build_video_status_request,
-    build_video_extend_request,
     build_video_edit_request,
     build_video_upsample_request,
     build_video_image_request,
@@ -104,10 +101,6 @@ class FlowClient:
         if family == "safari":
             return "safari15_3"
         return None
-
-    def _captcha_cooldown_key(self, project_id: Optional[str]) -> str:
-        """委托 CaptchaCooldownTracker。"""
-        return self._captcha_cooldown.key(project_id)
 
     def _record_captcha_rejection(self, project_id: Optional[str]) -> float:
         """委托 CaptchaCooldownTracker。"""
@@ -732,10 +725,6 @@ class FlowClient:
     def _detect_image_mime_type(self, image_bytes: bytes) -> str:
         """委托 shared.storage.media_types。"""
         return detect_image_mime_type(image_bytes)
-
-    def _convert_to_jpeg(self, image_bytes: bytes) -> bytes:
-        """委托 shared.storage.media_types。"""
-        return convert_to_jpeg(image_bytes)
 
     async def upload_image(
         self,
@@ -1702,119 +1691,6 @@ class FlowClient:
             raise last_error
         raise RuntimeError("视频放大请求失败")
 
-    # ========== 视频延长 (使用AT) ==========
-
-    async def extend_video(
-        self,
-        at: str,
-        project_id: str,
-        video_media_id: str,
-        aspect_ratio: str,
-        workflow_id: str,
-        model_key: str,
-        prompt: str = "Continue this video naturally, maintaining consistent visual style, motion, and environment.",
-        user_paygate_tier: str = "PAYGATE_TIER_ONE",
-        token_id: Optional[int] = None,
-        token_video_concurrency: Optional[int] = None,
-    ) -> dict:
-        """视频延长约8秒，返回 task_id
-
-        Args:
-            at: Access Token
-            project_id: 项目ID
-            video_media_id: 原始视频的 mediaId
-            aspect_ratio: 视频宽高比 VIDEO_ASPECT_RATIO_PORTRAIT/LANDSCAPE
-            workflow_id: 工作流ID
-            model_key: 延长模型 key (veo_3_1_extend_landscape / veo_3_1_extend_portrait)
-            prompt: 延长提示词
-            user_paygate_tier: 用户等级
-
-        Returns:
-            同 generate_video_text
-        """
-        url = f"{self.api_base_url}/video:batchAsyncGenerateVideoExtendVideo"
-
-        # 403/reCAPTCHA 重试逻辑 - 最多重试3次
-        max_retries = config.flow_max_retries
-        last_error = None
-
-        for retry_attempt in range(max_retries):
-            launch_gate_acquired = False
-            launch_ok, _, _ = await self._acquire_video_launch_gate(
-                token_id=token_id,
-                token_video_concurrency=token_video_concurrency,
-            )
-            if not launch_ok:
-                last_error = Exception("Video launch queue wait timeout")
-                raise last_error
-
-            launch_gate_acquired = True
-            try:
-                recaptcha_token, browser_id = await self._get_recaptcha_token(
-                    project_id,
-                    action="VIDEO_GENERATION",
-                    token_id=token_id
-                )
-            finally:
-                if launch_gate_acquired:
-                    await self._release_video_launch_gate(token_id)
-            if not recaptcha_token:
-                last_error = Exception("Failed to obtain reCAPTCHA token")
-                should_retry = await self._handle_missing_recaptcha_token(
-                    retry_attempt=retry_attempt,
-                    max_retries=max_retries,
-                    browser_id=browser_id,
-                    project_id=project_id,
-                    log_prefix="[VIDEO EXTEND] 延长",
-                )
-                if should_retry:
-                    continue
-                raise last_error
-            json_data = build_video_extend_request(
-                recaptcha_token=recaptcha_token,
-                session_id=self._generate_session_id(),
-                project_id=project_id,
-                user_paygate_tier=user_paygate_tier,
-                aspect_ratio=aspect_ratio,
-                seed=random.randint(1, 99999),
-                text_input=self._build_video_text_input(prompt, use_v2_model_config=True),
-                model_key=model_key,
-                workflow_id=workflow_id,
-                video_media_id=video_media_id,
-                batch_id=str(uuid.uuid4()),
-            )
-
-            try:
-                result = await self._make_request(
-                    method="POST",
-                    url=url,
-                    json_data=json_data,
-                    use_at=True,
-                    at_token=at
-                )
-                self._clear_captcha_rejection(project_id)
-                return result
-            except Exception as e:
-                last_error = e
-                should_retry = await self._handle_retryable_generation_error(
-                    error=e,
-                    retry_attempt=retry_attempt,
-                    max_retries=max_retries,
-                    browser_id=browser_id,
-                    project_id=project_id,
-                    log_prefix="[VIDEO EXTEND] 延长",
-                )
-                if should_retry:
-                    continue
-                raise
-            finally:
-                await self._notify_browser_captcha_request_finished(browser_id)
-
-        # 所有重试都失败
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("视频延长请求失败")
-
     async def generate_video_edit(
         self,
         at: str,
@@ -1853,7 +1729,7 @@ class FlowClient:
         """
         url = f"{self.api_base_url}/video:batchAsyncGenerateVideoEditVideo"
 
-        # 403/reCAPTCHA 重试逻辑 - 与 extend_video 相同
+        # 403/reCAPTCHA 重试逻辑 - 与 generate_video_text 相同
         max_retries = config.flow_max_retries
         last_error = None
 
@@ -1935,71 +1811,6 @@ class FlowClient:
         if last_error is not None:
             raise last_error
         raise RuntimeError("视频编辑请求失败")
-
-    async def concatenate_videos(
-        self,
-        at: str,
-        original_media_id: str,
-        extended_media_id: str,
-        original_duration_nanos: int = 8000,
-        extended_start_offset: str = "1s",
-    ) -> dict:
-        """拼接原始视频和延长视频
-
-        Args:
-            at: Access Token
-            original_media_id: 原始视频的 mediaGenerationId
-            extended_media_id: 延长视频的 mediaGenerationId
-            original_duration_nanos: 原始视频时长，默认 8000（Flow API lengthNanos 字段，实际非纳秒单位）
-            extended_start_offset: 延长视频起始偏移，默认 "1s"（跳过1秒重叠）
-
-        Returns:
-            操作结果，包含 operation name 用于后续轮询
-        """
-        url = f"{self.api_base_url}:runVideoFxConcatenation"
-
-        json_data = build_video_concatenation_request(
-            original_media_id=original_media_id,
-            extended_media_id=extended_media_id,
-            original_duration_nanos=original_duration_nanos,
-            extended_start_offset=extended_start_offset,
-        )
-
-        return await self._make_request(
-            method="POST",
-            url=url,
-            json_data=json_data,
-            use_at=True,
-            at_token=at
-        )
-
-    async def check_concatenation_status(self, at: str, operation_name: str) -> dict:
-        """查询视频拼接状态
-
-        Args:
-            at: Access Token
-            operation_name: concatenate_videos 返回的 operation name
-
-        Returns:
-            拼接状态结果
-        """
-        url = f"{self.api_base_url}:runVideoFxCheckConcatenationStatus"
-
-        json_data = {
-            "operation": {
-                "operation": {
-                    "name": operation_name
-                }
-            }
-        }
-
-        return await self._make_request(
-            method="POST",
-            url=url,
-            json_data=json_data,
-            use_at=True,
-            at_token=at
-        )
 
     # ========== 任务轮询 (使用AT) ==========
 
@@ -2099,23 +1910,6 @@ class FlowClient:
             raise last_error
         raise RuntimeError("视频状态查询失败")
 
-    async def get_media_workflow_id(self, at: str, media_name: str, project_id: str) -> Optional[str]:
-        """通过 media 格式轮询获取 workflowId"""
-        url = f"{self.api_base_url}/video:batchCheckAsyncVideoGenerationStatus"
-        json_data = {
-            "media": [{"name": media_name, "projectId": project_id}]
-        }
-        try:
-            result = await self._make_request(
-                method="POST", url=url, json_data=json_data, use_at=True, at_token=at
-            )
-            media_list = result.get("media", [])
-            if media_list:
-                return media_list[0].get("workflowId")
-        except Exception as e:
-            debug_logger.log_error(f"[WORKFLOW_ID] Failed to get workflow_id for {media_name}: {e}")
-        return None
-
     async def get_media_url(
         self,
         st: str,
@@ -2190,30 +1984,6 @@ class FlowClient:
             f"[MEDIA URL] 期望 307 redirect 但拿到 HTTP {status} media={media_name}"
         )
         return None
-
-    # ========== 媒体删除 (使用ST) ==========
-
-    async def delete_media(self, st: str, media_names: List[str]):
-        """删除媒体
-
-        Args:
-            st: Session Token
-            media_names: 媒体ID列表
-        """
-        url = f"{self.labs_base_url}/trpc/media.deleteMedia"
-        json_data = {
-            "json": {
-                "names": media_names
-            }
-        }
-
-        await self._make_request(
-            method="POST",
-            url=url,
-            json_data=json_data,
-            use_st=True,
-            st_token=st
-        )
 
     # ========== 辅助方法 ==========
 
@@ -2361,10 +2131,6 @@ class FlowClient:
         """生成sessionId: ;timestamp"""
         return f";{int(time.time() * 1000)}"
 
-    def _generate_scene_id(self) -> str:
-        """生成sceneId: UUID"""
-        return str(uuid.uuid4())
-
     def _get_remote_browser_service_config(self) -> tuple[str, str, int]:
         base_url = (config.remote_browser_base_url or "").strip().rstrip("/")
         api_key = (config.remote_browser_api_key or "").strip()
@@ -2389,17 +2155,6 @@ class FlowClient:
     def _parse_json_response_text(text: str) -> Optional[Any]:
         """委托 flow.response_parsers。"""
         return parse_json_response_text(text)
-
-    @staticmethod
-    async def _stdlib_json_http_request(
-        method: str,
-        url: str,
-        headers: Dict[str, str],
-        payload: Optional[Dict[str, Any]],
-        timeout: int,
-    ) -> tuple[int, Optional[Any], str]:
-        """委托 flow.transport。"""
-        return await stdlib_json_http_request(method, url, headers, payload, timeout)
 
     @staticmethod
     async def _sync_json_http_request(

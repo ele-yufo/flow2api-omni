@@ -1,5 +1,4 @@
 """Admin API routes"""
-import asyncio
 import json
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from fastapi.responses import JSONResponse
@@ -21,7 +20,6 @@ from ..services.proxy_manager import ProxyManager
 from ..services.concurrency_manager import ConcurrencyManager
 from ..services.onboarding import OnboardingService, OnboardingServiceError
 from ..core.cookie_extractor import extract_session_token
-from ..core.models import OnboardingJob
 from ..core.repositories.token_lifecycle_repository import PublishError
 from ..core.token_states import TOKEN_REASON_MANUAL_DISABLED
 
@@ -31,9 +29,7 @@ except ImportError:
     httpx = None
 
 
-from ..services.flow.transport import stdlib_json_http_request, sync_json_http_request
 from .admin_helpers import (
-    _build_proxy_map,
     _build_remote_browser_http_timeout,
     _extract_error_summary,
     _guess_client_hints_from_user_agent,
@@ -57,191 +53,6 @@ onboarding_service: Optional[OnboardingService] = None
 # Store active admin session tokens (in production, use Redis or database)
 active_admin_tokens = set()
 SUPPORTED_API_CAPTCHA_METHODS = {"yescaptcha", "capmonster", "ezcaptcha", "capsolver"}
-
-
-def _get_remote_browser_client_config() -> tuple[str, str, int]:
-    base_url = _normalize_http_base_url(config.remote_browser_base_url)
-    api_key = (config.remote_browser_api_key or "").strip()
-    if not api_key:
-        raise RuntimeError("远程打码服务 API Key 未配置")
-    timeout = max(5, int(config.remote_browser_timeout or 60))
-    return base_url, api_key, timeout
-
-
-_ADMIN_HTTP_ERROR_PREFIX = "远程打码服务请求失败"
-
-
-async def _stdlib_json_http_request(
-    method: str,
-    url: str,
-    headers: Dict[str, str],
-    payload: Optional[Dict[str, Any]],
-    timeout: int,
-) -> tuple[int, Optional[Any], str]:
-    """委托 services.flow.transport（去重）。保留 admin 侧错误文案。"""
-    return await stdlib_json_http_request(
-        method, url, headers, payload, timeout, error_prefix=_ADMIN_HTTP_ERROR_PREFIX)
-
-
-async def _sync_json_http_request(
-    method: str,
-    url: str,
-    headers: Dict[str, str],
-    payload: Optional[Dict[str, Any]],
-    timeout: int,
-) -> tuple[int, Optional[Any], str]:
-    """委托 services.flow.transport（去重）。保留 admin 侧错误文案。"""
-    return await sync_json_http_request(
-        method, url, headers, payload, timeout, error_prefix=_ADMIN_HTTP_ERROR_PREFIX)
-
-
-async def _resolve_score_test_verify_proxy(
-    captcha_method: str,
-    browser_proxy_enabled: bool,
-    browser_proxy_url: str
-) -> tuple[Optional[Dict[str, str]], bool, str, str]:
-    """
-    选择 score-test 的 verify 请求代理，优先与浏览器打码代理保持一致。
-    返回: (proxies, used, source, proxy_url)
-    """
-    # 浏览器打码模式优先使用 browser_proxy，确保与取 token 出口一致
-    if captcha_method in {"browser", "personal"} and browser_proxy_enabled and browser_proxy_url:
-        proxy_map = _build_proxy_map(browser_proxy_url)
-        if proxy_map:
-            return proxy_map, True, "captcha_browser_proxy", browser_proxy_url
-
-    # 退回请求代理配置
-    try:
-        if proxy_manager:
-            proxy_cfg = await proxy_manager.get_proxy_config()
-            if proxy_cfg and proxy_cfg.enabled and proxy_cfg.proxy_url:
-                proxy_map = _build_proxy_map(proxy_cfg.proxy_url)
-                if proxy_map:
-                    return proxy_map, True, "request_proxy", proxy_cfg.proxy_url
-    except Exception:
-        pass
-
-    return None, False, "none", ""
-
-
-async def _solve_recaptcha_with_api_service(
-    method: str,
-    website_url: str,
-    website_key: str,
-    action: str,
-    enterprise: bool = False
-) -> Optional[str]:
-    """使用当前配置的第三方打码服务获取 token。"""
-    if method == "yescaptcha":
-        client_key = config.yescaptcha_api_key
-        base_url = config.yescaptcha_base_url
-        task_type = "RecaptchaV3TaskProxylessM1"
-    elif method == "capmonster":
-        client_key = config.capmonster_api_key
-        base_url = config.capmonster_base_url
-        task_type = "RecaptchaV3TaskProxyless"
-    elif method == "ezcaptcha":
-        client_key = config.ezcaptcha_api_key
-        base_url = config.ezcaptcha_base_url
-        task_type = "ReCaptchaV3TaskProxylessS9"
-    elif method == "capsolver":
-        client_key = config.capsolver_api_key
-        base_url = config.capsolver_base_url
-        task_type = "ReCaptchaV3EnterpriseTaskProxyLess" if enterprise else "ReCaptchaV3TaskProxyLess"
-    else:
-        raise RuntimeError(f"不支持的打码方式: {method}")
-
-    if not client_key:
-        raise RuntimeError(f"{method} API Key 未配置")
-
-    task: Dict[str, Any] = {
-        "websiteURL": website_url,
-        "websiteKey": website_key,
-        "type": task_type,
-        "pageAction": action,
-    }
-
-    if enterprise and method == "capsolver":
-        task["isEnterprise"] = True
-
-    create_url = f"{base_url.rstrip('/')}/createTask"
-    get_url = f"{base_url.rstrip('/')}/getTaskResult"
-
-    # Do not use curl_cffi impersonation for captcha API JSON endpoints: some ASGI servers
-    # (for example FastAPI/Uvicorn) may receive an empty body and return 422.
-    async with AsyncSession() as session:
-        create_resp = await session.post(
-            create_url,
-            json={"clientKey": client_key, "task": task},
-            timeout=30
-        )
-        create_json = create_resp.json()
-        task_id = create_json.get("taskId")
-
-        if not task_id:
-            error_desc = create_json.get("errorDescription") or create_json.get("errorMessage") or str(create_json)
-            raise RuntimeError(f"{method} createTask 失败: {error_desc}")
-
-        for _ in range(40):
-            poll_resp = await session.post(
-                get_url,
-                json={"clientKey": client_key, "taskId": task_id},
-                timeout=30
-            )
-            poll_json = poll_resp.json()
-            if poll_json.get("status") == "ready":
-                solution = poll_json.get("solution", {}) or {}
-                token = solution.get("gRecaptchaResponse") or solution.get("token")
-                if token:
-                    return token
-                raise RuntimeError(f"{method} 返回结果缺少 token: {poll_json}")
-
-            if poll_json.get("errorId") not in (None, 0):
-                error_desc = poll_json.get("errorDescription") or poll_json.get("errorMessage") or str(poll_json)
-                raise RuntimeError(f"{method} getTaskResult 失败: {error_desc}")
-
-            await asyncio.sleep(3)
-
-    raise RuntimeError(f"{method} 获取 token 超时")
-
-
-async def _score_test_with_remote_browser_service(
-    website_url: str,
-    website_key: str,
-    verify_url: str,
-    action: str,
-    enterprise: bool = False,
-) -> Dict[str, Any]:
-    """调用远程有头打码服务执行页面内打码+分数校验。"""
-    base_url, api_key, timeout = _get_remote_browser_client_config()
-    endpoint = f"{base_url}/api/v1/custom-score"
-    request_payload = {
-        "website_url": website_url,
-        "website_key": website_key,
-        "verify_url": verify_url,
-        "action": action,
-        "enterprise": enterprise,
-    }
-
-    status_code, response_payload, response_text = await _sync_json_http_request(
-        method="POST",
-        url=endpoint,
-        headers={"Authorization": f"Bearer {api_key}"},
-        payload=request_payload,
-        timeout=timeout,
-    )
-
-    if status_code >= 400:
-        detail = ""
-        if isinstance(response_payload, dict):
-            detail = response_payload.get("detail") or response_payload.get("message") or str(response_payload)
-        if not detail:
-            detail = (response_text or "").strip()
-        raise RuntimeError(f"远程打码服务请求失败 (HTTP {status_code}): {detail or '未知错误'}")
-
-    if not isinstance(response_payload, dict):
-        raise RuntimeError("远程打码服务返回格式错误")
-    return response_payload
 
 
 def set_dependencies(
@@ -312,14 +123,6 @@ class ProxyTestRequest(BaseModel):
     proxy_url: str
     test_url: Optional[str] = "https://labs.google/"
     timeout_seconds: Optional[int] = 15
-
-
-class CaptchaScoreTestRequest(BaseModel):
-    website_url: Optional[str] = "https://antcpt.com/score_detector/"
-    website_key: Optional[str] = "6LcR_okUAAAAAPYrPe-HK_0RULO1aZM15ENyM-Mf"
-    action: Optional[str] = "homepage"
-    verify_url: Optional[str] = "https://antcpt.com/score_detector/verify.php"
-    enterprise: Optional[bool] = False
 
 
 class GenerationConfigRequest(BaseModel):
@@ -421,14 +224,6 @@ async def verify_admin_token(authorization: str = Header(None)):
 
 def _set_private_response_headers(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
-
-
-def _onboarding_job_payload(job: OnboardingJob) -> Dict[str, Any]:
-    """Return only UI-safe onboarding metadata, excluding process identity fields."""
-    return job.model_dump(
-        mode="json",
-        exclude={"id", "browser_pid", "browser_start_ticks"},
-    )
 
 
 def _raise_onboarding_http_error(error: Exception) -> None:
@@ -1751,7 +1546,6 @@ async def get_captcha_config(token: str = Depends(verify_admin_token)):
 
 @router.post("/api/captcha/score-test")
 async def test_captcha_score(
-    _request: Optional[CaptchaScoreTestRequest] = None,
     _token: str = Depends(verify_admin_token)
 ):
     """分数测试已禁用。"""

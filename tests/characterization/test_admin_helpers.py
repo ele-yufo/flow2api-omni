@@ -4,6 +4,7 @@ from tests.conftest import assert_golden
 
 def test_admin_helpers_golden():
     from src.api import admin as A
+    from src.api.admin_helpers import _build_proxy_map
 
     out = {
         "proxy_ok": A._validate_browser_proxy_url("http://u:p@1.2.3.4:8080"),
@@ -21,7 +22,7 @@ def test_admin_helpers_golden():
             "Mozilla/5.0 (iPhone) Mobile Chrome/120.0"),
         "impersonate_124": A._guess_impersonate_from_user_agent("Chrome/130.0"),
         "impersonate_none": A._guess_impersonate_from_user_agent("curl/8"),
-        "proxy_map": A._build_proxy_map("http://x:1"),
+        "proxy_map": _build_proxy_map("http://x:1"),
         "normalize_url": A._normalize_http_base_url("http://host:9/"),
     }
     assert out["proxy_ok"] == (True, None)

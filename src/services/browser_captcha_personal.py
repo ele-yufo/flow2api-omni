@@ -107,7 +107,7 @@ from .captcha.errors import (
 
 # 代理解析 + 代理认证扩展生成已抽到 captcha.proxy(纯,可离线测)。
 from .captcha.proxy import _create_proxy_auth_extension, _parse_proxy_url
-from .captcha.evaluate_result import decode_nodriver_object_entries, normalize_nodriver_evaluate_result
+from .captcha.evaluate_result import normalize_nodriver_evaluate_result
 from .captcha.fetch_helpers import browser_fetch_headers, flow_recaptcha_page_url
 
 
@@ -191,8 +191,6 @@ class BrowserCaptchaService:
         self._last_fingerprint_at = 0.0
 
         # 兼容旧 API（保留 single resident 属性作为别名）
-        self.resident_project_id: Optional[str] = None  # 向后兼容
-        self.resident_tab = None                         # 向后兼容
         self._running = False                            # 向后兼容
         self._recaptcha_ready = False                    # 向后兼容
         self._last_fingerprint: Optional[Dict[str, Any]] = None
@@ -341,10 +339,6 @@ class BrowserCaptchaService:
         """委托 captcha.fetch_helpers。"""
         return flow_recaptcha_page_url(project_id)
 
-    def _decode_nodriver_object_entries(self, value: Any) -> Optional[Dict[str, Any]]:
-        """委托 captcha.evaluate_result。"""
-        return decode_nodriver_object_entries(value)
-
     def _normalize_nodriver_evaluate_result(self, value: Any) -> Any:
         """委托 captcha.evaluate_result。"""
         return normalize_nodriver_evaluate_result(value)
@@ -476,13 +470,6 @@ class BrowserCaptchaService:
             return self._normalize_nodriver_evaluate_result(result)
         return result
 
-    async def _tab_get(self, tab, url: str, label: str, timeout_seconds: Optional[float] = None):
-        return await self._run_with_timeout(
-            tab.get(url),
-            timeout_seconds or self._navigation_timeout_seconds,
-            label,
-        )
-
     async def _navigate_flow_recaptcha_tab(self, tab, url: str, label: str):
         """Navigate without waiting for Flow SPA's never-firing load event."""
         if not url.startswith("https://flow.google.com/"):
@@ -575,60 +562,6 @@ class BrowserCaptchaService:
                     f"[BrowserCaptcha] slot={slot_id} 空闲 {idle_seconds:.0f}s，准备回收"
                 )
             return tabs_to_close
-
-    async def _evict_lru_tab_if_needed(self) -> bool:
-        """如果达到共享池上限，使用 LRU 策略淘汰最久未使用的空闲标签页。"""
-        async with self._resident_lock:
-            if len(self._resident_tabs) < self._max_resident_tabs:
-                return True
-
-            lru_slot_id = None
-            lru_project_hint = None
-            lru_last_used = float('inf')
-
-            for slot_id, resident_info in self._resident_tabs.items():
-                if resident_info.solve_lock.locked():
-                    continue
-                if resident_info.last_used_at < lru_last_used:
-                    lru_last_used = resident_info.last_used_at
-                    lru_slot_id = slot_id
-                    lru_project_hint = resident_info.project_id
-
-        if lru_slot_id:
-            debug_logger.log_info(
-                f"[BrowserCaptcha] 标签页数量达到上限({self._max_resident_tabs})，"
-                f"淘汰最久未使用的 slot={lru_slot_id}, project_hint={lru_project_hint}"
-            )
-            await self._close_resident_tab(lru_slot_id)
-            return True
-
-        debug_logger.log_warning(
-            f"[BrowserCaptcha] 标签页数量达到上限({self._max_resident_tabs})，"
-            "但当前没有可安全淘汰的空闲标签页"
-        )
-        return False
-
-    async def _get_reserved_tab_ids(self) -> set[int]:
-        """收集当前被 resident/custom 池占用的标签页，legacy 模式不得复用。"""
-        reserved_tab_ids: set[int] = set()
-
-        async with self._resident_lock:
-            for resident_info in self._resident_tabs.values():
-                if resident_info and resident_info.tab:
-                    reserved_tab_ids.add(id(resident_info.tab))
-
-        async with self._custom_lock:
-            for item in self._custom_tabs.values():
-                tab = item.get("tab") if isinstance(item, dict) else None
-                if tab:
-                    reserved_tab_ids.add(id(tab))
-
-        async with self._legacy_submit_lock:
-            for tab in self._legacy_submit_tabs.values():
-                if tab:
-                    reserved_tab_ids.add(id(tab))
-
-        return reserved_tab_ids
 
     def _legacy_submit_key(self, project_id: Optional[str]) -> str:
         normalized_project_id = str(project_id or "").strip()
@@ -863,13 +796,9 @@ class BrowserCaptchaService:
         """同步旧版单 resident 兼容属性。"""
         first_resident = next(iter(self._resident_tabs.values()), None)
         if first_resident:
-            self.resident_project_id = first_resident.project_id
-            self.resident_tab = first_resident.tab
             self._running = True
             self._recaptcha_ready = bool(first_resident.recaptcha_ready)
         else:
-            self.resident_project_id = None
-            self.resident_tab = None
             self._running = False
             self._recaptcha_ready = False
 
@@ -1318,23 +1247,6 @@ class BrowserCaptchaService:
         return warmed_slots
 
     # ========== 常驻模式 API ==========
-
-    async def start_resident_mode(self, project_id: str):
-        """启动常驻模式
-        
-        Args:
-            project_id: 用于常驻的项目 ID
-        """
-        if not str(project_id or "").strip():
-            debug_logger.log_warning("[BrowserCaptcha] 启动常驻模式失败：project_id 为空")
-            return
-
-        warmed_slots = await self.warmup_resident_tabs([project_id], limit=1)
-        if warmed_slots:
-            debug_logger.log_info(f"[BrowserCaptcha] ✅ 共享常驻打码池已启动 (seed_project: {project_id})")
-            return
-
-        debug_logger.log_error(f"[BrowserCaptcha] 常驻模式启动失败 (seed_project: {project_id})")
 
     async def stop_resident_mode(self, project_id: Optional[str] = None):
         """停止常驻模式
@@ -2490,23 +2402,6 @@ class BrowserCaptchaService:
             except Exception as e:
                 debug_logger.log_warning(f"[BrowserCaptcha] 关闭标签页时异常: {e}")
 
-    async def invalidate_token(self, project_id: str):
-        """当检测到 token 无效时调用，重建当前项目最近映射的共享标签页。
-
-        Args:
-            project_id: 项目 ID
-        """
-        debug_logger.log_warning(
-            f"[BrowserCaptcha] Token 被标记为无效 (project: {project_id})，仅重建共享池中的对应标签页，避免清空全局浏览器状态"
-        )
-
-        # 重建标签页
-        slot_id, resident_info = await self._rebuild_resident_tab(project_id, return_slot_key=True)
-        if resident_info and slot_id:
-            debug_logger.log_info(f"[BrowserCaptcha] ✅ 标签页已重建 (project: {project_id}, slot={slot_id})")
-        else:
-            debug_logger.log_error(f"[BrowserCaptcha] 标签页重建失败 (project: {project_id})")
-
     async def _get_token_legacy(self, project_id: str, action: str = "IMAGE_GENERATION") -> Optional[str]:
         """传统模式获取 reCAPTCHA token（每次创建新标签页）
 
@@ -2717,39 +2612,6 @@ class BrowserCaptchaService:
             f"browser submit HTTP {status}: {debug_logger.format_data_for_log(body or result.get('text') or '')}"
         )
 
-    async def _clear_browser_cache(self):
-        """清理浏览器全部缓存"""
-        if not self.browser:
-            return
-
-        try:
-            debug_logger.log_info("[BrowserCaptcha] 开始清理浏览器缓存...")
-
-            from nodriver import cdp as nodriver_cdp
-
-            await self._browser_send_command(
-                nodriver_cdp.network.clear_browser_cache(),
-                label="clear_browser_cache",
-            )
-
-            await self._browser_send_command(
-                nodriver_cdp.network.clear_browser_cookies(),
-                label="clear_browser_cookies",
-            )
-
-            await self._browser_send_command(
-                nodriver_cdp.storage.clear_data_for_origin(
-                    origin="https://www.google.com",
-                    storage_types="all",
-                ),
-                label="clear_browser_origin_storage",
-            )
-
-            debug_logger.log_info("[BrowserCaptcha] ✅ 浏览器缓存已清理")
-
-        except Exception as e:
-            debug_logger.log_warning(f"[BrowserCaptcha] 清理缓存时异常: {e}")
-
     async def _shutdown_browser_runtime(self, cancel_idle_reaper: bool = False, reason: str = "shutdown"):
         if cancel_idle_reaper and self._idle_reaper_task and not self._idle_reaper_task.done():
             self._idle_reaper_task.cancel()
@@ -2938,24 +2800,6 @@ class BrowserCaptchaService:
 
     # ========== 状态查询 ==========
 
-    def is_resident_mode_active(self) -> bool:
-        """检查是否有任何常驻标签页激活"""
-        return len(self._resident_tabs) > 0 or self._running
-
-    def get_resident_count(self) -> int:
-        """获取当前常驻标签页数量"""
-        return len(self._resident_tabs)
-
-    def get_resident_project_ids(self) -> list[str]:
-        """获取所有当前共享常驻标签页的 slot_id 列表。"""
-        return list(self._resident_tabs.keys())
-
-    def get_resident_project_id(self) -> Optional[str]:
-        """获取当前共享池中的第一个 slot_id（向后兼容）。"""
-        if self._resident_tabs:
-            return next(iter(self._resident_tabs.keys()))
-        return self.resident_project_id
-
     async def get_custom_token(
         self,
         website_url: str,
@@ -3134,45 +2978,3 @@ class BrowserCaptchaService:
                         return None
 
             return None
-
-    async def get_custom_score(
-        self,
-        website_url: str,
-        website_key: str,
-        verify_url: str,
-        action: str = "homepage",
-        enterprise: bool = False,
-    ) -> Dict[str, Any]:
-        """在同一个常驻标签页里获取 token 并直接校验页面分数。"""
-        token_started_at = time.time()
-        token = await self.get_custom_token(
-            website_url=website_url,
-            website_key=website_key,
-            action=action,
-            enterprise=enterprise,
-        )
-        token_elapsed_ms = int((time.time() - token_started_at) * 1000)
-
-        if not token:
-            return {
-                "token": None,
-                "token_elapsed_ms": token_elapsed_ms,
-                "verify_mode": "browser_page",
-                "verify_elapsed_ms": 0,
-                "verify_http_status": None,
-                "verify_result": {},
-            }
-
-        cache_key = f"{website_url}|{website_key}|{1 if enterprise else 0}"
-        async with self._custom_lock:
-            custom_info = self._custom_tabs.get(cache_key)
-            tab = custom_info.get("tab") if isinstance(custom_info, dict) else None
-            if tab is None:
-                raise RuntimeError("页面分数测试标签页不存在")
-            verify_payload = await self._verify_score_on_tab(tab, token, verify_url)
-
-        return {
-            "token": token,
-            "token_elapsed_ms": token_elapsed_ms,
-            **verify_payload,
-        }

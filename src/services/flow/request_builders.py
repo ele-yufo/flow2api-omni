@@ -283,7 +283,7 @@ def build_video_edit_request(
 ) -> Dict[str, Any]:
     """Assemble the batchAsyncGenerateVideoEditVideo request body (Omni abra_edit).
 
-    与 veo extend 的差别（2026-08-29 抓包自 Flow Omni 查看器"延长"操作）：
+    与 t2v 提交的差别（2026-08-29 抓包自 Flow Omni 查看器"延长"操作）：
     outputSpec.resolution 显式给出，videoInput 带 startFrameIndex/endFrameIndex
     （endFrameIndex = 源视频时长秒数 × 24fps），且带 audioFailurePreference。
     """
@@ -320,52 +320,6 @@ def build_video_edit_request(
     }
 
 
-def build_video_extend_request(
-    *,
-    recaptcha_token: str,
-    session_id: str,
-    project_id: str,
-    user_paygate_tier: str,
-    aspect_ratio: str,
-    seed: int,
-    text_input: Dict[str, Any],
-    model_key: str,
-    workflow_id: str,
-    video_media_id: str,
-    batch_id: str,
-) -> Dict[str, Any]:
-    """Assemble the batchAsyncGenerateVideoExtendVideo request body (always v2)."""
-    return {
-        "mediaGenerationContext": {
-            "batchId": batch_id,
-            "audioFailurePreference": "BLOCK_SILENCED_VIDEOS"
-        },
-        "useV2ModelConfig": True,
-        "clientContext": {
-            "projectId": project_id,
-            "tool": "PINHOLE",
-            "userPaygateTier": user_paygate_tier,
-            "sessionId": session_id,
-            "recaptchaContext": {
-                "token": recaptcha_token,
-                "applicationType": "RECAPTCHA_APPLICATION_TYPE_WEB"
-            }
-        },
-        "requests": [{
-            "aspectRatio": aspect_ratio,
-            "seed": seed,
-            "textInput": text_input,
-            "videoModelKey": model_key,
-            "metadata": {
-                "workflowId": workflow_id
-            },
-            "videoInput": {
-                "mediaId": video_media_id
-            }
-        }]
-    }
-
-
 def build_video_status_request(operations) -> Dict[str, Any]:
     """Assemble the batchCheckAsyncVideoGenerationStatus request body.
 
@@ -380,32 +334,6 @@ def build_video_status_request(operations) -> Dict[str, Any]:
         return json_data
     return {
         "operations": operations
-    }
-
-
-def build_video_concatenation_request(
-    *,
-    original_media_id: str,
-    extended_media_id: str,
-    original_duration_nanos: int,
-    extended_start_offset: str,
-) -> Dict[str, Any]:
-    """Assemble the runVideoFxConcatenation request (original + extended segment stitch)."""
-    return {
-        "inputVideos": [
-            {
-                "mediaGenerationId": original_media_id,
-                "lengthNanos": original_duration_nanos,
-                "startTimeOffset": "0s",
-                "endTimeOffset": "8s",
-            },
-            {
-                "mediaGenerationId": extended_media_id,
-                "lengthNanos": original_duration_nanos,
-                "startTimeOffset": extended_start_offset,
-                "endTimeOffset": "8s",
-            },
-        ]
     }
 
 

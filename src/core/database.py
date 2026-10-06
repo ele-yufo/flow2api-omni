@@ -998,10 +998,6 @@ class Database(SqliteEngine):
             kwargs["next_due_at"] = next_due_at
         await self._token_lifecycle.update_keepalive_telemetry(token_id, **kwargs)
 
-    async def clear_token_keepalive_error(self, token_id: int):
-        """Explicitly clear a token's keepalive telemetry error."""
-        await self._token_lifecycle.clear_keepalive_error(token_id)
-
     # Onboarding job operations
     async def create_onboarding_job(self, job: OnboardingJob = None, **kwargs):
         """Create a safe onboarding job with no ST, AT, or cookie fields."""

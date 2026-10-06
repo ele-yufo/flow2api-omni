@@ -496,10 +496,6 @@ class FileCache:
             )
             raise Exception(f"Failed to cache base64 image: {str(e)}")
 
-    def get_cache_path(self, filename: str) -> Path:
-        """Get full path to cached file"""
-        return self.cache_dir / filename
-
     def set_timeout(self, timeout: int):
         """Set cache timeout in seconds"""
         self.default_timeout = max(0, int(timeout))
@@ -508,26 +504,3 @@ class FileCache:
     def get_timeout(self) -> int:
         """Get current cache timeout"""
         return self.default_timeout
-
-    async def clear_all(self):
-        """Clear all cached files"""
-        try:
-            removed_count = 0
-            for file_path in self.cache_dir.iterdir():
-                if file_path.is_file():
-                    try:
-                        file_path.unlink()
-                        removed_count += 1
-                    except Exception:
-                        pass
-
-            debug_logger.log_info(f"Cache cleared: removed {removed_count} files")
-            return removed_count
-
-        except Exception as e:
-            debug_logger.log_error(
-                error_message=f"Failed to clear cache: {str(e)}",
-                status_code=0,
-                response_text=""
-            )
-            raise

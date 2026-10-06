@@ -60,12 +60,6 @@ class SqliteEngine:
             else:
                 await db.commit()
 
-    @asynccontextmanager
-    async def _transaction(self):
-        """Compatibility alias for repository code using private engine helpers."""
-        async with self.transaction() as db:
-            yield db
-
     async def _table_exists(self, db, table_name: str) -> bool:
         """Check if a table exists in the database"""
         cursor = await db.execute(

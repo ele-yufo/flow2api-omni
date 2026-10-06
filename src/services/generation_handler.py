@@ -1,6 +1,5 @@
 """Generation handler for Flow2API"""
 import asyncio
-import base64
 import re
 
 import json
@@ -154,22 +153,6 @@ class GenerationHandler:
     ) -> List[Dict[str, Any]]:
         """委托 generation.response_parsing。"""
         return coerce_media_status_to_operations(result, status_refs)
-
-    async def check_token_availability(self, is_image: bool, is_video: bool) -> bool:
-        """检查Token可用性
-
-        Args:
-            is_image: 是否检查图片生成Token
-            is_video: 是否检查视频生成Token
-
-        Returns:
-            True表示有可用Token, False表示无可用Token
-        """
-        token_obj = await self.load_balancer.select_token(
-            for_image_generation=is_image,
-            for_video_generation=is_video
-        )
-        return token_obj is not None
 
     async def handle_generation(
         self,
@@ -1142,7 +1125,6 @@ class GenerationHandler:
                 video_trace["submit_generation_ms"] = int((time.time() - submit_started_at) * 1000)
 
             status_refs = self._normalize_video_submit_response(result, project_id)
-            generation_workflow_id = status_refs.get("workflow_id")
             if not status_refs.get("operations") and not status_refs.get("media"):
                 debug_logger.log_error(
                     f"[VIDEO] 生成任务创建响应缺少 operations/media: keys={list(result.keys())}"
@@ -1180,9 +1162,8 @@ class GenerationHandler:
             if stream:
                 yield self._create_stream_chunk(f"视频生成中...\n")
 
-            # 检查是否需要放大或延长
+            # 检查是否需要放大
             upsample_config = model_config.get("upsample")
-            extend_config = model_config.get("extend")
 
             async for chunk in self._poll_video_result(
                 token,
@@ -1190,11 +1171,9 @@ class GenerationHandler:
                 status_refs,
                 stream,
                 upsample_config,
-                extend_config,
                 generation_result,
                 response_state,
                 request_log_state,
-                generation_workflow_id=generation_workflow_id,
             ):
                 yield chunk
 
@@ -1450,198 +1429,6 @@ class GenerationHandler:
                 media_type="video"
             )
 
-    async def _handle_video_extend(
-        self, video_url, video_media_id, source_media_id, aspect_ratio,
-        operation, token, project_id, stream, upsampled_media_id,
-        generation_workflow_id, response_state, generation_result,
-        poll_interval, extend_config, outcome,
-    ) -> AsyncGenerator:
-        """视频延长 + 拼接编排。成功拼接则 yield 最终 15s 视频并置 outcome["completed"]=True。
-
-        任一失败均回退原视频(不置 completed,由调用方 fall through 到 finalize)。
-        从 _poll_video_result 抽出,行为逐字不变;由 test_poll_video_extend 守护。
-        """
-        if not source_media_id:
-            # Use media_id from video URL (CDN URL contains the correct media name)
-            url_media_id = video_url.split('/')[-1].split('?')[0] if video_url else None
-            if url_media_id:
-                source_media_id = normalize_media_id_to_uuid_str(url_media_id)
-            else:
-                raw_media_id = operation["operation"]["name"]
-                source_media_id = normalize_media_id_to_uuid_str(raw_media_id)
-        # Resolve workflow_id: prefer from generation response, fallback to media-format poll
-        workflow_id = generation_workflow_id
-        if not workflow_id:
-            workflow_id = await self.flow_client.get_media_workflow_id(
-                token.at, source_media_id, project_id
-            )
-        if not workflow_id:
-            workflow_id = str(uuid.uuid4())
-        if stream and not upsampled_media_id:
-            yield self._create_stream_chunk("\n视频生成完成，开始延长处理...（可能需要较长时间）\n")
-        elif stream and upsampled_media_id:
-            pass  # Already showed "放大完成，开始延长处理" above
-        try:
-            normalized_tier = normalize_user_paygate_tier(token.user_paygate_tier)
-
-            # 提交延长任务
-            extend_result = await self.flow_client.extend_video(
-                at=token.at,
-                project_id=project_id,
-                video_media_id=source_media_id,
-                aspect_ratio=aspect_ratio,
-                workflow_id=workflow_id,
-                model_key=extend_config["model_key"],
-                user_paygate_tier=normalized_tier,
-                token_id=token.id,
-                token_video_concurrency=token.video_concurrency,
-            )
-
-            extend_operations = self._normalize_video_submit_response(
-                extend_result,
-                project_id,
-            )
-            if not extend_operations.get("operations") and not extend_operations.get("media"):
-                if stream:
-                    yield self._create_stream_chunk("⚠️ 延长任务创建失败，返回原始视频\n")
-            else:
-                if stream:
-                    yield self._create_stream_chunk("延长任务已提交，等待延长完成...\n")
-
-                # 轮询延长状态
-                extend_success = False
-                extend_media_id = None
-                extend_max_attempts = 200
-                ext_consecutive_errors = 0
-                for ext_attempt in range(extend_max_attempts):
-                    await asyncio.sleep(poll_interval)
-                    try:
-                        ext_result = await self.flow_client.check_video_status(token.at, extend_operations)
-                        ext_ops = ext_result.get("operations", [])
-                        if not ext_ops:
-                            ext_ops = self._coerce_media_status_to_operations(ext_result, extend_operations)
-                        ext_consecutive_errors = 0
-                        if ext_ops:
-                            ext_op = ext_ops[0]
-                            ext_status = ext_op.get("status")
-                            if stream and ext_attempt % 7 == 0:
-                                yield self._create_stream_chunk(f"延长进度: {poll_progress_percent(ext_attempt, extend_max_attempts)}%\n")
-                            if ext_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                ext_video_info = extract_video_info(ext_op)
-                                extend_media_id = ext_video_info.get("mediaGenerationId")
-                                extend_success = True
-                                break
-                            elif is_media_generation_failed(ext_status):
-                                if stream:
-                                    yield self._create_stream_chunk("⚠️ 视频延长失败，返回原始视频\n")
-                                break
-                    except Exception as e:
-                        ext_consecutive_errors += 1
-                        debug_logger.log_error(f"Extend poll error: {str(e)}")
-                        if ext_consecutive_errors >= 5:
-                            if stream:
-                                yield self._create_stream_chunk("⚠️ 延长状态查询持续失败，返回原始视频\n")
-                            break
-
-                if extend_success and extend_media_id:
-                    if stream:
-                        yield self._create_stream_chunk("延长完成，开始拼接视频...\n")
-
-                    # 拼接视频
-                    concat_result = await self.flow_client.concatenate_videos(
-                        at=token.at,
-                        original_media_id=source_media_id,
-                        extended_media_id=extend_media_id,
-                    )
-                    concat_op_name = None
-                    if isinstance(concat_result, dict):
-                        # 尝试多种响应格式提取 operation name
-                        concat_op_name = (
-                            concat_result.get("name")
-                            or (concat_result.get("operation") or {}).get("name")
-                            or ((concat_result.get("operation") or {}).get("operation") or {}).get("name")
-                        )
-
-                    if not concat_op_name:
-                        if stream:
-                            yield self._create_stream_chunk("⚠️ 拼接任务创建失败，返回原始视频\n")
-                    else:
-                        # 轮询拼接状态
-                        concat_success = False
-                        encoded_video = None
-                        concat_max_attempts = 120
-                        concat_consecutive_errors = 0
-                        for c_attempt in range(concat_max_attempts):
-                            await asyncio.sleep(2)
-                            try:
-                                c_result = await self.flow_client.check_concatenation_status(token.at, concat_op_name)
-                                c_status = c_result.get("status")
-                                concat_consecutive_errors = 0
-                                if c_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                    encoded_video = c_result.get("encodedVideo")
-                                    concat_success = True
-                                    break
-                                elif is_media_generation_failed(c_status):
-                                    break
-                                if stream and c_attempt % 10 == 0:
-                                    yield self._create_stream_chunk(f"拼接进度: {poll_progress_percent(c_attempt, concat_max_attempts)}%\n")
-                            except Exception as e:
-                                concat_consecutive_errors += 1
-                                debug_logger.log_error(f"Concat poll error: {str(e)}")
-                                if concat_consecutive_errors >= 5:
-                                    if stream:
-                                        yield self._create_stream_chunk("⚠️ 拼接状态查询持续失败，返回原始视频\n")
-                                    break
-
-                        if concat_success and encoded_video:
-                            # 解码 base64 视频并保存到缓存
-                            try:
-                                video_data = base64.b64decode(encoded_video)
-                            except Exception as decode_err:
-                                debug_logger.log_error(f"Base64 decode failed: {decode_err}")
-                                if stream:
-                                    yield self._create_stream_chunk("⚠️ 拼接视频解码失败，返回原始视频\n")
-                                # Fall through to return original video
-                                concat_success = False
-
-                        if concat_success and encoded_video:
-                            unique_id = str(uuid.uuid4())
-                            concat_filename = f"{unique_id}_15s.mp4"
-                            concat_path = self.file_cache.cache_dir / concat_filename
-                            # 几十 MB 视频写盘必须出 event loop，否则阻塞所有
-                            # 并发请求的 progress 回调、SSE writes 和轮询。
-                            await asyncio.to_thread(concat_path.write_bytes, video_data)
-                            local_url = self._build_tmp_url(response_state, concat_filename)
-
-                            if stream:
-                                yield self._create_stream_chunk("✅ 15秒视频拼接完成！\n")
-
-                            # 更新数据库 + 写 response_state
-                            await self._persist_video_completion(operation, local_url, response_state)
-                            self._mark_generation_succeeded(generation_result)
-
-                            if stream:
-                                yield self._create_stream_chunk(
-                                    f"<video src='{local_url}' controls style='max-width:100%'></video>",
-                                    finish_reason="stop"
-                                )
-                            else:
-                                yield self._create_completion_response(
-                                    local_url,
-                                    media_type="video"
-                                )
-                            outcome["completed"] = True
-                            return
-                        else:
-                            if stream:
-                                yield self._create_stream_chunk("⚠️ 拼接失败，返回原始视频\n")
-                else:
-                    pass  # extend failed, fall through to original video
-        except Exception as e:
-            debug_logger.log_error(f"Video extend failed: {str(e)}")
-            if stream:
-                yield self._create_stream_chunk(f"⚠️ 延长失败: {str(e)}，返回原始视频\n")
-
     async def _poll_video_result(
         self,
         token,
@@ -1649,17 +1436,14 @@ class GenerationHandler:
         operations: Any,
         stream: bool,
         upsample_config: Optional[Dict] = None,
-        extend_config: Optional[Dict] = None,
         generation_result: Optional[Dict[str, Any]] = None,
         response_state: Optional[Dict[str, Any]] = None,
         request_log_state: Optional[Dict[str, Any]] = None,
-        generation_workflow_id: Optional[str] = None,
     ) -> AsyncGenerator:
         """轮询视频生成结果
 
         Args:
             upsample_config: 放大配置 {"resolution": "VIDEO_RESOLUTION_4K", "model_key": "veo_3_1_upsampler_4k"}
-            extend_config: 延长配置 {"model_key": "veo_3_1_extend_landscape"}
         """
 
         if response_state is None:
@@ -1668,15 +1452,11 @@ class GenerationHandler:
         max_attempts = config.max_poll_attempts
         poll_interval = config.poll_interval
 
-        # 主循环只负责"等初始生成"。upsample/extend 各自有内部循环（line ~2958, 3017）。
-        # 所以这里最多取 max(3, 2) = 3 倍上限，不能累乘到 6 倍（否则 upsample+extend
-        # 模型在异常情况下主循环最长 60 分钟，coroutine + slot 长期占用拖垮并发）。
-        if upsample_config and extend_config:
+        # 主循环只负责"等初始生成"。upsample 有自己的内部循环，所以这里最多取
+        # 3 倍上限（否则 upsample 模型在异常情况下主循环最长 60 分钟，
+        # coroutine + slot 长期占用拖垮并发）。
+        if upsample_config:
             max_attempts = max_attempts * 3
-        elif upsample_config:
-            max_attempts = max_attempts * 3
-        elif extend_config:
-            max_attempts = max_attempts * 2
 
         consecutive_poll_errors = 0
         last_poll_error: Optional[Exception] = None
@@ -1732,7 +1512,6 @@ class GenerationHandler:
                     # ========== 视频放大处理 ==========
                     upsampled_video_url = None
                     upsampled_media_id = None
-                    source_media_id = None
                     if upsample_config and video_media_id:
                         if stream:
                             resolution_name = "4K" if "4K" in upsample_config["resolution"] else "1080P"
@@ -1764,110 +1543,60 @@ class GenerationHandler:
                                 if stream:
                                     yield self._create_stream_chunk("放大任务已提交，继续轮询...\n")
 
-                                if extend_config:
-                                    # Upsample + Extend 模式: 内联轮询放大结果，不 return
-                                    up_ok = False
-                                    ups_max = 200  # 固定轮询上限，避免使用已放大的 max_attempts
-                                    ups_consecutive_errors = 0
-                                    for ups_attempt in range(ups_max):
-                                        await asyncio.sleep(poll_interval)
-                                        try:
-                                            ups_result = await self.flow_client.check_video_status_by_media(
-                                                token.at, upsample_media_names, project_id
-                                            )
-                                            ups_ops = ups_result.get("operations", [])
-                                            if not ups_ops:
-                                                ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
-                                            ups_consecutive_errors = 0
-                                            if ups_ops:
-                                                ups_op = ups_ops[0]
-                                                ups_status = ups_op.get("status")
-                                                if stream and ups_attempt % 7 == 0:
-                                                    yield self._create_stream_chunk(f"放大进度: {poll_progress_percent(ups_attempt, ups_max)}%\n")
-                                                if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                                    ups_video_info = extract_video_info(ups_op)
-                                                    upsampled_video_url = ups_video_info.get("fifeUrl")
-                                                    ups_raw_media_id = ups_op["operation"]["name"]
-                                                    upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
-                                                    if not upsampled_video_url and upsampled_media_id:
-                                                        upsampled_video_url = await self.flow_client.get_media_url(
-                                                            st=token.st,
-                                                            media_name=upsampled_media_id,
-                                                        )
-                                                    up_ok = True
-                                                    break
-                                                elif is_media_generation_failed(ups_status):
-                                                    if stream:
-                                                        yield self._create_stream_chunk("⚠️ 视频放大失败，将使用原始视频进行延长\n")
-                                                    break
-                                        except Exception as e:
-                                            ups_consecutive_errors += 1
-                                            if ups_consecutive_errors >= 5:
-                                                if stream:
-                                                    yield self._create_stream_chunk("⚠️ 放大状态查询持续失败，将使用原始视频进行延长\n")
+                                # 仅 Upsample 模式: media 模式内联轮询并收尾
+                                # (不能复用 _poll_video_result 递归: 其 operations 查询
+                                # 对 "_upsampled" 任务 400, 2026-08-23 实测)
+                                up_ok = False
+                                ups_max = 200
+                                ups_consecutive_errors = 0
+                                for ups_attempt in range(ups_max):
+                                    await asyncio.sleep(poll_interval)
+                                    try:
+                                        ups_result = await self.flow_client.check_video_status_by_media(
+                                            token.at, upsample_media_names, project_id
+                                        )
+                                        ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
+                                        ups_consecutive_errors = 0
+                                        if ups_ops:
+                                            ups_op = ups_ops[0]
+                                            ups_status = ups_op.get("status")
+                                            if stream and ups_attempt % 7 == 0:
+                                                yield self._create_stream_chunk(f"放大进度: {poll_progress_percent(ups_attempt, ups_max)}%\n")
+                                            if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
+                                                ups_video_info = extract_video_info(ups_op)
+                                                upsampled_video_url = ups_video_info.get("fifeUrl")
+                                                ups_raw_media_id = ups_op["operation"]["name"]
+                                                upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
+                                                if not upsampled_video_url and upsampled_media_id:
+                                                    upsampled_video_url = await self.flow_client.get_media_url(
+                                                        st=token.st,
+                                                        media_name=upsampled_media_id,
+                                                    )
+                                                up_ok = True
                                                 break
-
-                                    if up_ok and upsampled_media_id:
-                                        if stream:
-                                            yield self._create_stream_chunk(f"✅ {resolution_name} 放大完成，开始延长处理...\n")
-                                        # 更新 source_media_id 为放大后的视频
-                                        source_media_id = upsampled_media_id
-                                        video_url = upsampled_video_url
-                                else:
-                                    # 仅 Upsample 模式: media 模式内联轮询并收尾
-                                    # (不能复用 _poll_video_result 递归: 其 operations 查询
-                                    # 对 "_upsampled" 任务 400, 2026-08-23 实测)
-                                    up_ok = False
-                                    ups_max = 200
-                                    ups_consecutive_errors = 0
-                                    for ups_attempt in range(ups_max):
-                                        await asyncio.sleep(poll_interval)
-                                        try:
-                                            ups_result = await self.flow_client.check_video_status_by_media(
-                                                token.at, upsample_media_names, project_id
-                                            )
-                                            ups_ops = self._coerce_media_status_to_operations(ups_result, upsample_operations)
-                                            ups_consecutive_errors = 0
-                                            if ups_ops:
-                                                ups_op = ups_ops[0]
-                                                ups_status = ups_op.get("status")
-                                                if stream and ups_attempt % 7 == 0:
-                                                    yield self._create_stream_chunk(f"放大进度: {poll_progress_percent(ups_attempt, ups_max)}%\n")
-                                                if ups_status == "MEDIA_GENERATION_STATUS_SUCCESSFUL":
-                                                    ups_video_info = extract_video_info(ups_op)
-                                                    upsampled_video_url = ups_video_info.get("fifeUrl")
-                                                    ups_raw_media_id = ups_op["operation"]["name"]
-                                                    upsampled_media_id = normalize_media_id_to_uuid_str(ups_raw_media_id)
-                                                    if not upsampled_video_url and upsampled_media_id:
-                                                        upsampled_video_url = await self.flow_client.get_media_url(
-                                                            st=token.st,
-                                                            media_name=upsampled_media_id,
-                                                        )
-                                                    up_ok = True
-                                                    break
-                                                elif is_media_generation_failed(ups_status):
-                                                    if stream:
-                                                        yield self._create_stream_chunk("⚠️ 视频放大失败，返回原始视频\n")
-                                                    break
-                                        except Exception as e:
-                                            ups_consecutive_errors += 1
-                                            if ups_consecutive_errors >= 5:
+                                            elif is_media_generation_failed(ups_status):
                                                 if stream:
-                                                    yield self._create_stream_chunk("⚠️ 放大状态查询持续失败，返回原始视频\n")
+                                                    yield self._create_stream_chunk("⚠️ 视频放大失败，返回原始视频\n")
                                                 break
+                                    except Exception as e:
+                                        ups_consecutive_errors += 1
+                                        if ups_consecutive_errors >= 5:
+                                            if stream:
+                                                yield self._create_stream_chunk("⚠️ 放大状态查询持续失败，返回原始视频\n")
+                                            break
 
-                                    if up_ok and upsampled_media_id:
-                                        if stream:
-                                            yield self._create_stream_chunk(f"✅ {resolution_name} 放大完成\n")
-                                        video_url = upsampled_video_url
-                                    elif stream:
-                                        yield self._create_stream_chunk(f"⚠️ 放大未完成，使用原始视频\n")
-                                    async for _chunk in self._finalize_video_success(
-                                        video_url, token, operation, stream, response_state,
-                                        generation_result, request_log_state,
-                                    ):
-                                        yield _chunk
-                                    return
+                                if up_ok and upsampled_media_id:
+                                    if stream:
+                                        yield self._create_stream_chunk(f"✅ {resolution_name} 放大完成\n")
+                                    video_url = upsampled_video_url
+                                elif stream:
+                                    yield self._create_stream_chunk(f"⚠️ 放大未完成，使用原始视频\n")
+                                async for _chunk in self._finalize_video_success(
+                                    video_url, token, operation, stream, response_state,
+                                    generation_result, request_log_state,
+                                ):
+                                    yield _chunk
+                                return
                             else:
                                 if stream:
                                     yield self._create_stream_chunk("⚠️ 放大任务创建失败，返回原始视频\n")
@@ -1876,18 +1605,6 @@ class GenerationHandler:
                             if stream:
                                 yield self._create_stream_chunk(f"⚠️ 放大失败: {str(e)}，返回原始视频\n")
 
-                    # ========== 视频延长(拼接)抽成独立生成器 ==========
-                    if extend_config and video_media_id:
-                        _extend_outcome = {}
-                        async for _c in self._handle_video_extend(
-                            video_url, video_media_id, source_media_id, aspect_ratio,
-                            operation, token, project_id, stream, upsampled_media_id,
-                            generation_workflow_id, response_state, generation_result,
-                            poll_interval, extend_config, _extend_outcome,
-                        ):
-                            yield _c
-                        if _extend_outcome.get("completed"):
-                            return
                     # 成功收尾(缓存 -> 落库 -> 最终响应)抽成独立生成器
                     async for _chunk in self._finalize_video_success(
                         video_url, token, operation, stream, response_state,

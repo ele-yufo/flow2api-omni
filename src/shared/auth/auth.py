@@ -1,6 +1,5 @@
 """Authentication module"""
 
-import bcrypt
 from typing import Optional
 from fastapi import Header, HTTPException, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,16 +21,6 @@ class AuthManager:
         """Verify admin credentials"""
         # Compare with current config (which may be from database or config file)
         return username == config.admin_username and password == config.admin_password
-
-    @staticmethod
-    def hash_password(password: str) -> str:
-        """Hash password"""
-        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-    @staticmethod
-    def verify_password(password: str, hashed: str) -> bool:
-        """Verify password"""
-        return bcrypt.checkpw(password.encode(), hashed.encode())
 
 async def verify_api_key_header(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
     """Verify API key from Authorization header"""

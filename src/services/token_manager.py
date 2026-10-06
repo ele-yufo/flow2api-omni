@@ -473,21 +473,6 @@ class TokenManager:
 
         return await self.db.get_token(token.id)
 
-    async def is_at_valid(self, token_id: int, token: Optional[Token] = None) -> bool:
-        """检查AT是否有效,如果无效或即将过期则自动刷新
-
-        Returns:
-            True if AT is valid or refreshed successfully
-            False if AT cannot be refreshed
-        """
-        token_obj = token if token and token.id == token_id else await self.db.get_token(token_id)
-        if not token_obj:
-            return False
-
-        valid_token = await self.ensure_valid_token(token_obj)
-        return valid_token is not None
-
-
     async def _refresh_at_inner(self, token_id: int) -> bool:
         """Perform exactly one real AT refresh attempt."""
         refresh_lock = await self._get_token_lock(
