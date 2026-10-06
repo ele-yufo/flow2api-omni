@@ -396,10 +396,10 @@ class GeminiOmniModelRegistryTests(unittest.TestCase):
     上游 model key（2026-08-28 抓包 projectInitialData 实证）：
     - abra_{t2v|r2v|i2v}_{4|6|8|10}s（720p 原生，i2v = 仅首帧）
     - omni_flash_i2v_{4|6|8|10}s_first_last（首尾帧，上游强制 START+END_IMAGE）
-    - 以上全部存在 _360p 原生低分辨率变体
     - 上采样：720p→1080P 用 veo_3_1_upsampler_1080p；720p→4K 用 veo_3_1_upsampler_4k
       （上游 creditMapping 显示 4K 仅 SERVICE_TIER_ADVANCED 可用，Pro 提交会 403）
-    128 个 OpenAI 命名变体 = 4 video_type × 横竖屏 × 4 时长 × {原版, 1080p, 4K, 360p}。
+    2026-10 目录收敛后 OpenAI 命名变体 = 4 video_type × 横竖屏 × 4 时长 × {_1080p, _4k}
+    共 64 条（720p 原版与 _360p 变体已下线，模型名必带高清后缀）。
     另加 gemini_omni_edit（abra_edit 视频延长/编辑，2026-08-29 抓包验证
     batchAsyncGenerateVideoEditVideo，输出固定 10s 720P，宽高比/帧数继承源视频）。
     """

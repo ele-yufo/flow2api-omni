@@ -17,13 +17,12 @@
 - **文生视频** / **图生视频** / **多图视频**
 - **首尾帧视频**
 - **视频放大** (1080P / 4K)
-- **视频延长 15s** — 生成 8s + 延长 8s + 拼接（跳过 1s 重叠），对上游透明
-- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 720P原版/1080P上采样/4K上采样/360P原生，共 128 个变体，另加 `gemini_omni_edit` 视频延长/编辑（原生，可链式）
+- **Gemini Omni 1.1 Flash (abra)** — 最新一代视频模型，T2V/R2V/I2V(首帧)/首尾帧 × 4 个时长档位（4/6/8/10s）× 横竖屏 × 1080P/4K 两档高清上采样，共 64 个变体（2026-10 收敛后仅留高清档），另加 `gemini_omni_edit` 视频延长/编辑（原生，可链式）
 - **持久化登录态打码** — `personal` 模式可绑定固定 Chrome profile，复用用户登录态 cookie 提交 reCAPTCHA，把 `PUBLIC_ERROR_UNUSUAL_ACTIVITY` 拒绝率从匿名态 30%+ 降到个位数
 - **浏览器验证式账号保活** — 每个 Token 绑定独立持久化 Chrome profile；有头浏览器刷新 Flow 会话后，服务校验邮箱、读取 SQLite 中轮换后的 ST、验证 AT 与 credits，再以原子快照写回数据库
 - **数据库驱动的账号生命周期** — `token_lifecycle` 独立保存保活开关、`persistent` / `warm` 运行模式、会员状态、调度与失败遥测；业务池启停与认证保活互不替代
 - **余额感知调度** — 负载均衡自动跳过剩余额度 ≤ `min_credits_to_select`（默认 20）的账号，多账号池耗尽账号自动退出轮询
-- **按模型资格路由** — `call_mode = "default"` 时，2K 图片优先分散给 Pro 账号，其他模型优先高层级账号（Ult > Pro > Free）；`_4k` / `_ultra` 模型只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭层级优先，恢复纯负载均衡
+- **按模型资格路由** — `call_mode = "default"` 时，2K 图片优先分散给 Pro 账号，其他模型优先高层级账号（Ult > Pro > Free）；`_4k` 模型只路由 Ultra 账号。可用 `[call_logic] prefer_higher_tier = false` 关闭层级优先，恢复纯负载均衡
 - **Discord 运维告警** — 账号失效需重登 / 账号池告急 / 单账号额度耗尽时主动推送到 Discord webhook（带去重），无需盯日志
 - **余额显示** - 实时查询和显示 VideoFX Credits
 - **负载均衡** - 多 Token 轮询和并发控制
@@ -300,7 +299,7 @@ onboarding_session_ttl_seconds = 1800
 
 ### Gemini Omni 1.1 Flash (T2V / R2V / I2V / 首尾帧)
 
-Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 family id 为 `abra`。每个时长档位是独立模型（4/6/8/10s 各一），与 Veo 系列固定时长不同。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。
+Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 family id 为 `abra`。每个时长档位是独立模型（4/6/8/10s 各一）。横竖屏共享同一上游 `model_key`，仅请求体 `aspectRatio` 区分。
 
 能力矩阵（2026-08-28 上游 projectInitialData 抓包实证）：
 
@@ -317,7 +316,7 @@ Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 fa
 | `gemini_omni_t2v_4s_{1080p,4k}` / `gemini_omni_t2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
 | `gemini_omni_t2v_6s_{1080p,4k}` / `gemini_omni_t2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
 | `gemini_omni_t2v_8s_{1080p,4k}` / `gemini_omni_t2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
-| `gemini_omni_t2v_10s` / `gemini_omni_t2v_portrait_10s` | 10s | 横/竖屏 |
+| `gemini_omni_t2v_10s_{1080p,4k}` / `gemini_omni_t2v_portrait_10s_{1080p,4k}` | 10s | 横/竖屏 |
 
 #### 多图视频 (R2V，最多 7 张参考图)
 
@@ -326,7 +325,7 @@ Google Flow 的最新视频模型（UI 显示名 "Omni 1.1 Flash"），上游 fa
 | `gemini_omni_r2v_4s_{1080p,4k}` / `gemini_omni_r2v_portrait_4s_{1080p,4k}` | 4s | 横/竖屏 |
 | `gemini_omni_r2v_6s_{1080p,4k}` / `gemini_omni_r2v_portrait_6s_{1080p,4k}` | 6s | 横/竖屏 |
 | `gemini_omni_r2v_8s_{1080p,4k}` / `gemini_omni_r2v_portrait_8s_{1080p,4k}` | 8s | 横/竖屏 |
-| `gemini_omni_r2v_10s` / `gemini_omni_r2v_portrait_10s` | 10s | 横/竖屏 |
+| `gemini_omni_r2v_10s_{1080p,4k}` / `gemini_omni_r2v_portrait_10s_{1080p,4k}` | 10s | 横/竖屏 |
 
 #### 首帧图生视频 (I2V，恰好 1 张首帧图)
 
@@ -498,7 +497,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
   }'
 ```
 
-### 文生视频 15s
+### 文生视频
 
 ```bash
 curl -X POST "http://localhost:8000/v1/chat/completions" \
@@ -553,7 +552,7 @@ curl -X POST "http://localhost:8000/v1/chat/completions" \
 
 ### Gemini Omni 1.1 Flash
 
-模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 上采样（`_1080p`/`_4k` 后缀）、360P 低价版（`_360p` 后缀）同步支持。视频延长/编辑用 `gemini_omni_edit`，content 里加 `{"type": "video_url", "video_url": {"url": "<上游 media id 或上次返回的 /tmp/ 视频 URL>"}}`。
+模型名换成 `gemini_omni_*` 即可，调用方式完全一致。R2V、首帧 I2V、首尾帧（`gemini_omni_fl_*`，按顺序传 2 张图）、1080P/4K 高清档（`_1080p`/`_4k` 后缀，仅此两档）同步支持。视频延长/编辑用 `gemini_omni_edit`，content 里加 `{"type": "video_url", "video_url": {"url": "<上游 media id 或上次返回的 /tmp/ 视频 URL>"}}`。
 
 ```bash
 # T2V 10 秒，横屏

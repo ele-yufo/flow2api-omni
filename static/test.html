@@ -231,15 +231,20 @@ function getModelType(modelId) {
 }
 
 function getModelMeta(modelId) {
-  // Determine supports_images, min/max from model name patterns
-  const isI2V = modelId.includes("i2v");
+  // Determine supports_images, min/max from model name patterns.
+  // Constraints mirror src/core/model_catalog.py (_OMNI_R2V_MAX_IMAGES 等):
+  // 首尾帧 gemini_omni_fl_* 恰好 2 张；I2V 恰好 1 张；R2V 0-7 张；t2v/edit 不收图。
+  const isEdit = modelId.startsWith("gemini_omni_edit");
+  const isFl = modelId.startsWith("gemini_omni_fl");
+  const isI2V = !isFl && modelId.includes("i2v");
   const isR2V = modelId.includes("r2v");
-  const isT2V = modelId.includes("t2v");
   const isImage = getModelType(modelId) === "image";
 
   if (isImage) return { type: "image", supportsImages: true, minImages: 0, maxImages: 5 };
-  if (isI2V) return { type: "video", supportsImages: true, minImages: 1, maxImages: 2 };
-  if (isR2V) return { type: "video", supportsImages: true, minImages: 0, maxImages: 3 };
+  if (isFl) return { type: "video", supportsImages: true, minImages: 2, maxImages: 2 };
+  if (isI2V) return { type: "video", supportsImages: true, minImages: 1, maxImages: 1 };
+  if (isR2V) return { type: "video", supportsImages: true, minImages: 0, maxImages: 7 };
+  if (isEdit) return { type: "video", supportsImages: false, minImages: 0, maxImages: 0, needsVideoRef: true };
   return { type: "video", supportsImages: false, minImages: 0, maxImages: 0 };
 }
 
@@ -319,10 +324,17 @@ function selectModel(modelId) {
   document.getElementById("imagePreviewList").innerHTML = "";
   document.getElementById("imageHint").style.display = "block";
 
-  // Enable button
+  // Enable button (edit 需要源视频引用，本页不支持该输入，禁用并说明，避免必然 400)
   const btn = document.getElementById("btnGenerate");
-  btn.disabled = false;
-  btn.textContent = meta.type === "image" ? "🎨 生成图片" : "🎬 生成视频";
+  if (meta.needsVideoRef) {
+    btn.disabled = true;
+    btn.textContent = "🎬 需 API 传 video_url";
+    document.getElementById("selectedModelInfo").textContent =
+      "视频延长/编辑需在消息里传源视频引用（video_url），本测试页不支持，请走 API/skill 调用 gemini_omni_edit。";
+  } else {
+    btn.disabled = false;
+    btn.textContent = meta.type === "image" ? "🎨 生成图片" : "🎬 生成视频";
+  }
 }
 
 // Image upload handling

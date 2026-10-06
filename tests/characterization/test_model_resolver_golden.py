@@ -21,7 +21,7 @@ def test_resolver_golden_matrix(subtests):
     cases = [
         # passthrough: already-full MODEL_CONFIG keys return as-is
         ("img_full_key", "gemini-3.2-flash-image-square-2k", None),
-        ("omni_full_key", "gemini_omni_t2v_4s", None),
+        ("omni_full_key", "gemini_omni_t2v_4s_1080p", None),
         ("unknown_model", "this-model-does-not-exist", None),
         # assembly branch (what P2 refactors): short base + generationConfig → full key
         (
